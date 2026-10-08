@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the secret scan reads the whole history
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # real sandbox checks in test-sandbox.mjs: docker image, and bubblewrap (Ubuntu restricts user namespaces by default)
+      - name: Sandbox prerequisites
+        run: |
+          docker pull node:24-alpine
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Package contents
+        run: npm pack --dry-run
+
+      - name: Secret scan (full history)
+        run: docker run --rm -v "$PWD":/repo ghcr.io/gitleaks/gitleaks:latest detect --source /repo --log-opts="--all" --redact --no-banner

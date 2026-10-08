@@ -1,0 +1,41 @@
+name: Browser smoke
+
+# Needs Chromium and a network download, so it stays out of the normal CI: it runs
+# by hand, or on pull requests that touch the smoke script or this file.
+# Verifies the Playwright MCP integration against a real browser.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/browser-smoke.yml'
+      - 'scripts/browser-smoke.mjs'
+  workflow_dispatch:
+    inputs:
+      playwright_mcp_version:
+        description: '@playwright/mcp version'
+        default: '0.0.83'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: System libraries for Chromium
+        run: npx -y playwright install-deps chromium
+      - name: The browser build this MCP version asks for
+        env:
+          PLAYWRIGHT_MCP_VERSION: ${{ inputs.playwright_mcp_version || '0.0.83' }}
+        run: npx -y @playwright/mcp@$PLAYWRIGHT_MCP_VERSION install-browser chrome-for-testing
+      - name: Smoke
+        env:
+          PLAYWRIGHT_MCP_VERSION: ${{ inputs.playwright_mcp_version }}
+        run: node scripts/browser-smoke.mjs

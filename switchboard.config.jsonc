@@ -1,0 +1,69 @@
+{
+  // Switchboard configuration.
+  // Everything the harness loads is a plugin; this file only supplies settings.
+  "llm": {
+    "baseURL": "https://api.botconnector.id/v1",
+    // API key is read from the BOTCONNECTOR_API_KEY env var when omitted.
+    "defaultModel": "agnes-3.0-flash",
+    "timeoutMs": 180000,
+    // Transient failures (network, 429, 5xx) are retried with jittered backoff.
+    "retries": 2,
+    "retryDelayMs": 500,
+    // Model context windows the endpoint omits come from the live BotConnector catalog.
+    "contextCatalogUrl": "https://botconnector.id/data/cloud-models.json"
+  },
+  "agent": {
+    "maxSteps": 8,
+    "temperature": 0.2,
+    // Prompt budget per turn; older turns are dropped when it is exceeded.
+    "maxPromptTokens": 96000,
+    "keepRecent": 4,
+    "system": "You are Switchboard, an agent harness running on BotConnector. Use the available tools when they help, then give a concise final answer."
+  },
+  "tools": {
+    "fs": { "root": "." },
+    "shell": { "timeoutMs": 30000 },
+    "web": {
+      "maxChars": 20000,
+      // web_search (Keenable). Keyless public endpoint works with zero config;
+      // set apiKey (or env KEENABLE_API_KEY) for BYOK, apiUrl to point at your
+      // own gateway (env KEENABLE_API_URL).
+      "search": {
+        // "apiKey": "kx-...",
+        // "apiUrl": "https://api.keenable.ai",
+        // "title": "Switchboard",
+        // "maxResults": 8,
+        // "timeoutMs": 15000
+      }
+    }
+  },
+  "metrics": { "limit": 1000, "persist": "~/.switchboard/metrics.jsonl", "load": true },
+  // One JSON file per session; resume with `sbx chat -r <id>`.
+  "sessions": { "dir": "~/.switchboard/sessions", "load": true, "autosave": true },
+  // Local CI (`sbx ci` + the Pipelines tab) — off unless enabled here.
+  // keepRuns: run-history retention (default 200, min 10).
+  "ci": { "enabled": true, "keepRuns": 200 },
+  // MCP servers: tools appear as mcp__<server>__<tool> through the usual
+  // approval gate. stdio (command/args/env) or streamable-http (url/headers).
+  // "mcp": {
+  //   "servers": {
+  //     "memory": {
+  //       "command": "npx",
+  //       "args": ["-y", "@modelcontextprotocol/server-memory"],
+  //       "env": { "MEMORY_FILE_PATH": "${HOME}/.switchboard/memory.json" }
+  //     }
+  //   }
+  // },
+  // Subagent delegation (`task` tool): isolated workers, parallel batches,
+  // background jobs with auto-inject + auto-wake. Absent = defaults below.
+  // "subagent": {
+  //   "enabled": true,
+  //   "maxParallel": 3,
+  //   "maxSteps": 8,
+  //   "autoResume": true
+  // },
+  // Extra plugins: npm packages or local paths to ES modules exporting `plugin`.
+  "plugins": [
+    // "./plugins/echo-tool.mjs"
+  ]
+}

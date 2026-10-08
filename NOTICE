@@ -1,0 +1,11 @@
+Switchboard is MIT-licensed (see LICENSE), with one exception.
+
+BotConnector brand assets
+-------------------------
+The Bico mascot and the BotConnector name and marks (web/assets/bico-hero.png,
+web/assets/bico-mark.svg and any artwork derived from them) are NOT covered by the MIT
+licence. They belong to BotConnector. You may redistribute them unmodified as part of this
+package, but you may not use them to suggest that your product or fork is made or endorsed
+by BotConnector. Forks should replace them with their own assets.
+
+Third-party material is listed in THIRD_PARTY_NOTICES.md.

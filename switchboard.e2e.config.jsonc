@@ -1,0 +1,17 @@
+{
+  // E2E config: deterministic stub provider, approval gate on, isolated sessions.
+  "llm": {
+    "baseURL": "http://127.0.0.1:7791/v1",
+    "defaultModel": "stub-alpha",
+    "timeoutMs": 15000,
+    "retries": 0
+  },
+  "agent": {
+    "maxSteps": 6,
+    "temperature": 0.2
+  },
+  "approval": { "mode": "risky" },
+  "metrics": { "limit": 200, "persist": "", "load": false },
+  "sessions": { "dir": "~/.switchboard/e2e-sessions", "load": true, "autosave": true },
+  "web": { "enabled": true, "port": 7788 }
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.switchboard/
+data/
+.DS_Store
+
+# test screenshots
+.shots/
+.web-shot-dark.png

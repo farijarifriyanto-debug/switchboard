@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switchboard · BotConnector</title>
+<meta name="theme-color" content="#06243a">
+<link rel="icon" href="/assets/bico-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/brand.css">
+<link rel="stylesheet" href="/settings.css">
+</head>
+<body>
+<div class="app-frame">
+
+  <!-- ------------------------------------------------------------ sidebar -->
+  <aside class="sidebar" id="rail">
+    <div class="sidebar-top">
+      <div class="brand">
+        <img class="brand-mark" src="/assets/bico-mark.svg" width="38" height="38" alt="">
+        <div class="brand-wordmark"><span class="brand-name">Switchboard</span><span class="brand-sub">by BotConnector</span></div>
+      </div>
+      <button id="btn-rail" class="icon-btn ghost-btn" type="button" title="Toggle sidebar (Ctrl+B)" aria-label="Toggle sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+    </div>
+
+    <button id="btn-new-session" class="new-session-btn" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="5"/><path d="M12 8v8M8 12h8"/></svg> New chat</button>
+
+    <nav class="rail-tabs" aria-label="Control sections">
+      <button class="tab active" data-tab="sessions" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/></svg>Chats</button>
+      <button class="tab" data-tab="workspace" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>Workspace</button>
+      <button class="tab" data-tab="plugins" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v5m8-5v5M6 8h12v4a6 6 0 0 1-12 0Zm6 10v3"/></svg>Plugins</button>
+      <button class="tab" data-tab="trace" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Activity</button>
+      <button class="tab" data-tab="ci" type="button" hidden>CI</button>
+    </nav>
+
+    <div class="rail-pane" id="pane-sessions">
+      <div class="pane-head">
+        <span class="pane-title">Your conversations <span id="sessions-count" class="count"></span></span>
+        <button id="btn-refresh" class="icon-btn ghost-btn" type="button" title="Reload runs" aria-label="Reload runs">↻</button>
+      </div>
+      <ol id="sessions" class="session-list"></ol>
+    </div>
+
+    <div class="rail-pane" id="pane-workspace" hidden>
+      <div class="workspace-project">
+        <span class="project-mark" aria-hidden="true">▰</span>
+        <div><strong id="ws-project-name">Project</strong><span class="ws-current mono" id="ws-root" title="Workspace path"></span></div>
+      </div>
+      <input id="file-search" class="file-search" type="search" placeholder="Search files…" aria-label="Search project files">
+      <form id="ws-form" class="pill-form">
+        <input id="ws-input" type="text" spellcheck="false" placeholder="Switch root (path or ~)…" aria-label="Workspace root">
+        <button type="submit" class="ghost-btn">Use</button>
+      </form>
+      <div class="pane-head"><span class="pane-title">Recents</span></div>
+      <ol id="ws-recents" class="recent-list"></ol>
+      <div class="pane-head">
+        <span class="pane-title">Changed files</span>
+        <button id="btn-files-up" class="icon-btn ghost-btn" type="button" title="Up one directory" aria-label="Up one directory">↑</button>
+      </div>
+      <ol id="changed-files" class="file-list changed-files"><li class="muted pad">Changes appear here</li></ol>
+      <div class="pane-head"><span class="pane-title">Project files</span></div>
+      <ol id="files" class="file-list"></ol>
+    </div>
+
+    <div class="rail-pane" id="pane-plugins" hidden>
+      <div class="pane-head"><span class="pane-title">Installed plugins</span></div>
+      <input id="plugin-search" class="file-search" type="search" placeholder="Search plugins…" aria-label="Search plugins">
+      <ul id="plugins" class="capability-list"></ul>
+      <details class="developer-details">
+        <summary>Developer details</summary>
+        <div class="pane-head"><span class="pane-title">Load plugin</span></div>
+        <form id="plugin-form" class="pill-form">
+          <input id="plugin-input" type="text" spellcheck="false" placeholder="package or path…" aria-label="Plugin source">
+          <button type="submit" class="ghost-btn">Load</button>
+        </form>
+        <div id="plugin-msg" class="plugin-msg" role="status"></div>
+        <div class="pane-head"><span class="pane-title">Runtime services</span></div>
+        <ul id="runtime-services" class="kv-list"></ul>
+        <div class="pane-head"><span class="pane-title">Tools</span></div>
+        <ul id="tools" class="kv-list"></ul>
+        <div class="pane-head"><span class="pane-title">Model capabilities</span></div>
+        <div id="model-capabilities" class="capability-summary muted"></div>
+      </details>
+    </div>
+
+    <div class="rail-pane" id="pane-trace" hidden>
+      <div class="pane-head"><span class="pane-title">Run trace</span><button id="btn-trace-refresh" class="icon-btn ghost-btn" type="button" title="Reload trace" aria-label="Reload trace">↻</button></div>
+      <ol id="trace-events" class="trace-list"></ol>
+      <div class="pane-head"><span class="pane-title">Approval audit</span></div>
+      <ul id="audit" class="audit-list"></ul>
+      <div class="pane-head"><span class="pane-title">Metrics</span></div>
+      <div id="metrics-box" class="metrics mono"></div>
+    </div>
+
+    <div class="rail-pane" id="pane-ci" hidden>
+      <div class="pane-head">
+        <span class="pane-title">Pipelines <span id="ci-count" class="count"></span></span>
+        <button id="btn-ci-refresh" class="icon-btn ghost-btn" type="button" title="Reload pipelines" aria-label="Reload pipelines">↻</button>
+      </div>
+      <ol id="ci-workflows" class="session-list"></ol>
+      <span class="pane-title ci-sub">Runs</span>
+      <div class="ci-filters">
+        <select id="ci-filter-wf" title="Filter by workflow" aria-label="Filter by workflow">
+          <option value="">All workflows</option>
+        </select>
+        <select id="ci-filter-status" title="Filter by status" aria-label="Filter by status">
+          <option value="">All statuses</option>
+          <option value="failed">Failed</option>
+          <option value="success">Success</option>
+        </select>
+      </div>
+      <ol id="ci-runs" class="session-list"></ol>
+      <div class="ci-pager">
+        <button id="ci-prev" class="ci-page-btn" type="button">Sebelumnya</button>
+        <span id="ci-page-info" class="muted mono"></span>
+        <button id="ci-next" class="ci-page-btn" type="button">Berikutnya</button>
+      </div>
+    </div>
+    <div class="rail-footer"><button id="btn-guide" class="guide-button" type="button">Getting started <span aria-hidden="true">?</span></button><button id="btn-settings" class="guide-button settings-launch" type="button">Settings <span aria-hidden="true">⚙</span></button><span>Local workspace. Connected AI.</span></div>
+  </aside>
+
+  <!-- ------------------------------------------------------------ stage -->
+  <main class="stage">
+    <section class="conversation" id="conversation">
+      <header class="conv-header">
+        <div class="header-leading">
+          <button id="btn-rail-reveal" class="icon-btn ghost-btn reveal" type="button" title="Show sidebar" aria-label="Show sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+        </div>
+        <div class="title-cluster">
+          <div class="work-context">
+            <strong id="header-project">Project</strong>
+            <span class="context-divider">/</span>
+            <span id="session-id" class="session-chip">New chat</span>
+          </div>
+          <div class="header-actions">
+            <label class="sr-only" for="model-picker">Model</label>
+            <select id="model-picker" aria-label="Choose model"></select>
+            <span id="status" class="status-pill idle">Idle</span>
+            <span id="activity-status" class="activity-status" aria-live="polite"></span>
+            <button id="btn-details" class="icon-btn ghost-btn" type="button" title="Chat details" aria-label="Chat details" aria-expanded="false" aria-controls="session-details model-info">⋯</button>
+            <button id="btn-theme" class="icon-btn ghost-btn" type="button" title="Toggle theme" aria-label="Toggle theme">◑</button>
+            <button id="btn-new" class="ghost-btn" type="button">New chat</button>
+          </div>
+        </div>
+        <div id="session-details" class="session-details" hidden></div>
+        <div id="model-info" class="model-info" hidden></div>
+      </header>
+
+      <div class="scroll-body" id="scroll-body">
+        <ol id="timeline" class="timeline" aria-live="polite"></ol>
+
+        <div id="hero" class="hero-stack">
+          <div class="welcome-intro">
+            <div class="mascot-stage"><img class="mascot-hero" src="/assets/bico-mark.svg" width="40" height="40" alt="Bico, the BotConnector mascot"></div>
+            <div class="welcome-copy"><h1 class="hero-title">What will you build?</h1><span class="welcome-brand">Switchboard</span></div>
+          </div>
+          <p id="hero-sub" class="hero-sub">Explore a project, ask a question, or start something new.</p>
+          <div id="connection-notice" class="connection-notice" role="status" hidden><span id="connection-message"></span><button id="btn-reconnect" type="button">Check connection</button><button id="btn-setup" type="button">Setup guide</button></div>
+          <div class="hero-workspace-row">
+            <button id="hero-ws" class="workspace-chip" type="button" title="Workspace root">
+              <svg class="folder" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+              <span id="hero-ws-label" class="workspace-label">workspace</span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </button>
+          </div>
+          <form id="hero-ws-form" class="hero-ws-form" hidden>
+            <input id="hero-ws-input" type="text" spellcheck="false" placeholder="Path or ~ for home…" aria-label="Workspace root">
+          </form>
+          <div id="composer-card-host"><!-- composer card docks here from below --></div>
+          <p class="composer-help">Enter to send · Shift + Enter for a new line <span>Check approval settings before asking for changes.</span></p>
+          <div id="hero-suggest" class="hero-suggest">
+            <button type="button" class="suggest" data-prompt="Explore this project and explain its structure in plain language. Do not change any files.">Explore this project</button>
+            <button type="button" class="suggest" data-prompt="Review the current git changes, explain what changed and identify possible issues. Do not change any files.">Review changes</button>
+            <button type="button" class="suggest" data-prompt="Help me plan a task for this project. Ask me what I want to accomplish before proposing changes.">Plan a task</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- composer seat (docked, sticky over the scroll body) -->
+      <div class="composer-seat" id="composer-seat">
+        <div class="fade-mask" aria-hidden="true"></div>
+        <div class="composer-stack">
+          <div id="approval" class="approval" hidden>
+            <div class="approval-strip">
+              <span class="approval-mark" aria-hidden="true">⚠</span>
+              <span class="approval-kind">approval needed</span>
+              <span id="approval-tool" class="mono approval-tool"></span>
+            </div>
+            <div class="approval-body">
+              <pre id="approval-args" class="io-pre mono"></pre>
+              <div id="approval-diff" class="approval-diff mono" hidden></div>
+            </div>
+            <div class="approval-actions">
+              <button id="approval-yes" type="button" class="approve">Allow once</button>
+              <button id="approval-session" type="button" class="approve-session">Allow for this session</button>
+              <button id="approval-no" type="button" class="reject">Reject</button>
+              <span class="approval-hint" id="approval-hint"></span>
+              <span class="approval-hint muted" id="approval-mode"></span>
+            </div>
+          </div>
+          <form id="composer" class="composer-card" autocomplete="off">
+            <ol id="mentions" class="mentions" hidden></ol>
+            <ol id="commands" class="mentions commands-list" hidden></ol>
+            <div class="composer-scroll">
+              <label class="sr-only" for="prompt">Prompt</label>
+              <textarea id="prompt" rows="1" placeholder="What would you like to work on?" aria-label="Your message"></textarea>
+            <div class="composer-row">
+              <div class="composer-tools">
+                <label class="sr-only" for="model-mini">Model</label>
+                <select id="model-mini" class="model-mini" aria-label="Choose model (composer)"></select>
+                <label class="sr-only" for="preset-mini">Agent preset</label>
+                <select id="preset-mini" class="model-mini" aria-label="Choose agent preset" title="Agent preset: system prompt, step budget and tool access"></select>
+                <button id="attach-files" class="attach-button" type="button" title="Attach text or images" aria-label="Attach files"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/></svg></button>
+                <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.js,.ts,.py,.css,.html,.yml,.yaml,.log" multiple hidden>
+                <span class="hint-chip mono">@ files</span>
+                <span class="hint-chip mono">/ commands</span>
+                <span id="tools-warning" class="warning-chip" hidden title="Selected model cannot use project tools. Project tasks will be refused.">no tools</span>
+                <span id="attachment-list" class="attachment-list"></span>
+              </div>
+              <div class="composer-trailing">
+                <span id="run-status-dot" class="pending-dot" hidden></span>
+                <button id="stop" type="button" class="stop-circle" hidden title="Stop (Esc)" aria-label="Stop response">■</button>
+                <button id="send" type="submit" class="primary-circle" title="Send (Enter)" aria-label="Send message">↑</button>
+              </div>
+            </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- -------------------------------------------------------- editor -->
+    <aside class="editor" id="editor" hidden>
+      <div class="editor-banner">
+        <span id="editor-name" class="mono editor-name"></span>
+        <button id="editor-close" class="icon-btn ghost-btn" type="button" title="Close (Esc)" aria-label="Close preview">×</button>
+      </div>
+      <div class="editor-body">
+        <div class="editor-scroll">
+          <pre id="editor-code" class="mono"></pre>
+        </div>
+      </div>
+      <div class="editor-foot" id="editor-foot"></div>
+    </aside>
+  </main>
+</div>
+
+<dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+  <div class="settings-shell">
+    <header class="settings-head">
+      <img src="/assets/bico-mark.svg" width="32" height="32" alt="">
+      <div class="settings-head-copy"><h2 id="settings-title">Settings</h2><p class="muted">Local console configuration</p></div>
+      <form method="dialog"><button class="dialog-close" aria-label="Close settings">×</button></form>
+    </header>
+    <nav class="settings-tabs" aria-label="Settings sections">
+      <button class="settings-tab active" data-settings-tab="general" type="button">General</button>
+      <button class="settings-tab" data-settings-tab="models" type="button">Models</button>
+      <button class="settings-tab" data-settings-tab="plugins" type="button">Plugins &amp; MCP</button>
+      <button class="settings-tab" data-settings-tab="agent" type="button">Agent</button>
+    </nav>
+    <div class="settings-body">
+      <section class="settings-panel" data-settings-panel="general"></section>
+      <section class="settings-panel" data-settings-panel="models" hidden></section>
+      <section class="settings-panel" data-settings-panel="plugins" hidden></section>
+      <section class="settings-panel" data-settings-panel="agent" hidden></section>
+    </div>
+    <div id="settings-toast" class="settings-toast" role="status" hidden></div>
+  </div>
+</dialog>
+
+<dialog id="getting-started" class="setup-dialog" aria-labelledby="guide-title">
+  <form method="dialog"><button class="dialog-close" aria-label="Close setup guide" autofocus>×</button></form>
+  <img src="/assets/bico-mark.svg" width="48" height="48" alt="">
+  <h2 id="guide-title">Your first conversation</h2>
+  <p>Switchboard connects your AI model to a project on this computer.</p>
+  <ol class="setup-steps">
+    <li><strong>Connect a model</strong><p>Open <b>Settings → Models</b> to add a provider (Base URL, protocol, API key), then fetch or add models and pick a default. The API key stays on this computer. Advanced setups can still edit the <code>llm</code> block in <code>switchboard.config.jsonc</code> and restart <code>sbx web</code>.</p></li>
+    <li><strong>Choose your project</strong><p>Use the folder button above the composer to pick a workspace. File and command tools use this folder.</p></li>
+    <li><strong>Tell it what you need</strong><p>Choose a model, write a message, and press Enter. Try one of the examples first. Use <code>@</code> to reference a file and <code>/</code> for commands.</p></li>
+  </ol>
+  <p class="setup-note">Want to review changes before they run? Set <code>approval.mode</code> to <code>risky</code> or <code>all</code> in your configuration. With <code>off</code>, tools run without asking.</p>
+  <form method="dialog"><button class="guide-done">Got it, let's start</button></form>
+</dialog>
+
+<script src="/gauge.js"></script>
+<script src="/badge.js"></script>
+<script src="/settings.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

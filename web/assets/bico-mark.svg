@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Bico">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#06305a"/><stop offset="1" stop-color="#021a38"/></linearGradient></defs>
+  <rect width="64" height="64" rx="15" fill="url(#g)"/>
+  <rect x="9" y="8" width="11" height="17" rx="3.5" fill="#22e6ff" transform="rotate(-20 14.5 16.5)"/>
+  <rect x="44" y="8" width="11" height="17" rx="3.5" fill="#22e6ff" transform="rotate(20 49.5 16.5)"/>
+  <rect x="7" y="22" width="50" height="35" rx="16" fill="#f4f8fe"/>
+  <rect x="12.5" y="27" width="39" height="25" rx="12" fill="#05214a"/>
+  <path d="M19.5 43 C19.5 38.5 26.5 38.5 26.5 43 M37.5 43 C37.5 38.5 44.5 38.5 44.5 43" fill="none" stroke="#28f0ff" stroke-width="3.6" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,92 @@
+{
+  "name": "@botconnector/switchboard",
+  "version": "0.2.0",
+  "description": "Switchboard - the plugin-native agent harness for BotConnector. Everything is a plugin.",
+  "type": "module",
+  "license": "MIT",
+  "author": "BotConnector",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/farijarifriyanto-debug/switchboard.git"
+  },
+  "homepage": "https://github.com/farijarifriyanto-debug/switchboard#readme",
+  "bugs": {
+    "url": "https://github.com/farijarifriyanto-debug/switchboard/issues"
+  },
+  "bin": {
+    "sbx": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "web",
+    "switchboard.config.jsonc",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "smoke": "node scripts/smoke.mjs",
+    "test:split": "node scripts/debug-split.mjs",
+    "test:retry": "node scripts/test-retry.mjs",
+    "test:ctx": "node scripts/test-context.mjs",
+    "test:web": "node scripts/test-web.mjs",
+    "test:tools-web": "node scripts/test-tools-web.mjs",
+    "test:approval": "node scripts/test-approval.mjs",
+    "test:agents-md": "node scripts/test-agents-md.mjs",
+    "test:doctor": "node scripts/test-doctor.mjs",
+    "test:gauge": "node scripts/test-gauge.mjs",
+    "test:badge": "node scripts/test-badge.mjs",
+    "test:date": "node scripts/test-date.mjs",
+    "test:ci": "node scripts/test-ci.mjs",
+    "test:schedule": "node scripts/test-schedule.mjs",
+    "test:mcp": "node scripts/test-mcp.mjs",
+    "test:subagent": "node scripts/test-subagent.mjs",
+    "test:providers": "node scripts/test-providers.mjs",
+    "test:adapters": "node scripts/test-adapters.mjs",
+    "test:settings-api": "node scripts/test-settings-api.mjs",
+    "test:settings-ui": "node scripts/test-settings-ui.mjs",
+    "test": "node scripts/smoke.mjs && node scripts/test-retry.mjs && node scripts/test-context.mjs && node scripts/test-web.mjs && node scripts/test-badge.mjs && node scripts/test-tools-web.mjs && node scripts/test-approval.mjs && node scripts/test-agents-md.mjs && node scripts/test-doctor.mjs && node scripts/test-gauge.mjs && node scripts/test-date.mjs && node scripts/test-ci.mjs && node scripts/test-schedule.mjs && node scripts/test-mcp.mjs && node scripts/test-subagent.mjs && node scripts/test-providers.mjs && node scripts/test-adapters.mjs && node scripts/test-settings-api.mjs && node scripts/test-settings-ui.mjs && node scripts/test-kill-tree.mjs && node scripts/test-confine.mjs && node scripts/test-web-token.mjs && node scripts/test-netguard.mjs && node scripts/test-presets.mjs && node scripts/test-skills.mjs && node scripts/test-compaction.mjs && node scripts/test-recall.mjs && node scripts/test-telegram.mjs && node scripts/test-automations.mjs && node scripts/test-sandbox.mjs",
+    "debug:live": "node scripts/debug-live.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:kill-tree": "node scripts/test-kill-tree.mjs",
+    "test:confine": "node scripts/test-confine.mjs",
+    "prepublishOnly": "npm run typecheck && npm run build && npm test",
+    "test:web-token": "node scripts/test-web-token.mjs",
+    "test:netguard": "node scripts/test-netguard.mjs",
+    "test:presets": "node scripts/test-presets.mjs",
+    "test:skills": "node scripts/test-skills.mjs",
+    "test:compaction": "node scripts/test-compaction.mjs",
+    "test:recall": "node scripts/test-recall.mjs",
+    "test:telegram": "node scripts/test-telegram.mjs",
+    "test:automations": "node scripts/test-automations.mjs",
+    "test:sandbox": "node scripts/test-sandbox.mjs"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "cordis": "^4.0.0-rc.10",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "agent",
+    "harness",
+    "cordis",
+    "plugin",
+    "botconnector",
+    "sbx"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
