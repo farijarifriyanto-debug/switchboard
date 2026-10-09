@@ -44,6 +44,7 @@ Options:
       --host <addr>     Interface for the console (default: 127.0.0.1; others get an access token)
       --no-open         Do not open a browser for 'sbx web'
       --no-session      Do not persist the session to disk
+      --json            'sbx run': print one JSON object per line (events, then a final result) instead of text
       --name <text>     Name for 'sbx automations add'
       --telegram <id>   Deliver an automation's result to this Telegram user id
       --discord <id>    Deliver an automation's result to this Discord user id (a string of digits)
@@ -70,6 +71,7 @@ export interface Args {
   telegram?: number
   discord?: string
   open: boolean
+  json?: boolean
   approval?: 'off' | 'risky' | 'all'
   sandbox?: 'bwrap' | 'docker'
 }
@@ -92,6 +94,7 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--telegram') out.telegram = Number(argv[++i])
     else if (arg === '--discord') out.discord = argv[++i]
     else if (arg === '--no-open') out.open = false
+    else if (arg === '--json') out.json = true
     else if (arg === '-y' || arg === '--yes') out.approval = 'off'
     else if (arg === '--sandbox') {
       const mode = argv[++i]
@@ -250,6 +253,22 @@ async function renderRun(events: AsyncIterable<{ type: string; [k: string]: any 
   }
   closeReasoning()
   return { ok, text }
+}
+
+/**
+ * `sbx run --json`: machine-readable run. stdout carries ONLY JSON Lines — every agent event as it
+ * happens, then one final `{"type":"result","ok":…,"text":…,"sessionId":…}`. Exit code 1 when the run failed.
+ */
+async function renderRunJson(events: AsyncIterable<{ type: string; [k: string]: any }>, sessionId: string): Promise<boolean> {
+  let ok = true
+  let text = ''
+  for await (const ev of events) {
+    if (ev.type === 'delta') text += ev.text
+    if (ev.type === 'error') ok = false
+    process.stdout.write(`${JSON.stringify(ev)}\n`)
+  }
+  process.stdout.write(`${JSON.stringify({ type: 'result', ok, text, sessionId })}\n`)
+  return ok
 }
 
 /** `sbx ci` — local workflow runner. Dispatched before the host boots. */
@@ -750,6 +769,11 @@ async function main(): Promise<void> {
               }
             : null,
         )
+        if (args.json) {
+          if (!(await renderRunJson(ctx.agent.stream(prompt, session.id, presetOptions), session.id))) process.exitCode = 1
+          rlRun.rl?.close()
+          break
+        }
         const outcome = await renderRun(ctx.agent.stream(prompt, session.id, presetOptions), 'thinking › ')
         if (!outcome.ok) process.exitCode = 1
         process.stdout.write('\n')

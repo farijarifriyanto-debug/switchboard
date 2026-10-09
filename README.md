@@ -132,6 +132,16 @@ is appended to the system prompt automatically — the shared project-context
 convention (Claude Code / OpenClaw / Hermes). Oversized files are truncated;
 missing files are ignored.
 
+## Scripts and CI: `sbx run --json`
+
+```bash
+sbx run --json --yes "summarise the failing test" > run.jsonl     # JSON Lines on stdout
+sbx run --json --yes "…" | tail -n 1                               # {"type":"result","ok":true,"text":"…","sessionId":"…"}
+```
+
+Every agent event (`delta`, `tool_call`, `tool_result`, `notice`, `metrics`, `error`, …) is one JSON line, then exactly one
+`result` line. Nothing else goes to stdout (progress and warnings stay on stderr). The exit code is `0` when the run
+succeeded and `1` when it failed or an approval was refused (no terminal to ask: pass `--yes` or set `approval.mode`).
 ## Undo file changes
 
 Every file the agent writes with `write_file` is journaled first (before-image in `~/.switchboard/undo/<session>/`):
