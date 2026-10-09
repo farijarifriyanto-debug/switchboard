@@ -134,8 +134,14 @@ function atBottom() {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 48
 }
 
+/**
+ * Follows the conversation. `state.pinned` is kept by the scroll listener (true while the reader is at
+ * the bottom), so it must be the only condition: checking atBottom() here runs AFTER a new block was
+ * appended, and a block taller than the slack (a long answer, an approval card) made the view stop
+ * following and leave the answer under the composer.
+ */
 function scrollDown(force) {
-  if (force || (state.pinned && atBottom())) ui.scrollBody.scrollTop = ui.scrollBody.scrollHeight
+  if (force || state.pinned) ui.scrollBody.scrollTop = ui.scrollBody.scrollHeight
 }
 
 function setStatus(kind, text) {
