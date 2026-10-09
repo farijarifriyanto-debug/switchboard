@@ -1,6 +1,6 @@
 const MAX_TEXT = 24000;
 const SAFE_URL = /^https?:\/\//i;
-const ACTIONS = new Set(['click', 'type', 'scroll']);
+const ACTIONS = new Set(['click', 'type', 'scroll', 'navigate']);
 function errorMessage(error) { return String(error?.message || error); }
 function getActiveTab() {
   return chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
@@ -47,12 +47,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return { ok: Boolean(captured?.data), ...captured };
     }
     if (message.type === 'SWITCHBOARD_BROWSER_ACTION') {
-      if (!ACTIONS.has(message.action)) throw new Error('Unsupported action');
+      if (message.type === 'SWITCHBOARD_LIST_TABS') { const tabs = await chrome.tabs.query({ currentWindow: true }); return { ok: true, tabs: tabs.filter(t => /^https?:/.test(t.url || '')).map(t => ({ id: t.id, title: t.title, url: t.url })) }; }
+    if (message.type === 'SWITCHBOARD_CAPTURE_SCREENSHOT') { const tab = await getActiveTab(); const { captured } = await chrome.storage.session.get('captured'); if (captured?.tabId !== tab.id || captured?.data?.url !== tab.url) throw new Error('Capture page using toolbar icon first.'); const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 65 }); return { ok: true, dataUrl }; }
+    if (!ACTIONS.has(message.action)) throw new Error('Unsupported action');
       const tab = await getActiveTab();
       const { captured } = await chrome.storage.session.get('captured');
       if (captured?.tabId !== tab.id || captured?.data?.url !== tab.url) throw new Error('Capture this exact page using the toolbar icon first.');
       const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
       if (!approvedOrigins.includes(new URL(tab.url).origin)) throw new Error('Site not approved. Allow this origin in the panel first.');
+      if (message.action === 'navigate') { const target = new URL(String(message.value || ''), tab.url); if (!['http:', 'https:'].includes(target.protocol) || target.origin !== new URL(tab.url).origin) throw new Error('Navigation restricted to the approved origin'); await chrome.tabs.update(tab.id, { url: target.href }); return { ok: true, result: 'Navigated; recapture using toolbar icon' }; }
       const selector = String(message.selector || '');
       const value = String(message.value || '').slice(0, 4000);
       if (selector.length > 500) throw new Error('Selector too long');
