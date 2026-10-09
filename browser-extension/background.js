@@ -443,7 +443,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!action) throw new Error('Action is required');
       return await executeBrowserAction(action, message, {
         tabId: message.tabId,
-        skipOriginCheck: Boolean(message.approved)
+        skipOriginCheck: false
       });
     }
 
