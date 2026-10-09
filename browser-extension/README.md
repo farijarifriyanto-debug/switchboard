@@ -12,6 +12,7 @@ One **Manifest V3** extension codebase for Google Chrome and Microsoft Edge.
 ## Implemented
 
 - Read title, URL, selected text, page text and a sample of visible DOM controls.
+- Capture a local viewport screenshot; list accessible tabs; navigate within the approved origin.
 - Review and copy page context manually to Switchboard.
 - Site-origin allow/revoke list; read-only until site is approved.
 - Manual click, type and scroll with a **per-action confirmation dialog**.
@@ -21,7 +22,7 @@ One **Manifest V3** extension codebase for Google Chrome and Microsoft Edge.
 
 ## Important limitations
 
-**Not production-ready and not Claude in Chrome parity.** The side panel is not yet connected to the Switchboard agent loop. There is no autonomous AI browser control, no screenshot tool, no multi-tab workflow runner, no schedule execution, and no extension-store publication. The draft is **not replayable**. Clicking a button can submit a form or cause irreversible side effects: always review the target and use only trusted sites.
+**Not production-ready and not Claude in Chrome parity.** The side panel is not yet connected to the Switchboard agent loop. There is no autonomous AI browser control, no screenshot-to-model pipeline, no multi-tab workflow runner, no schedule execution, and no extension-store publication. The draft is **not replayable**. Clicking a button can submit a form or cause irreversible side effects: always review the target and use only trusted sites.
 
 `activeTab` access is temporary, granted by the extension toolbar click. To operate on a newly navigated page, click the toolbar icon again. Restricted browser pages cannot be accessed. DOM content is untrusted and can contain prompt injection. The captured snapshot remains in session storage; approved site origins and workflow drafts remain in extension local storage.
 
