@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { AgentEvent, RunEvent } from '../types.js'
 import type { McpServiceApi } from './mcp.js'
+import type { BrowserCompanionService } from './browser-companion.js'
 import { SettingsError } from '../services/settings-error.js'
 import { expandHome } from '../services/session.js'
 import { PROTOCOLS } from '../services/providers.js'
@@ -193,6 +194,7 @@ export const webUi = {
       }
       return false
     }
+    const browserService = ctx.get('browserCompanion', false) as BrowserCompanionService | null | undefined
     const port = config.port ?? 7777
     const root = config.dir ?? fileURLToPath(new URL('../../web/', import.meta.url))
     const ciEnabled = config.ci?.enabled === true
@@ -235,7 +237,21 @@ export const webUi = {
       const route = url.pathname
 
       try {
-        if (tokenDigest && !authorized(req)) {
+        if (route.startsWith('/api/browser-companion/') && browserService) {
+          return await browserService.handleHttpRequest(req, res, route)
+        }
+        const extensionOrigin = String(req.headers.origin ?? '');
+        const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route))
+          && /^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin)
+          && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '');
+        if (isCompanionChat) {
+          res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
+          res.setHeader('Vary', 'Origin')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+          if (req.method === 'OPTIONS') { res.writeHead(204); return void res.end() }
+        }
+        if (tokenDigest && !authorized(req) && !isCompanionChat) {
           // First visit: `/?token=...` trades the token for an HttpOnly cookie, then drops it from the URL.
           if (req.method === 'GET' && tokenMatches(url.searchParams.get('token'))) {
             url.searchParams.delete('token')
@@ -265,6 +281,23 @@ export const webUi = {
       }
     })
 
+    // Display-only hint: strip credentials, query and hash; a reported tab
+    // is not a guarantee that the browser's active tab will stay unchanged.
+    const browserApprovalContext = () => {
+      const service = browserService
+      if (!service) return null
+      const tab = service.getActiveTab()
+      let origin: string | null = null
+      try {
+        const parsed = new URL(tab?.url ?? '')
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') origin = parsed.origin
+      } catch { /* The extension may not have reported a tab yet. */ }
+      return {
+        connected: service.isClientConnected(),
+        activeTab: tab ? { id: tab.id, origin } : null,
+      }
+    }
+
     // ------------------------------------------------------------------ api
 
     async function api(req: http.IncomingMessage, res: http.ServerResponse, route: string): Promise<void> {
@@ -272,8 +305,14 @@ export const webUi = {
       // defense). The Host check only applies when the console is bound to
       // loopback; an operator who binds elsewhere on purpose keeps the Origin
       // and JSON content-type checks.
+      const origin = String(req.headers.origin ?? '')
+      const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route))
+        && /^chrome-extension:\/\/[a-p]{32}$/.test(origin)
+        && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '')
       const fenced = settingsGuard(req, { enforceHost: LOOPBACK_HOSTS.has(host.toLowerCase()) })
-      if (fenced) return json(res, fenced.status, { error: fenced.error, hint: fenced.hint })
+      if (isCompanionChat && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
+        // A paired browser extension may access only these three endpoints.
+      } else if (fenced) return json(res, fenced.status, { error: fenced.error, hint: fenced.hint })
       // ------------------------------------------------------------ workspace
       if (route === '/api/workspace' && req.method === 'GET') {
         return json(res, 200, {
@@ -404,6 +443,7 @@ export const webUi = {
           mode: ctx.approvals.mode,
           pending: ctx.approvals.pending(),
           recent: ctx.approvals.recent,
+          browser: browserApprovalContext(),
         })
       }
       const approvalsDecide = route.match(/^\/api\/approvals\/([^/]+)$/)
@@ -543,6 +583,7 @@ export const webUi = {
             mode: ctx.approvals.mode,
             pending: ctx.approvals.pending(),
             recent: ctx.approvals.recent,
+            browser: browserApprovalContext(),
           },
           ci: { enabled: ciEnabled },
           mcp: mcpState(),

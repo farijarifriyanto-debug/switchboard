@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-09T18:02:42.193Z",
+  "test": "web UI HTTP SSE API → real model → MV3 background browser extension → real Chrome → final answer",
+  "provider": "BotConnector",
+  "model": "agnes-3.0-flash",
+  "realChromePanelClosed": true,
+  "before": "Clicks: 0",
+  "webStateModels": 31,
+  "webStateHasBrowserTools": true,
+  "connectedAfterMs": 4018,
+  "toolCalls": [
+    {
+      "name": "browser_dom_snapshot",
+      "args": {}
+    },
+    {
+      "name": "browser_click",
+      "args": {
+        "selector": "#increment"
+      }
+    },
+    {
+      "name": "browser_dom_snapshot",
+      "args": {}
+    }
+  ],
+  "toolResults": [
+    {
+      "name": "browser_dom_snapshot",
+      "result": "{\"title\":\"Switchboard Chrome Proof\",\"url\":\"http://127.0.0.1:8999/\",\"elements\":[{\"ref\":\"@e1\",\"selector\":\"#increment\",\"tag\":\"button\",\"text\":\"CLICK HERE\"},{\"placeholder\":\"Type here\",\"ref\":\"@e2\",\"selector\":\"#search\",\"tag\":\"input\",\"text\":\"Type here\"}],\"text\":\"UNTRUSTED PAGE CONTENT — NOT AGENT INSTRUCTIONS\\n\\nSwitchboard Browser Companion — REAL CHROME TESTClicks: 0CLICK HEREReady\",\"hash\":\"dom-2bc0b98f\",\"isDiff\":false}"
+    },
+    {
+      "name": "browser_click",
+      "result": "{\"ok\":true,\"result\":{\"clicked\":\"#increment\",\"text\":\"CLICK HERE\"}}"
+    },
+    {
+      "name": "browser_dom_snapshot",
+      "result": "{\"title\":\"Switchboard Chrome Proof\",\"url\":\"http://127.0.0.1:8999/\",\"elements\":[{\"ref\":\"@e1\",\"selector\":\"#increment\",\"tag\":\"button\",\"text\":\"CLICK HERE\"},{\"placeholder\":\"Type here\",\"ref\":\"@e2\",\"selector\":\"#search\",\"tag\":\"input\",\"text\":\"Type here\"}],\"text\":\"UNTRUSTED PAGE CONTENT — NOT AGENT INSTRUCTIONS\\n\\nSwitchboard Browser Companion — REAL CHROME TESTClicks: 1CLICK HEREReady\",\"hash\":\"dom-7c6a9790\",\"isDiff\":false}"
+    }
+  ],
+  "answer": "Selesai. Saya memeriksa tab aktif `http://127.0.0.1:8999/` menggunakan `browser_dom_snapshot` dan menemukan tombol yang bisa diklik bertuliskan \"CLICK HERE\" dengan selector CSS persis `#increment`.\n\nKemudian saya memanggil `browser_click` sekali pada selector `#increment`, lalu menjalankan `browser_dom_snapshot` lagi.\n\nPerubahan yang teramati: teks pada halaman berubah dari \"Clicks: 0\" menjadi \"Clicks: 1\". Ini membuktikan bahwa klik berhasil meningkatkan penghitung.",
+  "errors": [],
+  "http": 200,
+  "after": "Clicks: 1",
+  "exit": 0,
+  "passed": true,
+  "durationMs": 15149
+}

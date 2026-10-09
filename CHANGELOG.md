@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.4.0
+
+- New Chrome/Edge Manifest V3 Browser Companion for Switchboard CLI and Web UI. The agent prompt stays in Switchboard; the extension only executes approved browser actions and returns results.
+- Browser tool bridge stays connected in the background after its panel is closed, with authenticated loopback WebSocket, heartbeat, automatic reconnect, and short-lived one-use pairing codes.
+- Add 13 browser tools, approved-origin controls, audit logs, password/payment field protection, and browser-specific approval details showing the intended action, last-reported site, and target selector before consent.
+- Browser Companion starts automatically from both `sbx chat --preset browser` and `sbx web`. Real-model end-to-end verification with Chrome and Edge on Windows, including Web UI and CLI, is documented under `docs/browser-companion`.
+- Package separate Chrome/Edge extension ZIPs with SHA-256 checksums in the GitHub Release. These are development-style unpacked extensions; Chrome Web Store and Edge Add-ons publication are not included.
+
+
 ## 0.3.2
 
 - Documentation only: README status no longer carries the hand-tested list; the package README says the install works.

@@ -1625,6 +1625,7 @@ body.rail-collapsed .reveal {
   gap: 8px;
   padding: 8px 14px;
   background: var(--sb-alias-state-warn-tertiary);
+  flex-wrap: wrap;
   color: var(--sb-alias-state-warn-primary);
   font-size: 13px;
   line-height: 18px;
@@ -1636,6 +1637,8 @@ body.rail-collapsed .reveal {
 
 .approval-tool {
   color: var(--sb-alias-state-warn-label);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .approval-body {
@@ -1672,6 +1675,7 @@ body.rail-collapsed .reveal {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 8px 14px 12px;
 }
 
@@ -1706,10 +1710,11 @@ body.rail-collapsed .reveal {
 }
 
 .approval-hint {
-  margin-left: auto;
+  margin-left: 0;
+  flex-basis: 100%;
   font-size: 12px;
   color: var(--sb-alias-label-caption);
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .approval-hint + .approval-hint {

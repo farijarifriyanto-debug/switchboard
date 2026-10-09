@@ -1,0 +1,29 @@
+name: Browser extension package
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/chrome-browser-companion]
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/browser-extension.yml'
+      - 'scripts/package-extension.mjs'
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate and build Chrome and Edge extension packages
+        run: |
+          node scripts/package-extension.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: switchboard-browser-chrome-edge
+          path: |
+            switchboard-chrome.zip
+            switchboard-edge.zip
+          if-no-files-found: error

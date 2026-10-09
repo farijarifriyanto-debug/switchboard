@@ -11,3 +11,6 @@ data/
 
 # Playwright MCP writes page snapshots into the working directory
 .playwright-mcp/
+
+# Packaged extension artifacts
+*.zip

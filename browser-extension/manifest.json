@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Switchboard Browser Companion",
+  "version": "0.3.0",
+  "description": "Autonomous and user-controlled browser automation companion for Switchboard (Chrome & Edge)",
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "scripting",
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "action": {
+    "default_title": "Open Switchboard Companion"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

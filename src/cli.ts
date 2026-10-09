@@ -420,6 +420,30 @@ async function main(): Promise<void> {
   if (args.approval) config.approval = { ...config.approval, mode: args.approval }
   if (args.sandbox) config.tools = { ...config.tools, shell: { ...config.tools?.shell, sandbox: { ...config.tools?.shell?.sandbox, mode: args.sandbox } } }
 
+  // CLI and local Web UI both own the browser bridge. Browser actions run
+  // in the same agent host and the extension remains only a browser tool.
+  if ((args.command === 'chat' || args.command === 'run' || args.command === 'web') && config.browser?.enabled !== false) {
+    const browserDir = path.join(os.homedir(), '.switchboard')
+    const tokenFile = path.join(browserDir, 'browser-companion-token')
+    await fs.mkdir(browserDir, { recursive: true, mode: 0o700 })
+    let browserToken: string
+    try {
+      browserToken = (await fs.readFile(tokenFile, 'utf8')).trim()
+      if (!/^[a-f0-9]{48}$/.test(browserToken)) throw new Error('Invalid companion token file')
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') throw error
+      browserToken = randomBytes(24).toString('hex')
+      await fs.writeFile(tokenFile, browserToken + '\n', { flag: 'wx', mode: 0o600 })
+    }
+    // Never accept a public bind for the CLI browser companion.
+    config.browser = {
+      ...config.browser,
+      host: '127.0.0.1',
+      port: config.browser?.port ?? 7778,
+      token: config.browser?.token ?? browserToken,
+    }
+  }
+
   const host = await createHost(config)
   const { ctx } = host
   if (args.preset && !ctx.presets.get(args.preset)) {
@@ -761,6 +785,9 @@ async function main(): Promise<void> {
         const guarded = accessUrl !== url
         console.log(C.bold('Switchboard console') + C.dim(` — ${guarded ? accessUrl : url}`))
         console.log(C.dim(`${ctx.llm.settings.defaultModel} · ${tools} tools · ${guarded ? 'access token required (open the URL above once; it sets a cookie)' : 'loopback only, no auth'}`))
+        if (ctx.browserCompanion?.pairingCode) {
+          console.log(C.dim('Browser Companion pairing code (valid 15 minutes, one use): ') + C.bold(ctx.browserCompanion.pairingCode))
+        }
         console.log(C.dim('press Ctrl+C to stop'))
         if (args.open && process.platform === 'win32') {
           // Detached so a browser that outlives the shell does not hold the process.
@@ -828,6 +855,9 @@ async function main(): Promise<void> {
 
         const seed = args.positional.join(' ').trim()
         let prompt: string | null = seed
+        if (ctx.browserCompanion?.pairingCode) {
+          console.log(C.dim('Browser Companion pairing code (valid 15 minutes, one use): ') + C.bold(ctx.browserCompanion.pairingCode))
+        }
         console.log(C.bold('Switchboard') + C.dim(` — ${ctx.llm.settings.defaultModel} · session ${session.id}${session.resumed ? ' (resumed)' : ''}`))
         console.log(C.dim('type /exit to quit, /new for a new session, /sessions to list, /compact to summarize history, /usage for tokens and cost, /changes and /undo [n|force] for file edits, /metrics for latency'))
         if (!prompt) prompt = await ask(C.cyan('you › '))

@@ -82,7 +82,7 @@ try {
   // prefix patterns: allow mcp__browser__* keeps those tools and hides the rest; deny patterns hide matches
   const browserNames = [...names, 'mcp__browser__navigate', 'mcp__browser__click', 'mcp__other__x']
   const browser = ctx.presets.resolve('browser', browserNames)
-  assert.deepEqual(browserNames.filter((n) => !browser.excludeTools.includes(n)).sort(), ['load_skill', 'mcp__browser__click', 'mcp__browser__navigate', 'web_search'])
+  assert.deepEqual(browserNames.filter((n) => !browser.excludeTools.includes(n)).sort(), [...names.filter(n => n.startsWith('browser_')), 'load_skill', 'mcp__browser__click', 'mcp__browser__navigate', 'web_search'].sort())
   assert.throws(() => validatePreset({ id: 'bad', name: 'x', tools: { allow: ['mcp__*__x'] } }), /only allowed at the end/)
   assert.throws(() => validatePreset({ id: 'bad', name: 'x', tools: { allow: ['*'] } }), /only allowed at the end/)
   await ctx.presets.create({ id: 'nobrowser', name: 'No browser', tools: { deny: ['mcp__browser__*', 'run_command'] } })

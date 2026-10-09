@@ -1,0 +1,68 @@
+{
+  "testDateWib": "2026-10-10",
+  "source": "Actual local Switchboard CLI -> BotConnector model -> MV3 extension websocket -> actual Chrome tab -> tool return -> model answer",
+  "branch": "feat/chrome-browser-companion",
+  "model": "agnes-3.0-flash",
+  "trials": [
+    {
+      "startedAt": "2026-10-09T17:52:27.183Z",
+      "elapsedMs": 36197,
+      "localCompanionConnectedMs": 26099,
+      "providerModelsHttp": 200,
+      "realChromePanelClosed": true,
+      "before": "Clicks: 0",
+      "after": "Clicks: 1",
+      "toolCallObserved": [
+        "browser_dom_snapshot",
+        "browser_dom_snapshot",
+        "browser_click",
+        "browser_click",
+        "browser_dom_snapshot",
+        "browser_dom_snapshot"
+      ],
+      "actualTools": [
+        "browser_dom_snapshot",
+        "browser_click",
+        "browser_dom_snapshot"
+      ],
+      "answerMentionsObservedResult": true,
+      "cliExit": {
+        "code": 0,
+        "signal": null
+      },
+      "errors": [],
+      "passed": true
+    },
+    {
+      "startedAt": "2026-10-09T17:50:23.848Z",
+      "elapsedMs": 27542,
+      "localCompanionConnectedMs": 19942,
+      "providerModelsHttp": 200,
+      "realChromePanelClosed": true,
+      "before": "Clicks: 0",
+      "after": "Clicks: 1",
+      "toolCallObserved": [
+        "browser_dom_snapshot",
+        "browser_dom_snapshot",
+        "browser_click",
+        "browser_click",
+        "browser_dom_snapshot",
+        "browser_dom_snapshot"
+      ],
+      "actualTools": [
+        "browser_dom_snapshot",
+        "browser_click",
+        "browser_dom_snapshot"
+      ],
+      "answerMentionsObservedResult": true,
+      "cliExit": {
+        "code": 0,
+        "signal": null
+      },
+      "errors": [],
+      "passed": true
+    }
+  ],
+  "modelAnswer": "sbx › Pemeriksaan berhasil tanpa kegagalan alat. Berikut hasil yang benar-benar teramati:\n\n- Halaman awal: tombol dengan label \"CLICK HERE\" (selector `#increment`) ditemukan, dan snapshot pertama menunjukkan teks `Clicks: 0`.\n- Saya memanggil `browser_click` dengan selector `#increment` **tepat satu kali** (hasil: `ok:true`, `clicked:\"#increment\"`).\n- Snapshot verifikasi kedua menunjukkan teks `Clicks: 1`.\n\nNilai counter yang benar-benar teramati: **Clicks: 1** (berubah dari **Clicks: 0** menjadi **Clicks: 1**).\n\nURL yang teramati: **http://127.0.0.1:8999/**\n\nCatatan: saya hanya memakai `browser_dom_snapshot` dan `browser_click`; tidak menggunakan shell, web_search, atau DevTools/CDP. Tidak ada kegagalan alat yang perlu dilaporkan.\n\nyou › ",
+  "warning": "End-to-end proof is for local CLI, not standalone Web UI. Extension store publication and production deployment were not performed."
+}

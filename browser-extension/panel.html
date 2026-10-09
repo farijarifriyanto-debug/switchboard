@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Switchboard — Browser Companion</title>
+  <style>
+
+    :root {
+      color-scheme: light;
+      --bg: #f8f9fb;
+      --card-bg: #ffffff;
+      --subtle: #f5f7fa;
+      --border: #e4e7ec;
+      --text: #202733;
+      --text-muted: #737d8a;
+      --primary: #3359ac;
+      --primary-hover: #274a95;
+      --danger: #aa4150;
+      --danger-hover: #913746;
+      --success: #287a5a;
+      --warning: #a36b31;
+      --radius: 10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .44; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+    nav button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    button:not(.icon-button) {
+      display: inline-flex; align-items:center; justify-content:center; gap: 7px;
+      padding: 8px 12px; min-height: 35px;
+      border: 1px solid var(--primary); border-radius: 7px;
+      background: var(--primary); color: #ffffff; font-weight: 650; font-size: 12px;
+      transition: background .13s, border-color .13s;
+    }
+    button:not(.icon-button):hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+    button.secondary, .button-quiet {
+      border: 1px solid var(--border) !important;
+      background: white !important;
+      color: #364152 !important;
+      box-shadow: none;
+    }
+    button.secondary:hover:not(:disabled), .button-quiet:hover:not(:disabled) {
+      background: var(--subtle) !important;
+    }
+    button.danger { color: var(--danger); background: #ffffff; border-color:#e8dadd; }
+    button.danger:hover:not(:disabled) {background:#fff4f5; border-color:#d6b8bd;}
+    .app-header {
+      background: white; border-bottom: 1px solid var(--border);
+      height: 62px; padding: 0 max(22px, calc((100vw - 960px)/2));
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    }
+    .brand { display:flex; gap: 10px; align-items:center; min-width:0; }
+    .brand-logo {
+      display:grid; place-items:center; width:34px;height:34px;
+      border:1px solid #dbe4f2; border-radius:9px; background:#f1f5fb;
+      color: #34579a; flex: none;
+    }
+    .brand-copy {display:flex; flex-direction:column; line-height:1.25;}
+    .brand-title {font-size:14px; font-weight:750; letter-spacing:-.035em;}
+    .brand-subtitle {font-size:10px; color:var(--text-muted); margin-top:2px;}
+    .badge {
+      padding: 5px 9px; border:1px solid var(--border); border-radius:99px;
+      font-size:11px; font-weight:650; background:#fff; color:var(--text-muted);
+      white-space:nowrap;
+    }
+    .badge::before { content:"";display:inline-block; width:6px;height:6px;
+      background: currentColor;border-radius:50%;vertical-align:1px;margin-right:7px; }
+    .badge.connected {color:var(--success); border-color:#d6e7dc; background:#f6fbf7;}
+    .badge.disconnected {color:#8c5960; border-color:#eee0e2; background:#fffafb;}
+    .badge.running {color:var(--primary);}
+    .app-shell { max-width: 960px; padding: 0 24px 40px; margin:0 auto; }
+    .page-intro {
+      display:flex;justify-content:space-between;align-items:center;
+      gap:16px; padding:23px 0 18px;
+    }
+    .page-intro h1 {font-size:21px; font-weight:720; line-height:1.26; margin:0;letter-spacing:-.04em;}
+    .page-intro p {font-size:12px; color:var(--text-muted);margin:5px 0 0;}
+    #toolbar-capture-btn {white-space:nowrap; }
+    .context-bar {
+      display:flex;gap:13px;align-items:center;min-width:0;
+      padding:13px 16px; border:1px solid var(--border); border-radius:10px;
+      background: white; margin-bottom:14px;
+    }
+    .site-icon {display:grid;place-items:center;flex:none;width:35px;height:35px;
+      color:#52657d;background:#f5f7fa;border:1px solid #e9edf3;border-radius:8px;}
+    .site-details { flex:1;min-width:0; }
+    .site-label {display:block;font-size:10px;font-weight:600; color:var(--text-muted); margin-bottom:1px;}
+    #active-tab-title {font-size:12px; font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    #active-tab-origin {font-size:11px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted);}
+    .site-permission {flex:none;min-width:80px;border-left:1px solid var(--border);padding-left:15px;}
+    #site-permission-status {font-size:11px; font-weight:700;color:var(--warning);}
+    nav {
+      display:flex;gap:23px;border-bottom:1px solid var(--border);
+      background:transparent;padding:0;margin:0 0 17px;
+      white-space:nowrap; overflow-x:auto; scrollbar-width:none;
+    }
+    nav::-webkit-scrollbar {display:none;}
+    nav button:not(.icon-button) {
+      border:0; border-bottom:2px solid transparent; padding:9px 0 12px;
+      min-height:0;border-radius:0;background:none;color:#76808d;
+      font-size:12px;font-weight:600;flex:none;
+    }
+    nav button.active:not(.icon-button) {border-bottom-color:var(--primary);color:var(--text);}
+    nav button:hover:not(.active) {color:var(--text);background:transparent;}
+    .tab-pane { display:none; }
+    .tab-pane.active { display:block; }
+    .overview-columns {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:stretch;}
+    .ui-card, .tab-pane:not(#tab-overview) {
+      background: white; border:1px solid var(--border);border-radius:10px;
+      padding:19px 20px; min-width:0;
+    }
+    .card-head { display:flex;gap:8px;align-items:center;justify-content:space-between;margin:0 0 11px; }
+    .card-head h2, .card-head h3 {margin:0;font-size:13px;font-weight:730;letter-spacing:-.015em;}
+    .status-pill {color:var(--text-muted);display:inline-flex;align-items:center;gap:6px;
+      font-weight:650;font-size:11px; white-space:nowrap; }
+    .status-pill::before {content:"";width:6px;height:6px;flex:none;border-radius:100%;background:currentColor;}
+    .status-pill.is-live {color:var(--success);}
+    .status-pill.is-offline {color:#8b7272;}
+    .card-note {color:var(--text-muted);font-size:11px;line-height:1.55;margin:0 0 14px;}
+    .command-surface {padding:11px 12px;background:var(--subtle);border:1px solid #eff0f3;border-radius:8px;margin-top:15px;}
+    .command-surface > span {display:block;color:var(--text-muted);font-size:10px;margin-bottom:6px;}
+    .command-line {display:flex;gap:10px;align-items:center;justify-content:space-between;min-width:0;}
+    .command-line code {font: 600 11px/1.5 "Cascadia Code", Consolas, monospace;
+      white-space:nowrap;text-overflow:ellipsis;overflow:hidden;}
+    .command-line button:not(.icon-button) {padding:5px 10px;min-height:29px;font-size:11px;background:white !important;color:var(--primary)!important;border:1px solid #dce3ef!important;}
+    button.link-button:not(.icon-button) {
+      display:inline;min-height:0;padding:0;border:0!important;border-radius:0;
+      background:transparent!important;color:var(--primary)!important;
+      font-size:inherit;font-weight:650;text-decoration:underline;text-underline-offset:2px;
+    }
+    button.link-button:hover:not(:disabled) {text-decoration-thickness:2px;}
+    .card-meta strong {font-weight:650;color:var(--text);}
+    .card-buttons {display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 0;}
+    .card-buttons button:not(.icon-button) {flex:1;min-width:100px;}
+    .site-url-row {display:flex;gap:10px;justify-content:space-between;
+      align-items:baseline;font-size:11px;padding:10px 0;border-top:1px solid var(--border);}
+    .site-url-row span {color:var(--text-muted);}
+    .site-url-row strong {font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:75%;}
+    .security-footnote {display:block;color:var(--text-muted);font-size:10px;margin:13px 0 0;}
+    .activity-card {margin-top:14px;}
+    .activity-card .card-head {margin-bottom:5px;}
+    .activity-card .card-head button:not(.icon-button) {border:0!important;background:transparent!important;color:var(--primary)!important;min-height:29px;padding:2px 4px;}
+    .activity-list {display:flex;flex-direction:column;}
+    .activity-row {display:flex;align-items:center;gap:11px;border-top:1px solid var(--border);padding:12px 0;}
+    .activity-row:first-child {border-top:0;}
+    .activity-symbol, .empty-icon {width:29px;height:29px;display:grid;place-items:center;flex:none;
+      border:1px solid var(--border);border-radius:7px;color:#4e677b;background:var(--subtle);}
+    .activity-main {min-width:0;flex:1;}
+    .activity-name {display:block;font-size:11px;font-weight:680;}
+    .activity-sub {display:block;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .activity-outcome {font-size:10px;font-weight:620;color:var(--success);}
+    .activity-outcome.failed {color:var(--danger);}
+    .empty-activity {display:flex;gap:10px;align-items:center;padding:16px 0 5px;}
+    .empty-activity strong {font-size:11px;font-weight:700;}
+    .empty-activity p {font-size:11px;margin:3px 0 0;color:var(--text-muted);}
+    .row {display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .row > * {flex:1;min-width:0;}
+    .panel-hint {font-size:12px;color:var(--text-muted);background:var(--subtle);border:1px solid var(--border);
+      padding:11px 12px;border-radius:8px;margin:0 0 15px;}
+    input, select, textarea, pre {width:100%;border:1px solid var(--border);background:white;color:var(--text);
+      border-radius:7px;padding:10px 11px;font-size:12px;}
+    select {cursor:pointer;}
+    textarea {resize:vertical;}
+    pre {overflow:auto;max-height:220px;white-space:pre-wrap;font-size:11px;background:var(--subtle);}
+    label {display:block;margin:12px 0 5px;font-size:11px;font-weight:700;color:#4b5563;}
+    .step-item {border-bottom:1px solid var(--border);padding:9px 0;display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:11px;}
+    .step-item code {font:11px Consolas,monospace;color:var(--text-muted);}
+    .step-item button:not(.icon-button) {flex:none;font-size:10px;min-height:28px;padding:4px 7px;}
+    .audit-table {border-collapse:collapse;width:100%;font-size:11px;}
+    .audit-table th,.audit-table td {padding:8px 5px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;word-break:break-word;}
+    .audit-table th {font-weight:700;color:var(--text-muted);background:var(--subtle);}
+    #approval-banner {display:none;border:1px solid #efd8a8;border-radius:9px;padding:13px 14px;margin-bottom:14px;background:#fffcf5;}
+    #approval-banner.visible {display:block;}
+    .approval-title {color:#785e32;font-size:12px;font-weight:700;margin-bottom:5px;}
+    .approval-desc {font-size:11px;margin-bottom:9px;}
+    @media (max-width:680px) {
+      .app-header {padding:0 15px;height:57px;}
+      .app-shell {padding:0 15px 27px;}
+      .page-intro {padding:18px 0 14px;}
+      .page-intro h1 {font-size:19px;}
+      .overview-columns {grid-template-columns:minmax(0,1fr);gap:12px;}
+      .ui-card, .tab-pane:not(#tab-overview) {padding:15px;}
+      .activity-card {margin-top:12px;}
+      nav {gap:18px;margin-bottom:14px;}
+      nav button:not(.icon-button) {font-size:11px;}
+      .site-permission {min-width:75px;padding-left:9px;}
+    }
+    @media (max-width:370px) {
+      .app-shell {padding:0 11px 22px;}
+      .app-header {padding:0 11px;}
+      .page-intro p {max-width:230px;}
+      #toolbar-capture-btn {padding:7px 9px;font-size:11px;}
+      .context-bar {padding:11px 9px;gap:8px;}
+      .site-icon {display:none;}
+      .site-permission {min-width:75px;}
+      .brand-title {font-size:13px;}
+    }
+
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-logo" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h9m-3-3 3 3-3 3M20 17h-9m3-3-3 3 3 3M4 17h3M17 7h3"/>
+        </svg>
+      </span>
+      <div class="brand-copy"><span class="brand-title">Switchboard</span><span class="brand-subtitle">Browser companion</span></div>
+    </div>
+    <span id="companion-badge" class="badge disconnected" role="status" aria-live="polite">Disconnected</span>
+  </header>
+  <main class="app-shell">
+    <div class="page-intro">
+      <div><h1>Browser access</h1><p>Manage which pages Switchboard can use.</p></div>
+      <button id="toolbar-capture-btn" class="secondary">Refresh tab</button>
+    </div>
+    <section class="context-bar" aria-label="Current browser tab">
+      <span class="site-icon" aria-hidden="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-4.5 4-4.5 14 0 18M12 3c4.5 4 4.5 14 0 18"/>
+        </svg>
+      </span>
+      <div class="site-details">
+        <span class="site-label">Current tab</span>
+        <strong id="active-tab-title">No tab captured</strong>
+        <span id="active-tab-origin">Select a webpage to begin</span>
+      </div>
+      <div class="site-permission">
+        <span class="site-label">Access</span>
+        <span id="site-permission-status">Not approved</span>
+      </div>
+    </section>
+
+    <div id="approval-banner" role="alertdialog" aria-label="Browser action approval">
+      <div class="approval-title">Approval required</div>
+      <div id="approval-desc" class="approval-desc">Switchboard wants to perform a browser action.</div>
+      <div class="row">
+        <button id="btn-approve-once">Allow once</button>
+        <button id="btn-approve-session" class="secondary">Allow for session</button>
+        <button id="btn-reject" class="danger">Reject</button>
+      </div>
+    </div>
+
+    <nav aria-label="Browser companion sections">
+      <button class="active" data-tab="tab-overview">Overview</button>
+      <button data-tab="tab-tools">Inspector</button>
+      <button data-tab="tab-workflows">Workflows</button>
+      <button data-tab="tab-security">Permissions</button>
+      <button data-tab="tab-settings">Connection</button>
+    </nav>
+
+    <section id="tab-overview" class="tab-pane active">
+      <div class="overview-columns">
+        <section class="ui-card" aria-label="Open Switchboard">
+          <div class="card-head"><h2>Use Switchboard</h2></div>
+          <p class="card-note">Type instructions in Switchboard. This extension handles browser actions on approved sites.</p>
+          <div class="command-surface">
+            <span>Start from your terminal</span>
+            <div class="command-line">
+              <code id="cli-command">sbx chat --preset browser</code>
+              <button id="copy-cli-btn" aria-label="Copy Switchboard CLI command">Copy</button>
+            </div>
+          </div>
+          <p class="card-note" style="margin:12px 0 0;">To configure pairing, open the <button id="overview-settings-btn" class="link-button">Connection tab</button>.</p>
+        </section>
+
+        <section class="ui-card" aria-label="Site permissions">
+          <div class="card-head"><h2>Site permissions</h2><span id="overview-site-status" class="status-pill is-offline">Not approved</span></div>
+          <p id="overview-site-desc" class="card-note">Allow Switchboard to interact with the active webpage.</p>
+          <div class="site-url-row"><span>Origin</span><strong id="overview-site-origin">No site selected</strong></div>
+          <div class="card-buttons">
+            <button id="overview-allow-btn">Allow this site</button>
+            <button id="overview-revoke-btn" class="secondary">Revoke access</button>
+          </div>
+          <span class="security-footnote">Passwords and payment fields remain protected.</span>
+        </section>
+      </div>
+      <section class="ui-card activity-card" aria-label="Recent browser activity">
+        <div class="card-head"><h2>Recent activity</h2><button id="overview-activity-btn" class="secondary">View history</button></div>
+        <div id="overview-activity" class="activity-list" aria-live="polite">
+          <div class="empty-activity"><span class="empty-icon">·</span><div><strong>No activity yet</strong><p>Actions from your Switchboard sessions will appear here.</p></div></div>
+        </div>
+      </section>
+    </section>
+
+  <!-- Inspector & DOM Tools -->
+  <div id="tab-tools" class="tab-pane"><div class="panel-hint">Inspect the captured page without sending instructions to AI. Webpage content is always untrusted.</div>
+    <div class="row" style="margin-bottom:8px">
+      <button id="refresh-dom-btn">Refresh DOM Snapshot</button>
+      <button id="capture-screenshot-btn" class="secondary">Take Viewport Screenshot</button>
+      <button id="list-tabs-btn" class="secondary">List Open Tabs</button>
+    </div>
+
+    <img id="screenshot-preview" alt="Captured viewport" style="max-width:100%;border-radius:6px;border:1px solid var(--border);display:none;margin-bottom:8px">
+
+    <label for="dom-elements-view">Interactive Elements Catalog (@ref)</label>
+    <pre id="dom-elements-view">Click "Refresh DOM Snapshot" to view elements.</pre>
+
+    <label for="untrusted-text-view">Page Text (Untrusted)</label>
+    <textarea id="untrusted-text-view" rows="4" readonly placeholder="Untrusted content..."></textarea>
+
+    <div class="row" style="margin-top:8px">
+      <div>
+        <button id="show-console-logs-btn" class="secondary" style="width:100%">Console Logs</button>
+      </div>
+      <div>
+        <button id="show-network-errors-btn" class="secondary" style="width:100%">Network Errors</button>
+      </div>
+    </div>
+    <pre id="logs-view" style="display:none;margin-top:8px"></pre>
+  </div>
+
+  <!-- Workflows -->
+  <div id="tab-workflows" class="tab-pane"><div class="panel-hint">Local browser workflows and replay controls. Use Switchboard to plan and execute agent tasks.</div>
+    <div class="row" style="margin-bottom:8px">
+      <button id="record-workflow-btn" class="secondary">⏺ Start Recording</button>
+      <button id="replay-workflow-btn" disabled>▶ Replay Workflow</button>
+      <button id="cancel-replay-btn" class="danger" disabled>⏹ Stop</button>
+    </div>
+
+    <div id="replay-progress-bar" style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Status: Idle</div>
+
+    <label>Recorded Steps</label>
+    <div id="workflow-steps-list" style="max-height:180px;overflow-y:auto;margin-bottom:8px">
+      <div style="color:var(--text-muted);font-size:11px">No workflow steps recorded yet.</div>
+    </div>
+
+    <div class="row" style="margin-bottom:8px">
+      <button id="export-workflow-btn" class="secondary">Export JSON</button>
+      <button id="import-workflow-btn" class="secondary">Import JSON</button>
+      <button id="clear-workflow-btn" class="danger">Clear</button>
+    </div>
+
+    <label for="wf-schedule-cron">Schedule Automation in Switchboard</label>
+    <div class="row">
+      <input id="wf-schedule-cron" placeholder="Cron (e.g. 0 9 * * *)" value="0 9 * * *">
+      <button id="btn-schedule-wf" class="secondary">Schedule</button>
+    </div>
+  </div>
+
+  <!-- Permissions & Audit -->
+  <div id="tab-security" class="tab-pane"><div class="panel-hint">Site permissions and agent activity stay under your control. Review permissions before granting access.</div>
+    <label for="permission-mode-select">Permission Mode</label>
+    <select id="permission-mode-select">
+      <option value="ask_every_time">Use Switchboard tool approvals (recommended)</option>
+      <option value="auto_safe">Approved-site automation (actions audited)</option>
+      <option value="restricted">Read-only (no page modifications)</option>
+    </select>
+    <p style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Sensitive credential and payment card fields are always strictly blocked in every mode.</p>
+
+    <div class="row" style="margin-bottom:10px">
+      <button id="allow-current-origin-btn" style="background:var(--success)">Allow Current Site Origin</button>
+      <button id="revoke-current-origin-btn" class="danger">Revoke Current Site</button>
+    </div>
+
+    <label>Approved Origins</label>
+    <pre id="approved-origins-view">None</pre>
+
+    <div class="row" style="margin-top:10px;margin-bottom:4px">
+      <label style="margin:0">Action Audit Log</label>
+      <div style="text-align:right">
+        <button id="refresh-audit-btn" class="secondary" style="padding:2px 8px;font-size:10px">Refresh</button>
+        <button id="clear-audit-btn" class="danger" style="padding:2px 8px;font-size:10px">Clear</button>
+      </div>
+    </div>
+    <div style="max-height:160px;overflow-y:auto">
+      <table class="audit-table">
+        <thead>
+          <tr><th>Time</th><th>Tool</th><th>Target</th><th>Decision</th><th>Status</th></tr>
+        </thead>
+        <tbody id="audit-table-body">
+          <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No actions logged yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Connection settings -->
+  <div id="tab-settings" class="tab-pane"><div class="panel-hint">Start Switchboard CLI and enter the short pairing code shown in the terminal. You only need to pair once on this device.</div>
+    <label for="bridge-url-input">Switchboard Host URL</label>
+    <input id="bridge-url-input" value="http://127.0.0.1:7778">
+
+    <label for="bridge-token-input">Pairing code</label>
+    <input id="bridge-token-input" type="password" placeholder="8-character code from Switchboard CLI" autocomplete="off" spellcheck="false">
+
+    <div class="row" style="margin-top:10px">
+      <button id="connect-bridge-btn">Connect browser</button>
+      <button id="disconnect-bridge-btn" class="danger">Disconnect</button>
+    </div>
+
+    <label style="margin-top:14px">Diagnostics & Troubleshooting</label>
+    <pre id="bridge-diagnostics">Checking local Switchboard service...</pre>
+  </div>
+
+  </main><!-- app-shell -->
+  <script src="panel.js"></script>
+</body>
+</html>

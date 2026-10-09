@@ -32,6 +32,7 @@ import { toolsShell } from './plugins/tools-shell.js'
 import { toolsWeb } from './plugins/tools-web.js'
 import { mcpBridge } from './plugins/mcp.js'
 import { webUi, type WebUiConfig } from './plugins/web.js'
+import { browserCompanion, BrowserCompanionService, type BrowserCompanionConfig } from './plugins/browser-companion.js'
 
 export interface Host {
   ctx: Context
@@ -95,6 +96,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   await ctx.plugin(MemoryService, config.memory ?? {})
   await ctx.plugin(toolsMemory)
   await ctx.plugin(AutomationService, { dir: config.settings?.dir, ...(config.automations ?? {}) })
+  await ctx.plugin(browserCompanion, config.browser ?? {})
 
   // MCP servers, when configured (fail-open; validation throws on bad config).
   if (config.mcp !== undefined) await ctx.plugin(mcpBridge, config.mcp)
@@ -142,6 +144,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
     ctx,
     config,
     async dispose() {
+      await ctx.browserCompanion?.stopServer()
       await ctx.subagent?.shutdown()
       await ctx.sessions.flush()
       for (const runtime of [...ctx.registry.values()]) {
@@ -177,5 +180,7 @@ export { toolsFs, toolsShell, toolsWeb }
 export { mcpBridge }
 export { webUi }
 export type { WebUiConfig } from './plugins/web.js'
+export { browserCompanion, BrowserCompanionService }
+export type { BrowserCompanionConfig } from './plugins/browser-companion.js'
 export * from './config.js'
 export * from './types.js'
