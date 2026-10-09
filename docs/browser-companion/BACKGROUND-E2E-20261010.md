@@ -33,6 +33,12 @@ The recording shows the Chrome tab and actual click result, **not a full AI-prov
 - If another paired browser takes over, the earlier connection receives a distinct close code and does not fight to reclaim the session.
 - Approved-site permission remains required for page mutations; no production website was modified.
 
+## Additional real Chrome permission test
+
+- With the origin unapproved, agent-invoked `browser_screenshot` was rejected in the real installed extension: **PASS**.
+- After restoring site approval, Chrome refused actual screenshot capture without an `activeTab` user gesture. The extension now provides an explicit instruction to click the Switchboard toolbar icon on the target tab before retrying. This is a **browser permission requirement**, not a screenshot capture PASS.
+- We deliberately did not add broad `<all_urls>` privileges just to bypass this guard.
+- Pairing code generation now uses 8 unambiguous characters, avoiding visually confusing letters/digits and punctuation.
 ## Outstanding release scope
 
 - Final test with a healthy actual LLM and browser extension *with the panel closed* for prompt -> tool -> final AI answer.
