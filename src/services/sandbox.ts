@@ -127,6 +127,6 @@ export function killContainer(container: string): void {
 export function describeSandbox(config: SandboxConfig): string {
   if (!config.mode || config.mode === 'off') return ''
   const net = config.network ? 'network allowed' : 'no network'
-  return `Commands run inside a ${config.mode} sandbox: the project is mounted at ${SANDBOX_WORKDIR} (${config.workspace === 'ro' ? 'read-only' : 'writable'}), the rest of the machine and the host environment are not visible, ${net}, and the system is a minimal ${config.mode === 'docker' ? `container (${config.image ?? 'node:24-alpine'})` : 'view of /usr'}.`
+  return `Commands run inside a ${config.mode} sandbox: the project is mounted at ${SANDBOX_WORKDIR} (${config.workspace === 'ro' ? 'read-only' : 'writable'}), the rest of the machine and the host environment are not visible, ${net}, and the system is a minimal ${config.mode === 'docker' ? `container (${config.image ?? 'node:24-alpine'})` : 'view of /usr'}. The shell there is sh, not bash (a minimal container may have no bash at all).`
 }
 

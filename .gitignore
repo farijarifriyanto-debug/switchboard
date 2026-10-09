@@ -8,3 +8,6 @@ data/
 # test screenshots
 .shots/
 .web-shot-dark.png
+
+# Playwright MCP writes page snapshots into the working directory
+.playwright-mcp/
