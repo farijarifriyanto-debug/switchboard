@@ -148,7 +148,7 @@ or `sbx chat --sandbox bwrap`. Inside: the project is mounted at `/workspace` (w
 list them in `passEnv`), and there is no network unless `"network": true`. Extra read-only folders
 (a toolchain outside `/usr`) go in `readOnly`. Docker mode also drops all capabilities, forbids
 privilege escalation and limits memory/CPUs/processes. If the sandbox cannot start, the command is
-refused: it never falls back to running on the host. Windows and macOS have no bubblewrap; use docker.
+refused: it never falls back to running on the host. Windows and macOS have no bubblewrap; use docker (the shell inside a minimal image is `sh`, often with no `bash`).
 
 Limits: this is process isolation, not a security boundary against a determined attacker (bubblewrap
 shares the host kernel; a docker daemon is a powerful thing to hand out), and the file tools
@@ -285,7 +285,9 @@ The built-in `browser` preset hides everything except `mcp__browser__*`, `web_se
 (only the read-only snapshot-style tools skip them), and `--allowed-origins https://example.com`
 limits where it may go. `scripts/browser-smoke.mjs` (the *Browser smoke* workflow) checks the
 integration against real Chromium: it lists the 25 tools, loads a page and reads its snapshot.
-Presets accept a trailing `*` as a prefix pattern (`mcp__browser__*`).
+Presets accept a trailing `*` as a prefix pattern (`mcp__browser__*`). Playwright MCP writes page
+snapshots into a `.playwright-mcp/` folder in the working directory (already in this repo's `.gitignore`;
+add it to yours).
 
 ## MCP servers
 
@@ -521,13 +523,19 @@ output containing think tags may itself be parsed by the caller's UI.
 
 ## Status
 
-Early. Working today: streaming chat, tool calling, multi-step agent loop,
-persistent sessions, retry/backoff, context trimming, latency metrics, dynamic
-plugin loading, CLI, a local web console, `AGENTS.md` context injection,
-`sbx doctor`, and a context gauge in the console status bar. Not yet built:
-plugin manager, cost accounting, sandboxing
-(the shell tool is unsandboxed by design — keep `agent.maxSteps` and the
-workspace root sane).
+Early (0.x). Working today: streaming chat, tool calling, a multi-step agent loop with approvals,
+persistent sessions, presets, skills, compaction and session recall, subagent delegation, MCP
+servers (including a Playwright browser), a sandbox for `run_command`, scheduled automations, a
+Telegram channel, a local web console and `sbx ci`.
+
+What has and has not been tried by a person:
+
+- Tested by hand: the console (Chrome), skills, automations, Telegram against the real Bot API
+  (one private chat), the browser preset against real Chromium, and the docker sandbox on Windows
+  (Docker Desktop) and Linux.
+- Not tested by hand: bubblewrap outside Linux CI, macOS, and any channel other than Telegram.
+- The sandbox is isolation, not a security boundary (see above), and Telegram is the only chat
+  channel today.
 
 ## Credits
 

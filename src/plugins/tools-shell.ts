@@ -37,7 +37,7 @@ export const toolsShell = {
     const def: ToolSpec = {
       name: 'run_command',
       description:
-        'Run a shell command in the workspace and return its combined output. The shell is PowerShell on Windows (ls, dir, cat and similar work) and bash elsewhere. If a command returns no output, double-check the path with list_dir — a wrong path can come back empty.' + sandboxNote,
+        'Run a shell command in the workspace and return its combined output. The shell is PowerShell on Windows (ls, dir, cat and similar work) and POSIX sh (not bash) elsewhere, so avoid bash-only syntax. If a command returns no output, double-check the path with list_dir — a wrong path can come back empty.' + sandboxNote,
       parameters: {
         type: 'object',
         properties: {
