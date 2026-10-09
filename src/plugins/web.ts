@@ -239,8 +239,8 @@ export const webUi = {
           return await ctx.browserCompanion.handleHttpRequest(req, res, route)
         }
         const extensionOrigin = String(req.headers.origin ?? '');
-        const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\\/api\\/runs\\/[^/]+\\/cancel$/.test(route))
-          && /^chrome-extension:\\/\\/[a-p]{32}$/.test(extensionOrigin)
+        const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route))
+          && /^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin)
           && String(req.headers.authorization ?? '') === 'Bearer ' + (ctx.browserCompanion?.currentToken ?? '');
         if (isCompanionChat) {
           res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
@@ -287,8 +287,8 @@ export const webUi = {
       // loopback; an operator who binds elsewhere on purpose keeps the Origin
       // and JSON content-type checks.
       const origin = String(req.headers.origin ?? '')
-      const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\\/api\\/runs\\/[^/]+\\/cancel$/.test(route))
-        && /^chrome-extension:\\/\\/[a-p]{32}$/.test(origin)
+      const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route))
+        && /^chrome-extension:\/\/[a-p]{32}$/.test(origin)
         && String(req.headers.authorization ?? '') === 'Bearer ' + (ctx.browserCompanion?.currentToken ?? '')
       const fenced = settingsGuard(req, { enforceHost: LOOPBACK_HOSTS.has(host.toLowerCase()) })
       if (isCompanionChat && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
