@@ -33,7 +33,7 @@ $('execute').addEventListener('click', async () => {
   if (!confirm('Execute this browser action?\n' + description)) return;
   const response = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BROWSER_ACTION', action, selector, value });
   if (!response?.ok) return setStatus(response?.error || 'Action failed');
-  lastAction = { origin: new URL(capture.url).origin, action, selector, value, at: new Date().toISOString() };
+  lastAction = { origin: new URL(capture.url).origin, action, selector, ...(action === 'type' ? { value: '[REDACTED]', requiresManualInput: true } : { value }), at: new Date().toISOString() };
   $('save').disabled = false;
   setStatus(response.result + '. Click toolbar icon again to refresh page state.');
 });
