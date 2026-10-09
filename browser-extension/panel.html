@@ -81,7 +81,7 @@
       overflow-x: auto;
     }
     nav button {
-      flex: 1;
+      flex: 0 0 auto;
       padding: 6px 8px;
       font-size: 11px;
       font-weight: 600;
@@ -95,6 +95,14 @@
     nav button.active {
       background: var(--primary);
       color: white;
+    }
+    @media (max-width: 520px) {
+      body { padding: 8px; }
+      header { gap: 6px; flex-wrap: wrap; }
+      .brand { min-width: 0; flex-wrap: wrap; }
+      nav { scrollbar-width: thin; }
+      .row > div { min-width: 0; }
+      select, textarea, input { max-width: 100%; }
     }
     .tab-pane { display: none; }
     .tab-pane.active { display: block; }
