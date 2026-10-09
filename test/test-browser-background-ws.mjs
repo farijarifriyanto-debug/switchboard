@@ -44,7 +44,7 @@ try {
   const service = host.ctx.browserCompanion
   assert.ok(service)
   assert.equal(service.isClientConnected(), false)
-  assert.match(service.pairingCode, /^[A-Z0-9_-]{8}$/)
+  assert.match(service.pairingCode, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/)
   assert.equal((await pair({code:'AAAAAAAA'})).status,401)
   const code = service.pairingCode
   const valid = await pair({code})

@@ -90,7 +90,7 @@ export class BrowserCompanionService {
   private standaloneServer: http.Server | null = null
   private socketServer: WebSocketServer | null = null
   private activeSocket: WebSocket | null = null
-  private pairCode = randomBytes(6).toString('base64url').toUpperCase()
+  private pairCode = [...randomBytes(8)].map(byte => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[byte % 32]).join('')
   private pairCodeExpiry = Date.now() + 15 * 60_000
   private pairCodeFailures = 0
   private seq = 0
