@@ -132,6 +132,27 @@ is appended to the system prompt automatically — the shared project-context
 convention (Claude Code / OpenClaw / Hermes). Oversized files are truncated;
 missing files are ignored.
 
+## Fallback chain (free-tier orchestrator)
+
+Free models hit rate limits and go down. List backup targets and a call that fails **before it
+produced any output** (HTTP 429/5xx/4xx, network, timeout, bad key) moves on to the next one:
+
+```jsonc
+{ "llm": {
+    "fallbacks": [
+      { "model": "gpt-oss-120b" },                       // same provider, other model
+      { "provider": "openrouter", "model": "qwen3.8-27b" } // other provider (id from Settings)
+    ],
+    "fallbackCooldownMs": 60000                           // skip a target that just failed (429/5xx/network), default 60 s
+} }
+```
+
+- The primary is whatever the chat/preset selected; `fallbacks` apply to every call.
+- With a fallback waiting, a failing target gets one retry instead of the whole retry budget.
+- Once text has reached you the call never switches (it would duplicate output).
+- Every switch is an `llm/fallback` event and shows in the trace; usage is counted on the model that answered.
+- If every target fails, the error names each one.
+
 ## Sandbox
 
 Approval asks before a command runs; a sandbox limits what it can do once it runs. Turn it on for
