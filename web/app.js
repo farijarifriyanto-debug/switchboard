@@ -79,6 +79,7 @@ const state = {
   pinned: true,
   models: [],
   lastPromptTokens: 0,
+  usageSummary: null,
   workspace: null,
   filesDir: '.',
   filesCache: null,
@@ -101,6 +102,7 @@ const folderName = (p) => String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/).
 
 function updateSessionLabel(session = state.selectedSession) {
   state.selectedSession = session || null
+  if (!session) state.usageSummary = null
   const project = session?.projectRoot && session.projectRoot !== state.workspace?.root ? folderName(session.projectRoot) : state.workspace?.name || 'Project'
   ui.projectName.textContent = project
   ui.sessionId.textContent = session?.title || 'New chat'
@@ -459,6 +461,7 @@ async function openSession(id) {
     const session = await res.json()
     state.sessionId = session.id
     state.selectedSession = session
+    state.usageSummary = session.usageSummary || null
     state.model = session.model ? encodeModelOption(session.provider, session.model) : state.model
     renderModelPicker(state.models, state.model)
     renderModelCapabilities()
@@ -523,8 +526,9 @@ function renderModelCapabilities() {
   ui.modelCapabilities.textContent = `${model.id} · ${caps.join(' · ')}`
   const infoCaps = caps.filter((c) => !c.startsWith('Context '))
   const gauge = typeof formatContextGauge === 'function' ? formatContextGauge(state.lastPromptTokens, model.context) : ''
+  const usageChip = typeof formatUsageChip === 'function' ? formatUsageChip(state.usageSummary) : ''
   const hot = gauge && state.lastPromptTokens / Number(model.context) >= 0.9 ? ' hot' : ''
-  ui.modelInfo.innerHTML = `<strong>${esc(model.id)}</strong><span>${esc(route || model.access || 'BotConnector route')}</span><span>${infoCaps.map(esc).join(' · ')}</span>${gauge ? `<span class="ctx-gauge${hot} mono">${esc(gauge)}</span>` : ''}${noTools ? '<strong class="warning-text">This model cannot use project tools — project tasks will be refused.</strong>' : ''}`
+  ui.modelInfo.innerHTML = `<strong>${esc(model.id)}</strong><span>${esc(route || model.access || 'BotConnector route')}</span><span>${infoCaps.map(esc).join(' · ')}</span>${gauge ? `<span class="ctx-gauge${hot} mono">${esc(gauge)}</span>` : ''}${usageChip ? `<span class="usage-chip mono" title="Tokens and estimated cost of this chat">${esc(usageChip)}</span>` : ''}${noTools ? '<strong class="warning-text">This model cannot use project tools — project tasks will be refused.</strong>' : ''}`
   // MCP status segment (web/badge.js) — appended as text after the innerHTML
   // above; server names/states never pass through HTML parsing.
   const mcpSeg = typeof mcpSummary === 'function' ? mcpSummary(state.mcp) : null
@@ -1498,6 +1502,7 @@ async function send(prompt) {
       const session = await created.json()
       state.sessionId = session.id
       state.selectedSession = session
+      state.usageSummary = null
       updateSessionLabel(session)
     }
   } catch (error) {
@@ -1645,6 +1650,7 @@ async function send(prompt) {
             break
           case 'metrics':
             lastMetrics = event.metrics
+            if (event.usage) state.usageSummary = event.usage
             if (event.metrics?.usage?.promptTokens != null) {
               state.lastPromptTokens = event.metrics.usage.promptTokens
               renderModelCapabilities()
@@ -1737,6 +1743,7 @@ async function newRun() {
     const session = await response.json()
     state.sessionId = session.id
     state.selectedSession = session
+    state.usageSummary = session.usageSummary || null
     state.model = session.model ? encodeModelOption(session.provider, session.model) : state.model
     updateSessionLabel(session)
     state.changedFiles.clear()

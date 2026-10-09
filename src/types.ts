@@ -41,6 +41,19 @@ export interface ToolDef {
   }
 }
 
+/** Tokens spent on one model within a session (persisted with the session). */
+export interface ModelUsage {
+  calls: number
+  promptTokens: number
+  completionTokens: number
+  cachedTokens: number
+  cacheWriteTokens: number
+}
+
+export interface SessionUsage {
+  byModel: Record<string, ModelUsage>
+}
+
 export interface Usage {
   promptTokens?: number
   completionTokens?: number
@@ -101,13 +114,30 @@ export interface ModelInfo {
   [key: string]: unknown
 }
 
+/** What `ctx.usage.summary()` returns: totals plus an estimated cost when prices are known. */
+export interface UsageSummary {
+  calls: number
+  promptTokens: number
+  completionTokens: number
+  cachedTokens: number
+  cacheWriteTokens: number
+  /** Estimated cost in USD from the model prices known right now; undefined when nothing is priced. */
+  costUsd?: number
+  /** True when every model used has a known price (or is free), so `costUsd` is complete. */
+  complete: boolean
+  /** Models used that have no known price. */
+  unpriced: string[]
+  /** Subagent sessions folded into the totals. */
+  subagents: number
+}
+
 export type AgentEvent =
   | { type: 'step'; step: number }
   | { type: 'delta'; text: string }
   | { type: 'reasoning'; text: string }
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | { type: 'tool_result'; id: string; name: string; result: string }
-  | { type: 'metrics'; metrics: GenerateResult }
+  | { type: 'metrics'; metrics: GenerateResult; usage?: UsageSummary }
   | { type: 'notice'; notice: string }
   | { type: 'final'; content: string; steps: number; stopReason?: 'answer' | 'step_limit' }
   | { type: 'error'; error: string }

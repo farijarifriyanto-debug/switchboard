@@ -13,6 +13,7 @@ import { CompactionService } from './services/compaction.js'
 import { toolsRecall } from './services/recall.js'
 import { telegramChannel } from './channels/telegram.js'
 import { AutomationService } from './services/automations.js'
+import { UsageService } from './services/usage.js'
 import { CredentialStoreService } from './services/credentials.js'
 import { ToolsService } from './services/tools.js'
 import { SessionService } from './services/session.js'
@@ -72,6 +73,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   await ctx.plugin(ApprovalService, config.approval ?? {})
   await ctx.plugin(TraceService, config.trace ?? {})
   await ctx.plugin(MetricsService, config.metrics ?? {})
+  await ctx.plugin(UsageService, config.usage ?? {})
   if (config.metrics?.load) await ctx.metrics.hydrate()
   if (config.sessions?.load !== false) await ctx.sessions.hydrate()
 
@@ -142,6 +144,7 @@ export { SkillService } from './services/skills.js'
 export { CompactionService } from './services/compaction.js'
 export { telegramChannel } from './channels/telegram.js'
 export { AutomationService } from './services/automations.js'
+export { UsageService, formatUsage, costOf, priceFromModel } from './services/usage.js'
 export { WorkspaceService } from './services/workspace.js'
 export { ApprovalService } from './services/approval.js'
 export { TraceService } from './services/trace.js'

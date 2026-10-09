@@ -554,7 +554,7 @@ export const agentLoop = {
         return undefined
       }
       if (result) {
-        yield { type: 'metrics', metrics: result }
+        yield { type: 'metrics', metrics: result, ...(ctx.get('usage', false) ? { usage: ctx.get('usage', false)!.summary(sessionId) } : {}) }
       }
       return result
     }

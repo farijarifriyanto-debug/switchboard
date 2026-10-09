@@ -370,8 +370,26 @@ sbx doctor                   # diagnostics: config, host, endpoint, key, data di
 sbx tools                    # registered tools
 sbx models                   # models advertised by the endpoint
 sbx metrics                  # latency collected this session
+# in chat: /usage              # tokens and estimated cost of this conversation
 sbx --plugins ./plugins/echo-tool.mjs
 ```
+
+### Tokens and cost
+
+Every model call is added to its session (per model, so it survives a restart): prompt, completion,
+cached and cache-write tokens. The console shows the running total in the status bar, Telegram in
+`/status`, and the chat REPL in `/usage`, with subagent sessions folded into their parent.
+
+The cost is an **estimate**. Prices come from the endpoint's model list (`botconnector_pricing`, or
+OpenRouter-style `pricing`); a free model counts as $0; override or add prices in the config
+(USD per 1M tokens, keyed by model id):
+
+```jsonc
+"usage": { "pricing": { "my-model": { "input": 1.0, "output": 4.0, "cachedInput": 0.1 } } }
+```
+
+A model with no known price is never counted as free: the total is then shown as a lower bound
+(`≥ $0.42`) or as `cost unknown`.
 
 ### Web console
 

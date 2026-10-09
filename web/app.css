@@ -2526,6 +2526,10 @@ body[data-theme] {
   color: var(--sb-alias-state-success-primary);
 }
 
+.model-info .usage-chip {
+  color: var(--sb-alias-state-business-primary);
+}
+
 .model-info .ctx-gauge.hot {
   color: var(--sb-alias-state-warn-primary);
 }

@@ -609,7 +609,7 @@ export const webUi = {
         const id = decodeURIComponent(sessionMatch[1])
         const session = ctx.sessions.find(id)
         if (!session) return json(res, 404, { error: `no session "${id}"` })
-        if (req.method === 'GET') return json(res, 200, session)
+        if (req.method === 'GET') return json(res, 200, ctx.get('usage', false) ? { ...session, usageSummary: ctx.get('usage', false)!.summary(session.id) } : session)
         if (req.method === 'DELETE') {
           const ac = runs.get(session.id)
           ac?.abort()

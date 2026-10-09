@@ -549,7 +549,8 @@ async function* parseAnthropic(body: ReadableStream<Uint8Array>, profile: Provid
         // totalTokens stays unset: llm.usageReport() sums prompt+completion.
         usage = {
           ...usage,
-          promptTokens: input.input_tokens,
+          // Anthropic's input_tokens excludes the cache; like every other protocol here, promptTokens includes it.
+          promptTokens: (input.input_tokens ?? 0) + (input.cache_read_input_tokens ?? 0) + (input.cache_creation_input_tokens ?? 0),
           ...(input.cache_read_input_tokens ? { cachedTokens: input.cache_read_input_tokens } : {}),
           ...(input.cache_creation_input_tokens ? { cacheWriteTokens: input.cache_creation_input_tokens } : {}),
         }
