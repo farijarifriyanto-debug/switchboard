@@ -225,6 +225,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
 void chrome.alarms.create(BRIDGE_ALARM, { periodInMinutes: 0.5 });
 void ensureBridgeSocket().catch(() => {});
 
+async function screenshotWithUserGrant(tab, quality) {
+  try {
+    return await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality });
+  } catch (error) {
+    if (/activeTab|<all_urls>/i.test(errorMessage(error))) {
+      throw new Error('Chrome screenshot access needs a user gesture. Click the Switchboard extension icon while viewing this tab, then retry. Site approval alone does not grant screenshot permission.');
+    }
+    throw error;
+  }
+}
+
 // Bounded Audit Log storage (latest 300 entries in storage.local)
 async function recordAudit(entry) {
   try {
@@ -625,10 +636,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (!approvedOrigins.includes(tabOrigin)) {
         throw new Error(`Site origin "${tabOrigin}" must be approved before screenshot capture.`);
       }
-      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-        format: 'jpeg',
-        quality: Number(message.quality) || 65
-      });
+      const dataUrl = await screenshotWithUserGrant(tab, Number(message.quality) || 65);
       await recordAudit({
         tool: 'browser_screenshot',
         action: 'screenshot',
@@ -750,10 +758,7 @@ async function handleToolExecution(toolName, args = {}) {
           origin: siteOrigin, decision: 'rejected', status: 'error', error: 'Unapproved site' });
         throw new Error('Screenshot denied: approve this site origin in Browser Companion first.');
       }
-      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-        format: 'jpeg',
-        quality: Number(args.quality) || 65
-      });
+      const dataUrl = await screenshotWithUserGrant(tab, Number(args.quality) || 65);
       await recordAudit({ tool: 'browser_screenshot', action: 'screenshot', url: tab.url,
         origin: siteOrigin, decision: 'approved', status: 'success' });
       return { ok: true, dataUrl, url: tab.url, title: tab.title };

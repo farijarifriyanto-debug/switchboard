@@ -39,7 +39,7 @@ The extension never requires a separate AI-provider API key. The pairing code is
 - Pairing is limited to five failed guesses per CLI launch and the short code expires after 15 minutes. Using the code consumes it; already paired clients reconnect with their existing token.
 - Extension permissions: `activeTab`, `scripting`, `sidePanel`, `storage`, `tabs`, and `alarms`. Host permissions are limited to HTTP loopback.
 - Mutating actions require an explicitly approved site. CLI tool approvals are controlled separately by Switchboard (default risky-tool approval; `--yes` explicitly disables CLI prompts). Restricted browser mode blocks page mutations regardless of CLI mode. Passwords and payment details are protected. DOM content is untrusted and is not agent instruction.
-- Screenshots requested through either the UI or agent tools require approval of the active site origin.
+- Screenshots requested through either the UI or agent tools require approval of the active site origin **and** Chrome's `activeTab` grant: click the Switchboard toolbar icon while on that tab. This grant may need to be renewed after navigation or browser restart. The extension does not request broad `<all_urls>` access.
 - Browser activity and site approvals are visible and revocable in the extension.
 
 ## Verification

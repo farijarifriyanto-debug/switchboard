@@ -109,6 +109,8 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
   assert.ok(agentScreenshot, 'agent screenshot handler exists')
   assert.match(agentScreenshot, /approvedOrigins\.includes\(siteOrigin\)/,
     'agent-triggered screenshots reject unapproved site origins')
+  assert.match(agentScreenshot, /screenshotWithUserGrant/,
+    'agent screenshot uses activeTab permission guard')
   assert.match(agentScreenshot, /Screenshot denied/,
     'agent-triggered screenshot has explicit denial message')
   console.log('✓ Regression Bug #6: Screenshot origin boundary check verified')
