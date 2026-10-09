@@ -225,7 +225,8 @@ export const subagent = {
           system: WORKER_SYSTEM_PROMPT,
           model: task.model,
           maxSteps: task.maxSteps ?? resolved.maxSteps,
-          excludeTools: ['task'],
+          // workers report back to the parent; they neither delegate further nor save notes or skills
+          excludeTools: ['task', 'remember', 'propose_skill'],
         })
         for await (const raw of gen) {
           const ev = raw as unknown as { type: string; content?: string; stopReason?: 'answer' | 'step_limit'; error?: string; steps?: number }

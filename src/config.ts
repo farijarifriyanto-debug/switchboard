@@ -121,6 +121,8 @@ export interface SwitchboardConfig {
   automations?: { dir?: string; runTimeoutMs?: number }
   /** Token/cost accounting: prices come from the endpoint's model list; `pricing` (USD per 1M tokens, by model id) overrides them. */
   usage?: { pricing?: Record<string, { input: number; output: number; cachedInput?: number; cacheWrite?: number }>; refreshMs?: number }
+  /** A small notebook (MEMORY.md) read into every prompt; notes are added only with approval. On unless `enabled: false`. */
+  memory?: { enabled?: boolean; globalFile?: string; projectFile?: string }
   /** Chat channels that drive the agent (Telegram). Off unless `enabled` and fully configured. */
   channels?: { telegram?: import('./channels/telegram.js').TelegramConfig }
   /** Context compaction: summarize old history instead of dropping it. On unless `enabled: false`. */
@@ -129,7 +131,7 @@ export interface SwitchboardConfig {
    * Skills (SKILL.md folders): advertised in the system prompt, loaded on demand
    * with `load_skill` or run with `/name`. On unless `enabled: false`.
    */
-  skills?: { enabled?: boolean; globalDir?: string; projectDir?: string }
+  skills?: { enabled?: boolean; globalDir?: string; projectDir?: string; draftsDir?: string }
   /** Extra plugins: npm package names or local paths. */
   plugins?: PluginSpec[]
 }

@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { estimateMessages, trimMessages } from '../context.js'
 import { withSkills } from '../services/skills.js'
+import { withMemory } from '../services/memory.js'
 import type { SessionStatus } from '../services/session.js'
 
 export interface AgentLoopConfig {
@@ -216,7 +217,8 @@ export const agentLoop = {
           // Skills: advertise name + description only while the model can actually call load_skill.
           const skillsSvc = ctx.get('skills', false)
           const skillsSection = skillsSvc && !exclude.includes('load_skill') && ctx.tools.get('load_skill') ? await skillsSvc.index() : ''
-          const finalSystem = withMcpInstructions(withSkills(datedSystem, skillsSection), ctx.get('mcp', false)?.instructions() ?? '')
+          const memorySection = (await ctx.get('memory', false)?.section()) ?? ''
+          const finalSystem = withMcpInstructions(withMemory(withSkills(datedSystem, skillsSection), memorySection), ctx.get('mcp', false)?.instructions() ?? '')
           const systemIndex = session.messages.findIndex((m) => m.role === 'system')
           if (systemIndex === -1) session.messages.unshift({ role: 'system', content: finalSystem })
           else session.messages[systemIndex] = { role: 'system', content: finalSystem }

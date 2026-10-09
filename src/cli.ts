@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { createHost } from './index.js'
 import { describeToolCall } from './services/approval.js'
 import { formatUsage } from './services/usage.js'
+import { SkillDrafts, installCandidate, removeSkill, stageSource } from './services/skill-store.js'
 import { loadConfig, type SwitchboardConfig } from './config.js'
 
 const USAGE = `sbx — Switchboard
@@ -72,7 +73,7 @@ export interface Args {
 
 function parseArgs(argv: string[]): Args {
   const out: Args = { command: 'chat', positional: [], plugins: [], session: true, open: true }
-  const commands = new Set(['chat', 'run', 'web', 'sessions', 'info', 'doctor', 'tools', 'models', 'metrics', 'ci', 'presets', 'skills', 'channels', 'automations', 'help'])
+  const commands = new Set(['chat', 'run', 'web', 'sessions', 'info', 'doctor', 'tools', 'models', 'metrics', 'ci', 'presets', 'skills', 'memory', 'channels', 'automations', 'help'])
   let i = 0
   while (i < argv.length) {
     const arg = argv[i]
@@ -552,14 +553,118 @@ async function main(): Promise<void> {
         })
         break
       }
+      case 'memory': {
+        const memory = ctx.memory
+        const [cmd = 'list', ...rest] = args.positional
+        const global = rest.includes('--global')
+        const words = rest.filter((w) => w !== '--global')
+        const scopes = (global ? ['global'] : ['global', 'project']) as ('global' | 'project')[]
+        if (cmd === 'list') {
+          for (const scope of scopes) {
+            const notes = await memory.list(scope)
+            console.log(C.bold(`${scope}`) + C.dim(`  ${memory.fileOf(scope)}`))
+            if (!notes.length) console.log(C.dim('  (no notes)'))
+            notes.forEach((note, i) => console.log(`  ${String(i + 1).padStart(2)}. ${note}`))
+          }
+          console.log(C.dim('\nadd: sbx memory add "text" [--global]   remove: sbx memory forget <number|text> [--global]\nthe model adds notes itself with the remember tool, and you approve each one'))
+        } else if (cmd === 'add') {
+          console.log(await memory.add(words.join(' '), global ? 'global' : 'project'))
+        } else if (cmd === 'forget') {
+          const which = words.join(' ')
+          if (!which) throw new Error('usage: sbx memory forget <number|text> [--global]')
+          const gone = await memory.forget(global ? 'global' : 'project', /^\d+$/.test(which) ? Number(which) : which)
+          console.log(gone ? `forgot ${gone} note(s)` : 'no matching note')
+        } else throw new Error(`unknown memory command "${cmd}" (list, add, forget)`)
+        break
+      }
       case 'skills': {
-        const skills = await ctx.skills.list()
-        if (!skills.length) {
-          console.log(C.dim('no skills found — add <workspace>/.switchboard/skills/<name>/SKILL.md or ~/.switchboard/skills/<name>/SKILL.md'))
-          break
+        const [cmd = 'list', ...rest] = args.positional
+        const flag = (name: string): boolean => rest.includes(name)
+        const value = (name: string): string | undefined => {
+          const at = rest.indexOf(name)
+          return at >= 0 ? rest[at + 1] : undefined
         }
-        for (const skill of skills) console.log(`${skill.name.padEnd(24)}${C.dim(skill.source.padEnd(9))}${skill.description}`)
-        console.log(C.dim('\nrun one with: /<name> <task>   ·   the model loads them with load_skill'))
+        const words = rest.filter((w, i) => !w.startsWith('--') && rest[i - 1] !== '--skill')
+        const yes = args.approval === 'off'
+        const scope: 'project' | 'global' = flag('--global') ? 'global' : 'project'
+        const skillsDir = ctx.skills.skillsDir(scope)
+        const drafts = new SkillDrafts(config.skills?.draftsDir)
+        const confirm = async (question: string): Promise<boolean> => {
+          if (yes) return true
+          if (!process.stdin.isTTY || !process.stdout.isTTY) {
+            console.log(C.yellow('this needs a yes from a person: run it in a terminal, or add --yes after reading the skill'))
+            return false
+          }
+          const readline = await import('node:readline/promises')
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+          const answer = await rl.question(question)
+          rl.close()
+          return /^y(es)?$/i.test(answer.trim())
+        }
+        const show = (c: { name: string; description: string; body: string; files: { path: string; bytes: number }[]; warnings: string[] }): void => {
+          console.log(`${C.bold(c.name)}  ${c.description}`)
+          if (c.files.length) console.log(C.dim(`files: ${c.files.slice(0, 12).map((f) => `${f.path} (${f.bytes} B)`).join(', ')}${c.files.length > 12 ? `, … ${c.files.length - 12} more` : ''}`))
+          for (const w of c.warnings) console.log(C.yellow(`! ${w}`))
+          const lines = c.body.split('\n')
+          console.log(C.dim('--- SKILL.md ---'))
+          console.log(lines.slice(0, 80).join('\n') + (lines.length > 80 ? C.dim(`\n… ${lines.length - 80} more line(s)`) : ''))
+          console.log(C.dim('--- end ---'))
+          console.log(C.yellow('A skill is instructions the model will follow. Install only what you have read and trust.'))
+        }
+        if (cmd === 'list') {
+          const skills = await ctx.skills.list()
+          if (!skills.length) {
+            console.log(C.dim('no skills found — add <workspace>/.switchboard/skills/<name>/SKILL.md or ~/.switchboard/skills/<name>/SKILL.md, or: sbx skills install <folder|https://git-url>'))
+          }
+          for (const skill of skills) console.log(`${skill.name.padEnd(24)}${C.dim(skill.source.padEnd(9))}${skill.description}`)
+          const waiting = await drafts.list()
+          if (skills.length) console.log(C.dim('\nrun one with: /<name> <task>   ·   the model loads them with load_skill'))
+          if (waiting.length) console.log(C.yellow(`${waiting.length} skill draft(s) proposed by the model are waiting: sbx skills drafts`))
+        } else if (cmd === 'drafts') {
+          const waiting = await drafts.list()
+          if (!waiting.length) console.log(C.dim('no drafts. The model can propose one with propose_skill; nothing is active until you accept it.'))
+          for (const d of waiting) console.log(`${d.name.padEnd(24)}${new Date(d.proposedAt).toISOString().slice(0, 16).replace('T', ' ')}  ${d.description}`)
+          if (words[0]) {
+            const d = await drafts.get(words[0])
+            if (!d) throw new Error(`no draft "${words[0]}"`)
+            console.log('')
+            show({ name: d.name, description: d.description, body: d.body, files: [], warnings: [] })
+          } else if (waiting.length) console.log(C.dim('\nread one: sbx skills drafts <name>   accept: sbx skills accept <name> [--global]   discard: sbx skills reject <name>'))
+        } else if (cmd === 'accept') {
+          const d = words[0] ? await drafts.get(words[0]) : undefined
+          if (!d) throw new Error('usage: sbx skills accept <draft-name> [--global] [--force]  (list them with: sbx skills drafts)')
+          show({ name: d.name, description: d.description, body: d.body, files: [], warnings: [] })
+          if (!(await confirm(`\nActivate "${d.name}" as a ${scope} skill? [y/N] `))) break
+          console.log(`installed ${await drafts.accept(d.name, skillsDir, flag('--force'))}`)
+        } else if (cmd === 'reject') {
+          if (!words[0]) throw new Error('usage: sbx skills reject <draft-name>')
+          console.log((await drafts.reject(words[0])) ? `discarded draft ${words[0]}` : `no draft "${words[0]}"`)
+        } else if (cmd === 'install') {
+          if (!words[0]) throw new Error('usage: sbx skills install <folder | https://git-url> [--skill <name>] [--global] [--force]')
+          const staged = await stageSource(words[0])
+          try {
+            for (const bad of staged.invalid) console.log(C.dim(`skipped ${bad.folder}: ${bad.error}`))
+            if (!staged.candidates.length) throw new Error('no installable skill found (a skill is a folder with a SKILL.md that has name and description)')
+            const wanted = value('--skill')
+            let pick = wanted ? staged.candidates.find((c) => c.name === wanted) : staged.candidates.length === 1 ? staged.candidates[0] : undefined
+            if (!pick) {
+              console.log(wanted ? C.red(`no skill "${wanted}" in this source.`) : `${staged.candidates.length} skills found:`)
+              for (const c of staged.candidates) console.log(`  ${c.name.padEnd(24)}${C.dim(c.description)}`)
+              if (!wanted) console.log(C.dim('\nchoose one: sbx skills install <source> --skill <name>'))
+              break
+            }
+            show(pick)
+            if (staged.commit) console.log(C.dim(`source ${words[0]} @ ${staged.commit.slice(0, 12)}`))
+            if (!(await confirm(`\nInstall "${pick.name}" as a ${scope} skill? [y/N] `))) break
+            console.log(`installed ${await installCandidate(pick, skillsDir, { source: words[0], commit: staged.commit }, flag('--force'))}`)
+          } finally {
+            await staged.cleanup()
+          }
+        } else if (cmd === 'remove') {
+          if (!words[0]) throw new Error('usage: sbx skills remove <name> [--global]')
+          if (!(await confirm(`Delete the ${scope} skill "${words[0]}"? [y/N] `))) break
+          console.log((await removeSkill(skillsDir, words[0])) ? `removed ${words[0]}` : `no ${scope} skill "${words[0]}"`)
+        } else throw new Error(`unknown skills command "${cmd}" (list, drafts, accept, reject, install, remove)`)
         break
       }
       case 'presets': {
