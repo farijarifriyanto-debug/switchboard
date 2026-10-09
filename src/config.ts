@@ -21,6 +21,8 @@ export interface SwitchboardConfig {
     /** Catalog JSON consulted for model context windows the endpoint omits. */
     contextCatalogUrl?: string
   }
+  /** Before-images of files written by the file tools (`/undo`, `/changes`). */
+  undo?: { enabled?: boolean; dir?: string; maxEntries?: number; maxFileBytes?: number }
   /** Agent loop settings. */
   agent?: {
     system?: string

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `/changes` and `/undo [n|force]`: per-session before-images of `write_file`, restore newest first, never overwrite
+  a file you edited afterwards (CLI, console composer, `/api/sessions/:id/changes|undo`).
 - Console: "Browse" button next to "Switch root" lists subfolders (`GET /api/dirs`, fenced like
   the rest of `/api`, hides dotfolders and `node_modules`, drive list on Windows) so a
   workspace can be picked without typing the path.

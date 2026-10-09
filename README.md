@@ -132,6 +132,19 @@ is appended to the system prompt automatically — the shared project-context
 convention (Claude Code / OpenClaw / Hermes). Oversized files are truncated;
 missing files are ignored.
 
+## Undo file changes
+
+Every file the agent writes with `write_file` is journaled first (before-image in `~/.switchboard/undo/<session>/`):
+
+```text
+/changes          what the agent changed in this session
+/undo             restore the newest change   (/undo 3 = the last three, /undo force = even if you edited the file since)
+```
+
+Works in `sbx chat` and in the console composer (`GET /api/sessions/:id/changes`, `POST /api/sessions/:id/undo`).
+A file you edited after the agent is **skipped** unless you pass `force`. Files changed by shell commands are not
+recorded (use git for those); files over 5 MB are not backed up. Turn it off with `"undo": { "enabled": false }`.
+
 ## Sandbox
 
 Approval asks before a command runs; a sandbox limits what it can do once it runs. Turn it on for
