@@ -216,8 +216,8 @@ const main = await boot()
 
 try {
   section('config: defaults when the block is absent')
-  assert.deepEqual(validateSubagent(undefined, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true })
-  assert.deepEqual(validateSubagent({}, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true })
+  assert.deepEqual(validateSubagent(undefined, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true, maxWorkers: 12, maxTokens: 1_000_000, maxWorkerTokens: 300_000 })
+  assert.deepEqual(validateSubagent({}, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true, maxWorkers: 12, maxTokens: 1_000_000, maxWorkerTokens: 300_000 })
 
   section('config: type errors throw naming the key')
   assert.throws(() => validateSubagent({ maxParallel: 2.5 }, () => {}), /"maxParallel" must be an integer >= 1/)
@@ -917,6 +917,7 @@ try {
     stub.state.slowTag = 'SLOW'
     stub.state.slowExtraMs = 300
     stub.state.wakeDelayMs = 500 // slow wake so the window is observable
+    stub.state.parentDelayMs = 500 // keep the first parent turn busy until both jobs settle (else a slow runner splits them into two wakes)
     const gen = h.ctx.agent.stream('two bg tasks')
     await until(gen, (e) => e.type === 'final', 'final')
     await collect(gen) // release the run mutex — a parked-at-final generator still holds it (Task 5)
@@ -940,7 +941,7 @@ try {
     // Keep run0 BUSY while the children settle (~60-80ms): without a slow parent
     // turn the jobs land after run0's final and the single-flush claim depends on
     // same-tick coalescing (flaky). parentDelayMs delays each parent turn.
-    stub.state.parentDelayMs = 100
+    stub.state.parentDelayMs = 500 // generous: on a loaded CI runner the children start late
     const gen = h.ctx.agent.stream('three bg tasks')
     await until(gen, (e) => e.type === 'final', 'final')
     await collect(gen) // release the run mutex (generator parked at final)

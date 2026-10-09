@@ -114,6 +114,7 @@ export const subagent = {
     const sessionsRef = ctx.sessions
     const jobs = new Map<string, JobRecord>()
     const controllers = new Map<string, AbortController>() // per child, for unload
+    const limitHit = new Map<string, string>() // child -> why a budget stopped it
     const parents = new Map<string, ParentState>() // per-parent inject/wake state
     let jobSeq = 0
     let disposed = false
@@ -208,14 +209,19 @@ export const subagent = {
       child: SessionData, task: TaskSpec, link: AbortController,
       onStart: () => void,
     ): Promise<Outcome> => {
-      controllers.set(child.id, link)
+      // one controller per worker, chained to the batch's: a worker over its token budget stops alone
+      const own = new AbortController()
+      const chain = (): void => own.abort()
+      if (link.signal.aborted) own.abort()
+      else link.signal.addEventListener('abort', chain, { once: true })
+      controllers.set(child.id, own)
       onStart()
       try {
         let ok = false
         let result: string | undefined
         let error: string | undefined
         const gen = ctx.agent.stream(childPrompt(task), child.id, {
-          signal: link.signal,
+          signal: own.signal,
           system: WORKER_SYSTEM_PROMPT,
           model: task.model,
           maxSteps: task.maxSteps ?? resolved.maxSteps,
@@ -233,6 +239,11 @@ export const subagent = {
             error = ev.error ?? 'child error'
           }
         }
+        const limit = limitHit.get(child.id)
+        if (limit) {
+          ok = false
+          error = limit
+        }
         if (!ok && !error) error = 'child produced no answer'
         if (!disposed) ctx.emit('subagent/done', { sessionId: child.id, ok })
         return { description: task.description, status: ok ? 'ok' : 'failed', ...(ok ? { result: result ?? '' } : { error: error ?? 'failed' }), sessionId: child.id }
@@ -241,7 +252,9 @@ export const subagent = {
         if (!disposed) ctx.emit('subagent/done', { sessionId: child.id, ok: false })
         return { description: task.description, status: 'failed', error: message, sessionId: child.id }
       } finally {
+        link.signal.removeEventListener('abort', chain)
         controllers.delete(child.id)
+        limitHit.delete(child.id)
       }
     }
 
@@ -285,11 +298,44 @@ export const subagent = {
       return outcomes
     }
 
+    // ---- budgets: a worker that uses more than maxWorkerTokens is stopped on its own
+    ctx.on('llm/metrics', (result) => {
+      if (disposed || !resolved.maxWorkerTokens || !result.sessionId) return
+      const own = controllers.get(result.sessionId)
+      if (!own || own.signal.aborted) return
+      const used = Object.values(ctx.sessions.get(result.sessionId)?.usage?.byModel ?? {}).reduce((n, row) => n + row.promptTokens + row.completionTokens, 0)
+      if (used > resolved.maxWorkerTokens) {
+        limitHit.set(result.sessionId, `worker stopped: it used ${used.toLocaleString('en-US')} tokens (subagent.maxWorkerTokens is ${resolved.maxWorkerTokens.toLocaleString('en-US')}). Narrow the task or raise the limit.`)
+        own.abort()
+      }
+    })
+
+    /** All-or-nothing check before any worker starts; returns the refusal text, or undefined when fine. */
+    const overBudget = (parentSid: string, wanted: number): string | undefined => {
+      const started = ctx.sessions.list().filter((s) => s.kind === 'subagent' && s.parentSessionId === parentSid).length
+      if (started + wanted > resolved.maxWorkers) {
+        return `Error: task: worker limit — this session already started ${started} worker(s) and asked for ${wanted} more (subagent.maxWorkers is ${resolved.maxWorkers}). Do the remaining work yourself, or ask the user to raise the limit.`
+      }
+      const usage = ctx.get('usage', false)
+      if (!usage) return undefined
+      const spent = usage.summary(parentSid, { workersOnly: true })
+      const tokens = spent.promptTokens + spent.completionTokens
+      if (resolved.maxTokens && tokens >= resolved.maxTokens) {
+        return `Error: task: token budget used — this session's workers already used ${tokens.toLocaleString('en-US')} tokens (subagent.maxTokens is ${resolved.maxTokens.toLocaleString('en-US')}). Do the remaining work yourself, or ask the user to raise the limit.`
+      }
+      if (resolved.maxCostUsd !== undefined && spent.costUsd !== undefined && spent.costUsd >= resolved.maxCostUsd) {
+        return `Error: task: cost budget used — this session's workers cost about $${spent.costUsd.toFixed(2)} (subagent.maxCostUsd is $${resolved.maxCostUsd}). Do the remaining work yourself, or ask the user to raise the limit.`
+      }
+      return undefined
+    }
+
     // ---- batch entry (tool `execute` → runEntry) ------------------------------
     const runEntry = async (parentSid: string, raw: unknown, toolSignal?: AbortSignal): Promise<string> => {
       const validated = validateTaskArgs(raw, (m) => ctx.logger('subagent').warn('%s', m))
       if ('error' in validated) return validated.error
       const { tasks, background } = validated
+      const refused = overBudget(parentSid, tasks.length)
+      if (refused) return refused
 
       // jobIds BEFORE session creation so background children carry jobId (spec §6.2)
       const jobIds = background ? tasks.map(() => `j-${Date.now().toString(36)}-${(++jobSeq).toString(36)}`) : []

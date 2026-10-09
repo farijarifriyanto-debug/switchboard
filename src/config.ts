@@ -399,6 +399,14 @@ export interface SubagentConfig {
   maxParallel?: number
   maxSteps?: number
   autoResume?: boolean
+  /** Workers one session may start in total (blocking + background). */
+  maxWorkers?: number
+  /** Tokens (prompt + completion, summed over calls) all workers of a session may use; 0 = no limit. */
+  maxTokens?: number
+  /** Estimated USD all workers of a session may cost (needs known prices); unset = no limit. */
+  maxCostUsd?: number
+  /** Tokens one worker may use before it is stopped; 0 = no limit. */
+  maxWorkerTokens?: number
 }
 
 /** The block after validation and default resolution. */
@@ -407,10 +415,14 @@ export interface ResolvedSubagent {
   maxParallel: number
   maxSteps: number
   autoResume: boolean
+  maxWorkers: number
+  maxTokens: number
+  maxCostUsd?: number
+  maxWorkerTokens: number
 }
 
-export const SUBAGENT_DEFAULTS: ResolvedSubagent = { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true }
-const SUBAGENT_FIELDS = new Set(['enabled', 'maxParallel', 'maxSteps', 'autoResume'])
+export const SUBAGENT_DEFAULTS: ResolvedSubagent = { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true, maxWorkers: 12, maxTokens: 1_000_000, maxWorkerTokens: 300_000 }
+const SUBAGENT_FIELDS = new Set(['enabled', 'maxParallel', 'maxSteps', 'autoResume', 'maxWorkers', 'maxTokens', 'maxCostUsd', 'maxWorkerTokens'])
 
 /**
  * Validates the `subagent` block and resolves every default (pola
@@ -429,17 +441,28 @@ export function validateSubagent(sub: SubagentConfig | undefined, warn: (msg: st
     if (typeof value !== 'boolean') throw new Error(`subagent: "${key}" must be a boolean`)
     return value
   }
-  const count = (key: 'maxParallel' | 'maxSteps', value: unknown, def: number): number => {
+  const count = (key: 'maxParallel' | 'maxSteps' | 'maxWorkers', value: unknown, def: number): number => {
     if (value === undefined) return def
     if (typeof value !== 'number' || !Number.isInteger(value) || !Number.isFinite(value) || value < 1) {
       throw new Error(`subagent: "${key}" must be an integer >= 1`)
     }
     return value
   }
+  // budgets: a whole number >= 0, where 0 switches the limit off
+  const budget = (key: 'maxTokens' | 'maxWorkerTokens', value: unknown, def: number): number => {
+    if (value === undefined) return def
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) throw new Error(`subagent: "${key}" must be an integer >= 0 (0 = no limit)`)
+    return value
+  }
+  if (sub.maxCostUsd !== undefined && (typeof sub.maxCostUsd !== 'number' || !Number.isFinite(sub.maxCostUsd) || sub.maxCostUsd <= 0)) throw new Error('subagent: "maxCostUsd" must be a number > 0')
   return {
     enabled: bool('enabled', sub.enabled, SUBAGENT_DEFAULTS.enabled),
     autoResume: bool('autoResume', sub.autoResume, SUBAGENT_DEFAULTS.autoResume),
     maxParallel: count('maxParallel', sub.maxParallel, SUBAGENT_DEFAULTS.maxParallel),
     maxSteps: count('maxSteps', sub.maxSteps, SUBAGENT_DEFAULTS.maxSteps),
+    maxWorkers: count('maxWorkers', sub.maxWorkers, SUBAGENT_DEFAULTS.maxWorkers),
+    maxTokens: budget('maxTokens', sub.maxTokens, SUBAGENT_DEFAULTS.maxTokens),
+    ...(sub.maxCostUsd !== undefined ? { maxCostUsd: sub.maxCostUsd } : {}),
+    maxWorkerTokens: budget('maxWorkerTokens', sub.maxWorkerTokens, SUBAGENT_DEFAULTS.maxWorkerTokens),
   }
 }
