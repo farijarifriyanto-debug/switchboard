@@ -226,7 +226,7 @@ function appendToolCard(toolName, args) {
   const list = $('messages-list');
   const card = document.createElement('div');
   card.className = 'tool-card';
-  card.innerHTML = `<strong>🔧 ${toolName}</strong><br><small>${JSON.stringify(args)}</small>`;
+  card.textContent = `🔧 ${toolName}: ${JSON.stringify(args)}`;
   list.appendChild(card);
   list.scrollTop = list.scrollHeight;
   return card;
