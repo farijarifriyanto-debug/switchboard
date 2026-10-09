@@ -238,7 +238,18 @@ export const webUi = {
         if (route.startsWith('/api/browser-companion/') && ctx.browserCompanion) {
           return await ctx.browserCompanion.handleHttpRequest(req, res, route)
         }
-        if (tokenDigest && !authorized(req)) {
+        const extensionOrigin = String(req.headers.origin ?? '');
+        const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\\/api\\/runs\\/[^/]+\\/cancel$/.test(route))
+          && /^chrome-extension:\\/\\/[a-p]{32}$/.test(extensionOrigin)
+          && String(req.headers.authorization ?? '') === 'Bearer ' + (ctx.browserCompanion?.currentToken ?? '');
+        if (isCompanionChat) {
+          res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
+          res.setHeader('Vary', 'Origin')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+          if (req.method === 'OPTIONS') { res.writeHead(204); return void res.end() }
+        }
+        if (tokenDigest && !authorized(req) && !isCompanionChat) {
           // First visit: `/?token=...` trades the token for an HttpOnly cookie, then drops it from the URL.
           if (req.method === 'GET' && tokenMatches(url.searchParams.get('token'))) {
             url.searchParams.delete('token')
@@ -275,8 +286,14 @@ export const webUi = {
       // defense). The Host check only applies when the console is bound to
       // loopback; an operator who binds elsewhere on purpose keeps the Origin
       // and JSON content-type checks.
+      const origin = String(req.headers.origin ?? '')
+      const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\\/api\\/runs\\/[^/]+\\/cancel$/.test(route))
+        && /^chrome-extension:\\/\\/[a-p]{32}$/.test(origin)
+        && String(req.headers.authorization ?? '') === 'Bearer ' + (ctx.browserCompanion?.currentToken ?? '')
       const fenced = settingsGuard(req, { enforceHost: LOOPBACK_HOSTS.has(host.toLowerCase()) })
-      if (fenced) return json(res, fenced.status, { error: fenced.error, hint: fenced.hint })
+      if (isCompanionChat && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
+        // A paired browser extension may access only these three endpoints.
+      } else if (fenced) return json(res, fenced.status, { error: fenced.error, hint: fenced.hint })
       // ------------------------------------------------------------ workspace
       if (route === '/api/workspace' && req.method === 'GET') {
         return json(res, 200, {
