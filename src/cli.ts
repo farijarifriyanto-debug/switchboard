@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { createHost } from './index.js'
 import { describeToolCall } from './services/approval.js'
 import { formatUsage } from './services/usage.js'
+import { formatUndo } from './services/undo.js'
 import { SkillDrafts, installCandidate, removeSkill, stageSource } from './services/skill-store.js'
 import { loadConfig, type SwitchboardConfig } from './config.js'
 
@@ -804,7 +805,7 @@ async function main(): Promise<void> {
         const seed = args.positional.join(' ').trim()
         let prompt: string | null = seed
         console.log(C.bold('Switchboard') + C.dim(` — ${ctx.llm.settings.defaultModel} · session ${session.id}${session.resumed ? ' (resumed)' : ''}`))
-        console.log(C.dim('type /exit to quit, /new for a new session, /sessions to list, /compact to summarize history, /usage for tokens and cost, /metrics for latency'))
+        console.log(C.dim('type /exit to quit, /new for a new session, /sessions to list, /compact to summarize history, /usage for tokens and cost, /changes and /undo [n|force] for file edits, /metrics for latency'))
         if (!prompt) prompt = await ask(C.cyan('you › '))
 
         while (prompt && prompt.trim()) {
@@ -823,6 +824,19 @@ async function main(): Promise<void> {
               await usage.refresh()
               console.log(C.dim(formatUsage(usage.summary(session.id))))
             }
+            prompt = await ask(C.cyan('you › '))
+            continue
+          }
+          if (text === '/changes') {
+            const changes = await ctx.undo.list(session.id)
+            console.log(changes.length ? changes.map((c) => C.dim(`#${c.seq} ${new Date(c.at).toISOString().slice(11, 19)} `) + `${c.created ? 'created ' : 'changed '}${c.file}`).join('\n') : C.dim('no file changes recorded in this session'))
+            prompt = await ask(C.cyan('you › '))
+            continue
+          }
+          if (text === '/undo' || text.startsWith('/undo ')) {
+            const args = text.slice('/undo'.length).trim().split(/\s+/).filter(Boolean)
+            const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 1)
+            console.log(C.dim(formatUndo(await ctx.undo.undo(session.id, count, args.includes('force')))))
             prompt = await ask(C.cyan('you › '))
             continue
           }

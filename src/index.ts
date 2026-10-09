@@ -6,6 +6,7 @@ import { mergeConfig, resolvePluginSrc } from './config.js'
 import './events.js'
 import './services/agent.js'
 import { LLMService } from './services/llm.js'
+import { UndoService } from './services/undo.js'
 import { ProviderRegistryService } from './services/providers.js'
 import { PresetService } from './services/presets.js'
 import { SkillService, toolsSkills } from './services/skills.js'
@@ -77,6 +78,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   await ctx.plugin(TraceService, config.trace ?? {})
   await ctx.plugin(MetricsService, config.metrics ?? {})
   await ctx.plugin(UsageService, config.usage ?? {})
+  await ctx.plugin(UndoService, config.undo ?? {})
   if (config.metrics?.load) await ctx.metrics.hydrate()
   if (config.sessions?.load !== false) await ctx.sessions.hydrate()
 
@@ -162,6 +164,7 @@ export { CompactionService } from './services/compaction.js'
 export { telegramChannel } from './channels/telegram.js'
 export { discordChannel } from './channels/discord.js'
 export { AutomationService } from './services/automations.js'
+export { UndoService, formatUndo } from './services/undo.js'
 export { UsageService, formatUsage, costOf, priceFromModel } from './services/usage.js'
 export { MemoryService, withMemory } from './services/memory.js'
 export { WorkspaceService } from './services/workspace.js'

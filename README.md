@@ -142,6 +142,38 @@ sbx run --json --yes "…" | tail -n 1                               # {"type":"
 Every agent event (`delta`, `tool_call`, `tool_result`, `notice`, `metrics`, `error`, …) is one JSON line, then exactly one
 `result` line. Nothing else goes to stdout (progress and warnings stay on stderr). The exit code is `0` when the run
 succeeded and `1` when it failed or an approval was refused (no terminal to ask: pass `--yes` or set `approval.mode`).
+## Undo file changes
+
+Every file the agent writes with `write_file` is journaled first (before-image in `~/.switchboard/undo/<session>/`):
+
+```text
+/changes          what the agent changed in this session
+/undo             restore the newest change   (/undo 3 = the last three, /undo force = even if you edited the file since)
+```
+
+Works in `sbx chat` and in the console composer (`GET /api/sessions/:id/changes`, `POST /api/sessions/:id/undo`).
+A file you edited after the agent is **skipped** unless you pass `force`. Files changed by shell commands are not
+recorded (use git for those); files over 5 MB are not backed up. Turn it off with `"undo": { "enabled": false }`.
+## Fallback chain (free-tier orchestrator)
+
+Free models hit rate limits and go down. List backup targets and a call that fails **before it
+produced any output** (HTTP 429/5xx/4xx, network, timeout, bad key) moves on to the next one:
+
+```jsonc
+{ "llm": {
+    "fallbacks": [
+      { "model": "gpt-oss-120b" },                       // same provider, other model
+      { "provider": "openrouter", "model": "qwen3.8-27b" } // other provider (id from Settings)
+    ],
+    "fallbackCooldownMs": 60000                           // skip a target that just failed (429/5xx/network), default 60 s
+} }
+```
+
+- The primary is whatever the chat/preset selected; `fallbacks` apply to every call.
+- With a fallback waiting, a failing target gets one retry instead of the whole retry budget.
+- Once text has reached you the call never switches (it would duplicate output).
+- Every switch is an `llm/fallback` event and shows in the trace; usage is counted on the model that answered.
+- If every target fails, the error names each one.
 
 ## Sandbox
 

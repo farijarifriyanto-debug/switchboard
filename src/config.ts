@@ -20,7 +20,13 @@ export interface SwitchboardConfig {
     retryMaxDelayMs?: number
     /** Catalog JSON consulted for model context windows the endpoint omits. */
     contextCatalogUrl?: string
+    /** Fallback chain when a call fails before any output: `[{ provider?, model? }, ...]`. */
+    fallbacks?: Array<{ provider?: string; model?: string }>
+    /** Skip a failing target for this many ms (default 60000, 0 disables). */
+    fallbackCooldownMs?: number
   }
+  /** Before-images of files written by the file tools (`/undo`, `/changes`). */
+  undo?: { enabled?: boolean; dir?: string; maxEntries?: number; maxFileBytes?: number }
   /** Agent loop settings. */
   agent?: {
     system?: string
