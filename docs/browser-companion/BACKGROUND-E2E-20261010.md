@@ -1,7 +1,7 @@
 # Switchboard Browser Companion — Real Chrome Background E2E
 
-**Date:** 2026-10-10 (WIB)  
-**Branch:** `feat/chrome-browser-companion`  
+**Date:** 2026-10-10 (WIB)
+**Branch:** `feat/chrome-browser-companion`
 **Scope:** Local Windows laptop `home`; isolated Chrome for Testing v154; Switchboard local browser bridge.
 
 ## Verified
@@ -21,7 +21,7 @@ The actual unpacked Chrome extension v0.3.0 used its **Manifest V3 service worke
 
 - [Successful background screen recording — 25.5 seconds](./background-closed-success.mp4)
 - [Final Chrome screenshot after click](./background-closed-clicks-one.png)
-- [Exact successful test output](./background-closed-success.log)
+- [Exact successful test output](./background-closed-success.txt)
 
 The recording shows the Chrome tab and actual click result, **not a full AI-provider-generated conversation**. It proves the tool transport, browser action, and readback with the extension panel closed. The earlier agent prompt-through-model path was verified separately, but a new combined AI-provider test remains pending when BotConnector authentication is healthy.
 
