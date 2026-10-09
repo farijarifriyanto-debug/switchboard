@@ -191,8 +191,8 @@ async function fetchAvailableModels() {
         select.innerHTML = '';
         state.models.forEach((m) => {
           const opt = document.createElement('option');
-          opt.value = m.id;
-          opt.textContent = `${m.id}${m.tier ? ` [${m.tier}]` : ''}`;
+          opt.value = m.provider && m.provider !== 'default' ? `${m.provider}::${m.id}` : m.id;
+          opt.textContent = `${m.id}${m.providerName ? ` · ${m.providerName}` : ''}`;
           select.appendChild(opt);
         });
       }
