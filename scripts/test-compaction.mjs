@@ -21,6 +21,7 @@ assert.match(rendered, /^user: hi\nassistant called read_file\(\{"path":"a.txt"\
 // ---- stub model: a summarizer persona and a plain chat persona
 const calls = { summary: 0, chat: 0 }
 let failSummary = false
+let summaryText = '## Goal\nSHIP THE THING\n## Facts to keep\nfile a.txt'
 let lastChat
 const stub = http.createServer(async (req, res) => {
   if (req.url?.endsWith('/models')) {
@@ -42,7 +43,7 @@ const stub = http.createServer(async (req, res) => {
     lastChat = body.messages
   }
   res.writeHead(200, { 'content-type': 'text/event-stream' })
-  const text = isSummary ? '## Goal\nSHIP THE THING\n## Facts to keep\nfile a.txt' : 'ok'
+  const text = isSummary ? summaryText : 'ok'
   res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`)
   res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`)
   res.write('data: [DONE]\n\n')
@@ -124,6 +125,25 @@ try {
   assert.ok(done.summarized > 0 && done.after < done.before)
   assert.equal((await post(m.id)).status, 422, 'a conversation that is already short is refused')
   assert.equal((await post('missing')).status, 404)
+
+  // ---- a short conversation is refused without calling the model; a summary that would not shrink is not applied
+  const callsBefore = calls.summary
+  const tiny = ctx.sessions.create({ title: 'tiny' })
+  for (let i = 0; i < 6; i += 1) ctx.sessions.append(tiny.id, { role: i % 2 ? 'assistant' : 'user', content: `short ${i}` })
+  const tinyOut = await ctx.compaction.compact(tiny.id)
+  assert.equal(tinyOut.ok, false)
+  assert.match(tinyOut.reason, /only ~\d+ tokens/)
+  assert.equal(calls.summary, callsBefore, 'no summarizer call for a short history')
+  const wordy = ctx.sessions.create({ title: 'wordy summary' })
+  for (let i = 0; i < 16; i += 1) ctx.sessions.append(wordy.id, { role: i % 2 ? 'assistant' : 'user', content: `m${i} ${'x'.repeat(200)}` })
+  wordy.messages.push({ role: 'user', content: 'tail' })
+  summaryText = 'WORDY '.repeat(900) // a summary longer than the history it replaces
+  const wordyBefore = wordy.messages.length
+  const wordyOut = await ctx.compaction.compact(wordy.id)
+  assert.equal(wordyOut.ok, false)
+  assert.match(wordyOut.reason, /would not be shorter/)
+  assert.equal(ctx.sessions.get(wordy.id).messages.length, wordyBefore, 'the conversation is left unchanged')
+  summaryText = '## Goal\nSHIP THE THING\n## Facts to keep\nfile a.txt'
 
   // ---- config off: nothing is summarized, old behaviour stays
   await host.dispose()

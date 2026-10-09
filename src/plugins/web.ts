@@ -979,9 +979,13 @@ export const webUi = {
     // -------------------------------------------------------------- startup
 
     const started = new Promise<void>((resolve, reject) => {
-      server.once('error', reject)
+      server.once('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EADDRINUSE') reject(new Error(`port ${port} on ${host} is already in use (another \`sbx web\` still running? stop it, or choose a port with --port <n>)`))
+        else reject(error)
+      })
       server.listen(port, host, () => resolve())
     })
+    void started.catch(() => undefined) // reported by ready(); must not crash the process first
 
     ctx.effect(() => () => {
       for (const ac of runs.values()) ac.abort()
