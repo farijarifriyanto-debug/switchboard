@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Preserve MCP structured results via `tools.callResult`; structured-only data
+  renders as bounded JSON. Debug logs no longer include structured values.
+- Bridge MCP Resources, resource templates, and prompt templates as namespaced
+  tools with pagination, cancellation, capability checks, and existing policies.
+
 - Persist background jobs, result delivery receipts and interrupted-wake state
   with parent sessions. Long-running hosts recover queued jobs without repeating
   started work or delivering results twice; normal shutdown preserves queues.

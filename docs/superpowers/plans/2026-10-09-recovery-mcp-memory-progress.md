@@ -9,3 +9,6 @@ Ruling: Work on a feature branch in the dedicated cloned checkout rather than cr
 Task 1: complete — typecheck/build, full existing npm test suite, test-recovery and test-worker-workspace passed. Red: queue recovery timed out; worker-root regression returned wrong workspace. Green: hard-crash queue/results/receipts/owner/write-failure cases and workspace isolation passed.
 Ruling: Correct the existing kill-tree test to treat Linux zombies as dead — baseline failed while /proc showed Z processes, which cannot execute or hold pipes. This changes the test only, retaining the real live-process assertion.
 Verification limit: real bubblewrap passed; Docker integration skipped because node:24-alpine was not installed.
+
+Task 2: complete — typecheck/build and npm test passed, including extended MCP over stdio and HTTP, capability absence/collision, pagination, structured-only and error results, binary omission, prompt validation, cancellation and policy checks. Red: structured-only rendering was '(empty result)'.
+Ruling: Resource/prompt lists are fetched fresh instead of cached — list_changed notifications cannot leave cached metadata stale; no extra notification-backed cache is necessary.

@@ -8,8 +8,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
  * transport per request, exactly the SDK's documented pattern). Returns a
  * handle so the test suite owns the lifecycle.
  */
-export function startFakeMcpHttp() {
-  const makeServer = () => {
+export function startFakeMcpHttp(factory) {
+  const makeServer = factory ?? (() => {
     const server = new Server(
       { name: 'fake-mcp-http', version: '1.0.0' },
       { instructions: 'HTTP fixture for Switchboard MCP tests.', capabilities: { tools: {} } },
@@ -19,7 +19,7 @@ export function startFakeMcpHttp() {
     }))
     server.setRequestHandler(CallToolRequestSchema, async () => ({ content: [{ type: 'text', text: 'pong' }] }))
     return server
-  }
+  })
   const readJson = (req) =>
     new Promise((resolve, reject) => {
       const chunks = []

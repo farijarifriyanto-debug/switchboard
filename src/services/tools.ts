@@ -20,7 +20,14 @@ export interface ToolSpec {
   exposed?: boolean
   /** `risky` is gated by the `risky` approval mode (external tools that may mutate state). */
   risk?: 'risky'
-  execute(args: any, ctx: ToolContext): Promise<string> | string
+  execute(args: any, ctx: ToolContext): Promise<string | ToolResult> | string | ToolResult
+}
+
+export interface ToolResult {
+  content: string
+  structuredContent?: unknown
+  blocks?: unknown[]
+  isError?: boolean
 }
 
 export interface ToolRegistration extends ToolSpec {
@@ -85,10 +92,16 @@ export class ToolsService extends Service {
 
   /** Executes a tool by name. Never throws; errors are returned as text. */
   async call(name: string, args: unknown, ctx: ToolContext = {}): Promise<string> {
+    return (await this.callResult(name, args, ctx)).content
+  }
+
+  /** Additive rich-result API; string plugins and the agent loop remain compatible. */
+  async callResult(name: string, args: unknown, ctx: ToolContext = {}): Promise<ToolResult> {
+    const failure = (content: string): ToolResult => ({ content, isError: true })
     const tool = this.registry.get(name)
-    if (!tool) return `Error: unknown tool "${name}"`
+    if (!tool) return failure(`Error: unknown tool "${name}"`)
     if (ctx.deny?.includes(name)) {
-      return `Error: tool "${name}" is not available to this agent`
+      return failure(`Error: tool "${name}" is not available to this agent`)
     }
     try {
       // The approval gate lives here so *every* caller (agent loop, console,
@@ -97,15 +110,20 @@ export class ToolsService extends Service {
       if (this.ctx.approvals.needsApproval(name, ctx.sessionId, tool.risk)) {
         const decision = await this.ctx.approvals.request(name, args, ctx.sessionId, ctx.signal)
         if (decision === 'approved_session') this.ctx.approvals.grantSession(name, ctx.sessionId)
-        if (decision === 'rejected') return 'Error: the operator rejected this tool call.'
-        if (decision === 'timeout') return 'Error: approval timed out; the tool was not run.'
-        if (decision === 'cancelled') return 'Error: approval was cancelled; the tool was not run.'
+        if (decision === 'rejected') return failure('Error: the operator rejected this tool call.')
+        if (decision === 'timeout') return failure('Error: approval timed out; the tool was not run.')
+        if (decision === 'cancelled') return failure('Error: approval was cancelled; the tool was not run.')
       }
+      if (ctx.signal?.aborted) return failure('Error: tool call cancelled before execution.')
       const out = await tool.execute(args, ctx)
-      return typeof out === 'string' ? out : JSON.stringify(out)
+      if (typeof out === 'string') return { content: out, ...(out.startsWith('Error:') ? { isError: true } : {}) }
+      if (out && typeof out.content === 'string') {
+        return { ...out, content: out.isError && !out.content.startsWith('Error:') ? `Error: ${out.content}` : out.content }
+      }
+      return { content: JSON.stringify(out) }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      return `Error: ${message}`
+      return failure(`Error: ${message}`)
     }
   }
 

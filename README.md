@@ -403,9 +403,20 @@ Switchboard tool source — no plugin needed. Configure it in the `mcp` block:
 - Server `instructions` are injected into the system prompt while connected.
 - Child processes get a scrubbed environment (`KEY|PASSWORD|SECRET|TOKEN|
   CREDENTIAL` names and `BOTCONNECTOR_*` are dropped; your `env` entries win).
-- Known deviations from the reference DeepSeek Harness client (image results as
-  text, `structuredContent` logged only, no config hot-reload, no Resources/
-  prompt bridging, headers-only auth) are listed in the design spec.
+- Structured-only results render as bounded JSON instead of an empty result.
+  `ctx.tools.callResult(name, args, context)` preserves `structuredContent`, raw
+  content blocks, and `isError` for programmatic callers; `call()` still returns
+  text. Debug logs record the presence of structured data without its values.
+- Servers advertising Resources or Prompts gain namespaced `list_resources`,
+  `read_resource`, `list_resource_templates`, `list_prompts`, and `get_prompt`
+  tools (for example `mcp__memory__read_resource`). Lists follow pagination,
+  capped at 50 pages / 5000 entries, and are fetched fresh on every call.
+  These operations honor approval and preset restrictions. Prompt templates
+  return as data, never as automatically installed system instructions.
+- Binary results still become bounded diagnostics in model context. Attachment
+  storage, config hot-reload, and OAuth flows remain outside this bridge;
+  authentication is headers-based. A server tool that collides with a reserved
+  bridge operation is rejected explicitly, leaving the host usable.
 
 ## Subagent delegation
 
