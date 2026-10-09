@@ -27,6 +27,10 @@ tested against recording stub model endpoints and, where noted, real tools.
 - **Telegram channel**: private chats from allow-listed users, approvals as inline buttons.
 - **Browser**: Playwright MCP through the MCP bridge; verified against real Chromium in CI.
 - **Subagent budgets**: `maxWorkers`, `maxTokens`, `maxCostUsd` per session and `maxWorkerTokens` per worker.
+- **Tokens and cost**: per-session token totals (per model) and an estimated cost in the console, Telegram `/status` and chat `/usage`.
+- **Memory**: `MEMORY.md` notes (project + global) read into every prompt as background facts; written only through the gated `remember` tool.
+- **Skills from others**: Agent Skills format; `sbx skills install <folder|https git URL>` with a full preview and confirmation; `allowed-tools` is ignored.
+- **Skill drafts**: `propose_skill` writes an inert draft; `sbx skills drafts|accept|reject` is the review.
 - Provider settings with write-only credentials, multi-provider chat, hot-apply (from 0.1.x work).
 
 ### Packaging
@@ -35,5 +39,6 @@ tested against recording stub model endpoints and, where noted, real tools.
 ### Known gaps
 - No overflow recovery when a provider rejects a prompt as too long (compaction runs before that).
 - Automations and presets have an API/CLI but no editor in the console.
-- Telegram: text only, private chats only, tested against a fake Bot API.
+- Telegram: text only, private chats only; tried by hand against the real Bot API in one chat.
+- Drafts, memory and skill installs have a CLI but no console screen yet.
 - The sandbox is process isolation (shared kernel), not a hard security boundary.

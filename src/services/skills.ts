@@ -14,6 +14,8 @@ export interface SkillsConfig {
   globalDir?: string
   /** Project skills directory, relative to the workspace. Default `.switchboard/skills`. */
   projectDir?: string
+  /** Where model-proposed skills wait for review. Default `~/.switchboard/skill-drafts`. */
+  draftsDir?: string
 }
 
 export interface Skill {
@@ -84,6 +86,11 @@ export class SkillService extends Service {
     this.enabled = config.enabled !== false
     this.globalDir = path.resolve((config.globalDir ?? path.join(os.homedir(), '.switchboard', 'skills')).replace(/^~(?=$|[\\/])/, os.homedir()))
     this.projectDir = config.projectDir ?? '.switchboard/skills'
+  }
+
+  /** Where skills of one source live (the folder `skills install` and `accept` write to). */
+  skillsDir(source: Skill['source']): string {
+    return source === 'global' ? this.globalDir : path.resolve(this.root(), this.projectDir)
   }
 
   private root(): string {

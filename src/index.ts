@@ -14,6 +14,8 @@ import { toolsRecall } from './services/recall.js'
 import { telegramChannel } from './channels/telegram.js'
 import { AutomationService } from './services/automations.js'
 import { UsageService } from './services/usage.js'
+import { MemoryService, toolsMemory } from './services/memory.js'
+import { toolsSkillDrafts } from './services/skill-store.js'
 import { CredentialStoreService } from './services/credentials.js'
 import { ToolsService } from './services/tools.js'
 import { SessionService } from './services/session.js'
@@ -85,7 +87,10 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   await ctx.plugin(toolsWeb, config.tools?.web ?? {})
   await ctx.plugin(SkillService, config.skills ?? {})
   await ctx.plugin(toolsSkills)
+  await ctx.plugin(toolsSkillDrafts, config.skills?.draftsDir ? { draftsDir: config.skills.draftsDir } : {})
   await ctx.plugin(toolsRecall)
+  await ctx.plugin(MemoryService, config.memory ?? {})
+  await ctx.plugin(toolsMemory)
   await ctx.plugin(AutomationService, { dir: config.settings?.dir, ...(config.automations ?? {}) })
 
   // MCP servers, when configured (fail-open; validation throws on bad config).
@@ -145,6 +150,7 @@ export { CompactionService } from './services/compaction.js'
 export { telegramChannel } from './channels/telegram.js'
 export { AutomationService } from './services/automations.js'
 export { UsageService, formatUsage, costOf, priceFromModel } from './services/usage.js'
+export { MemoryService, withMemory } from './services/memory.js'
 export { WorkspaceService } from './services/workspace.js'
 export { ApprovalService } from './services/approval.js'
 export { TraceService } from './services/trace.js'

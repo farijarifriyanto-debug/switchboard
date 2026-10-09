@@ -193,6 +193,59 @@ yourself with `/deploy to staging`. `sbx skills` lists what was found. Skills ar
 instructions read from disk: treat one from a project you did not write like the rest of that
 project. `"skills": { "enabled": false }` turns the feature off.
 
+### Skills from other people (the Agent Skills format)
+
+The `SKILL.md` format is the open [Agent Skills](https://agentskills.io) layout (a folder with
+`SKILL.md` plus optional `scripts/`, `references/`, `assets/`), so skills written for other agents
+work here. `license` and `compatibility` are accepted; `allowed-tools` is **ignored** (what a tool may
+do is decided by your approval mode, never by a skill).
+
+```sh
+sbx skills install ./some-folder                      # or an https:// git URL; lists what it finds
+sbx skills install https://github.com/org/skills --skill pdf [--global] [--force]
+sbx skills remove pdf [--global]
+```
+
+`install` shows you the name, description, file list, warnings (scripts it ships, links it will not
+follow, a folder that differs from the name) and the whole `SKILL.md` before asking `[y/N]`; with no
+terminal it refuses unless you pass `--yes`. Nothing is run at install time, links and `.git` are not
+copied, files are size-limited, and an existing skill is never overwritten without `--force`. The
+source is recorded in `.switchboard-origin.json`. A skill can still tell the model to run its scripts:
+that goes through the usual approval, so read the scripts too.
+
+### Skills the agent proposes
+
+After solving something reusable the model may call `propose_skill`. That only writes a **draft** to
+`~/.switchboard/skill-drafts/` (at most 10 waiting, 8000 characters each, header built by Switchboard).
+A draft is inert: nothing reads it as a skill until you review it.
+
+```sh
+sbx skills drafts            # what is waiting
+sbx skills drafts <name>     # read one in full
+sbx skills accept <name> [--global]   # asks [y/N], then installs it
+sbx skills reject <name>
+```
+
+Subagents cannot propose skills or save notes.
+
+## Memory
+
+A small notebook the model reads at the start of every turn: `.switchboard/MEMORY.md` in the project
+and `~/.switchboard/MEMORY.md` for everywhere, one dated bullet per note. The notes go into the prompt
+as background facts, explicitly **not** as instructions (the newest ~4000 characters are used).
+
+The model adds a note only through the `remember` tool, which is gated like a file write: you see the
+exact text and approve it (unattended automations auto-reject it). One short line per note, 16 KB per
+file. Edit or delete the files by hand any time, or:
+
+```sh
+sbx memory                       # list both
+sbx memory add "Use pnpm, not npm" [--global]
+sbx memory forget 2              # by number, or by text
+```
+
+`"memory": { "enabled": false }` removes the tool and the prompt section.
+
 ## Compaction
 
 Long conversations are summarized, not just cut. When the prompt passes 80% of
