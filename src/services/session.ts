@@ -1,6 +1,8 @@
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, unlink, writeFile, lstat } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { validBackground, type BackgroundState } from './background-jobs.js'
 import path from 'node:path'
 import type { SessionUsage, AgentMessage } from '../types.js'
 
@@ -18,6 +20,8 @@ export interface SessionConfig {
 export type SessionStatus = 'working' | 'waiting_approval' | 'idle' | 'failed' | 'completed' | 'cancelled'
 
 export interface SessionData {
+  /** Durable background jobs and delivery receipts; never projected into model history. */
+  background?: BackgroundState
   id: string
   title: string
   model?: string
@@ -71,6 +75,7 @@ export class SessionService extends Service {
   private seq = 0
   private dirty = new Set<string>()
   private timer?: ReturnType<typeof setTimeout>
+  private writes = new Map<string, Promise<void>>()
 
   constructor(ctx: Context, config: SessionConfig = {}) {
     super(ctx, 'sessions')
@@ -217,6 +222,7 @@ export class SessionService extends Service {
   // ------------------------------------------------------------ persistence
 
   private file(id: string): string {
+    if (!/^[\w-]+$/.test(id)) throw new Error('invalid session id')
     return path.join(this.dir as string, `${id}.json`)
   }
 
@@ -240,44 +246,74 @@ export class SessionService extends Service {
     if (!this.dir || !this.dirty.size) return
     const ids = [...this.dirty]
     this.dirty.clear()
-    await Promise.all(ids.map((id) => this.write(id)))
+    await Promise.all(ids.map((id) => this.checkpoint(id).catch(() => { this.dirty.add(id) })))
   }
 
-  private async write(id: string): Promise<void> {
+  /** Strict serialized persistence: dispatchers must await this before starting work. */
+  async checkpoint(id: string): Promise<void> {
     const data = this.sessions.get(id)
     if (!data || !this.dir) return
     const target = this.file(id)
-    const tmp = `${target}.tmp`
+    const dir = this.dir
+    const snapshot = JSON.stringify(data, null, 2)
+    const prior = this.writes.get(id) ?? Promise.resolve()
+    const next = prior.catch(() => {}).then(async () => {
+      const tmp = `${target}.${randomUUID()}.tmp`
+      await mkdir(dir, { recursive: true })
+      try {
+        await writeFile(tmp, snapshot, { encoding: 'utf8', mode: 0o600 })
+        if (this.sessions.has(id)) await rename(tmp, target)
+      } finally { await unlink(tmp).catch(() => {}) }
+    })
+    this.writes.set(id, next)
+    try { await next } catch (error) { this.dirty.add(id); throw error }
+    finally { if (this.writes.get(id) === next) this.writes.delete(id) }
+  }
+
+  /** Bounded detached reader. Does not add search results to the live registry. */
+  async readStored(id: string): Promise<SessionData | undefined> {
+    if (!this.dir || !/^[\w-]+$/.test(id)) return undefined
     try {
-      await mkdir(this.dir, { recursive: true })
-      await writeFile(tmp, JSON.stringify(data, null, 2), 'utf8')
-      await rename(tmp, target)
-    } catch {
-      /* a session store must never break a run */
+      const file = this.file(id)
+      const st = await lstat(file)
+      if (!st.isFile() || st.isSymbolicLink() || st.size > 8_000_000) return undefined
+      const data = JSON.parse(await readFile(file, 'utf8')) as SessionData
+      if (data?.id !== id || !Array.isArray(data.messages) || data.messages.some(m => !m || typeof m.content !== 'string')) return undefined
+      if (data.background !== undefined && !validBackground(data.background, id)) delete data.background
+      return data
+    } catch { return undefined }
+  }
+
+  async *stored(): AsyncGenerator<SessionData> {
+    if (!this.dir) return
+    const names = await readdir(this.dir).catch(() => [] as string[])
+    for (const name of names.sort()) {
+      if (!name.endsWith('.json')) continue
+      const data = await this.readStored(name.slice(0, -5))
+      if (data) yield data
     }
+  }
+
+  async restoreStored(id: string): Promise<SessionData | undefined> {
+    const live = this.get(id)
+    if (live) return live
+    const data = await this.readStored(id)
+    if (data) this.sessions.set(id, data)
+    return data
   }
 
   /** Loads persisted sessions from disk into memory. Returns how many were read. */
   async hydrate(): Promise<number> {
     if (!this.dir) return 0
-    const entries = await readdir(this.dir).catch(() => [] as string[])
-    const files = entries.filter((name) => name.endsWith('.json') && !name.endsWith('.tmp'))
     const loaded: SessionData[] = []
-    for (const name of files) {
-      const text = await readFile(path.join(this.dir, name), 'utf8').catch(() => '')
-      if (!text) continue
-      try {
-        const data = JSON.parse(text) as SessionData
-        if (data?.id && Array.isArray(data.messages)) loaded.push(data)
-      } catch {
-        /* skip malformed session file */
-      }
-    }
+    for await (const data of this.stored()) loaded.push(data)
     loaded.sort((a, b) => b.updatedAt - a.updatedAt)
-    for (const data of loaded.slice(0, this.max)) {
+    const active = loaded.filter(s => s.background?.jobs.some(j => j.status === 'queued' || j.status === 'running' || !j.delivered))
+    const childIds = new Set(active.flatMap(s => s.background!.jobs.map(j => j.sessionId)))
+    for (const data of [...loaded.slice(0, this.max), ...active, ...loaded.filter(s => childIds.has(s.id))]) {
       if (!this.sessions.has(data.id)) this.sessions.set(data.id, data)
     }
-    return Math.min(loaded.length, this.max)
+    return this.sessions.size
   }
 }
 

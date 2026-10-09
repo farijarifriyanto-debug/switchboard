@@ -14,9 +14,15 @@ if (process.platform === 'win32') {
   process.exit(0)
 }
 
-const alive = (pid) => {
+const alive = async (pid) => {
   try {
     process.kill(pid, 0)
+    // Container PID 1 may leave killed grandchildren as zombies. They cannot
+    // execute or hold pipes; signal 0 alone does not distinguish them from live work.
+    if (process.platform === 'linux') {
+      const stat = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '')
+      if (!stat || stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ')) return false
+    }
     return true
   } catch {
     return false
@@ -41,7 +47,7 @@ try {
   assert.match(out, /timed out/, 'timeout is reported to the model')
   const pid = Number(await readFile(path.join(scratch, 'pid'), 'utf8'))
   await new Promise((r) => setTimeout(r, 500))
-  assert.equal(alive(pid), false, 'grandchild process was killed with the shell')
+  assert.equal(await alive(pid), false, 'grandchild process was killed with the shell')
   console.log('kill-tree: OK')
 } finally {
   await host.dispose()

@@ -4,6 +4,8 @@ import type { JsonSchema, ToolDef } from '../types.js'
 import type { Decision } from './approval.js'
 
 export interface ToolContext {
+  /** Snapshot of this session's project root; workers must not follow UI workspace switches. */
+  workspace?: string
   sessionId?: string
   signal?: AbortSignal
   /** Tool names this agent may NOT run (subagent children: ['task']). */

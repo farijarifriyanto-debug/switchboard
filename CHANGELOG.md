@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Persist background jobs, result delivery receipts and interrupted-wake state
+  with parent sessions. Long-running hosts recover queued jobs without repeating
+  started work or delivering results twice; normal shutdown preserves queues.
+- Serialize strict session checkpoints and refuse dispatch on persistence errors.
+  An exclusive recovery owner prevents competing hosts from dispatching jobs.
+- Workers use their saved project workspace for filesystem/shell tools.
+- Process-tree tests distinguish killed Linux zombies from executing processes
+  in containers whose PID 1 does not reap orphaned grandchildren.
+
 ## 0.2.0
 
 First release prepared for other people to run. Everything below is on `master`; each item was

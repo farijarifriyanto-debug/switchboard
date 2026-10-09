@@ -129,10 +129,17 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   // User-provided plugins.
   for (const spec of config.plugins ?? []) await loadExtraPlugin(ctx, spec)
 
+  if (config.sessions?.load !== false && (config.web?.enabled || config.channels?.telegram?.enabled || config.channels?.discord?.enabled)) {
+    if (config.web?.enabled) await ctx.web.ready()
+    await ctx.subagent?.recover()
+  }
+
   return {
     ctx,
     config,
     async dispose() {
+      await ctx.subagent?.shutdown()
+      await ctx.sessions.flush()
       for (const runtime of [...ctx.registry.values()]) {
         for (const fiber of [...runtime.fibers]) {
           await fiber.dispose()

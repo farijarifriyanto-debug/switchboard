@@ -443,10 +443,16 @@ what its in-flight workers use.
   your `AGENTS.md`/date context, and inherit the session model unless the task
   overrides it. Background children carry `kind: 'subagent'`,
   `parentSessionId`, `jobId` in their persisted session record.
-- Jobs live in memory only: unloading the host (`host.dispose()`) aborts
-  in-flight workers, marks queued jobs `aborted before start (unload)` and
-  running jobs `aborted (unload)`, clears the registry, and drops pending
-  injections.
+- Background job checkpoints and delivery receipts are saved with the parent
+  session. On restart, `sbx web` and `sbx channels` resume workers that had not
+  started and deliver saved results once. Work already running is marked
+  interrupted and is **never automatically repeated**. An interrupted parent
+  wake waits for your next input. Normal shutdown preserves queued work.
+- Recovery requires session persistence and loading. Read-only/one-shot commands
+  never run the saved queue. A process ownership lock prevents two hosts from
+  dispatching the same work; live, unknown, or foreign-host owners are not stolen.
+  Recovery still uses current approvals and budgets. Workers keep their session's
+  saved project root when the console switches to another workspace.
 
 ## Usage
 
