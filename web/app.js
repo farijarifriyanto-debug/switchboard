@@ -330,14 +330,47 @@ function clearTimeline() {
   dockComposer()
 }
 
-/** One-argument summary line for a tool call (tool-row convention). */
+/** Human-readable browser actions in activity rows and approval cards. */
+const BROWSER_TOOL_TITLES = {
+  browser_tabs_list: 'List browser tabs',
+  browser_tab_select: 'Switch browser tab',
+  browser_navigate: 'Open website',
+  browser_dom_snapshot: 'Inspect page',
+  browser_screenshot: 'Capture browser screenshot',
+  browser_click: 'Click browser element',
+  browser_type: 'Type into browser',
+  browser_scroll: 'Scroll browser page',
+  browser_select: 'Choose dropdown option',
+  browser_wait: 'Wait for page element',
+  browser_extract: 'Extract page content',
+  browser_console_logs: 'Inspect console logs',
+  browser_network_errors: 'Inspect network errors',
+}
+
 function toolTitle(name) {
-  return ({ read_file: 'Read', write_file: 'Edit', list_dir: 'Browse', search_files: 'Search', run_command: 'Run', web_fetch: 'Open web page', web_search: 'Search the web' })[name] || 'Tool'
+  return BROWSER_TOOL_TITLES[name] || ({ read_file: 'Read', write_file: 'Edit', list_dir: 'Browse', search_files: 'Search', run_command: 'Run', web_fetch: 'Open web page', web_search: 'Search the web' })[name] || name || 'Tool'
+}
+
+/** Never show URL credentials, query tokens or fragments in an approval. */
+function safeBrowserUrl(raw) {
+  try {
+    const url = new URL(String(raw))
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'Invalid website URL'
+    return url.origin + url.pathname
+  } catch {
+    return 'Invalid website URL'
+  }
 }
 
 function toolSummary(name, args) {
   const a = args && typeof args === 'object' ? args : {}
   const pick = (key) => String(a[key] ?? '')
+  if (name.startsWith('browser_')) {
+    if (name === 'browser_navigate') return safeBrowserUrl(a.url)
+    if (name === 'browser_tab_select') return a.tabId == null ? 'No tab selected' : `Tab ${pick('tabId')}`
+    if (a.selector != null) return pick('selector').slice(0, 160) || 'No element selected'
+    return a.tabId == null ? 'Active tab' : `Tab ${pick('tabId')}`
+  }
   const value = name === 'read_file' || name === 'write_file' ? pick('path')
     : name === 'list_dir' ? pick('path') || '.'
     : name === 'search_files' ? pick('pattern')
@@ -346,6 +379,41 @@ function toolSummary(name, args) {
     : name === 'web_search' ? pick('query')
     : ''
   return value ? shortPath(value) : 'Working with project'
+}
+
+/** Approval is informational; the extension remains the authority on origin. */
+function browserApprovalDetails(name, args, browser) {
+  if (!Object.prototype.hasOwnProperty.call(BROWSER_TOOL_TITLES, name)) return null
+  const a = args && typeof args === 'object' ? args : {}
+  const lines = [`Action: ${toolTitle(name)} (${name})`]
+  if (name === 'browser_navigate') lines.push(`Destination: ${safeBrowserUrl(a.url)}`)
+  const requestedTab = a.tabId == null ? null : String(a.tabId)
+  if (requestedTab !== null) lines.push(`Requested tab ID: ${requestedTab.slice(0, 40)}`)
+  const current = browser?.connected && browser?.activeTab
+  const sameTab = current && (requestedTab === null || String(current.id) === requestedTab)
+  if (sameTab && current.origin) {
+    lines.push(`Last reported active site: ${current.origin}`)
+  } else {
+    lines.push('Active site: not verified (check the Browser Companion)')
+  }
+  if (a.selector != null) lines.push(`Target selector: ${String(a.selector).slice(0, 400)}`)
+  if (name === 'browser_type') {
+    lines.push(`Text: [hidden; ${String(a.text ?? '').length} characters]`)
+    if (a.clear) lines.push('Clear previous text: yes')
+    if (a.pressEnter) lines.push('Press Enter afterward: yes')
+  }
+  if (name === 'browser_select' && a.value != null) lines.push(`Option: ${String(a.value).slice(0, 160)}`)
+  lines.push('The active tab may change before execution. Review the site and target before approving.')
+  return lines.join('\n')
+}
+
+
+/** Never expose typed secrets or URL tokens in expanded browser tool cards. */
+function safeToolArguments(name, args) {
+  const a = args && typeof args === 'object' ? { ...args } : {}
+  if (name === 'browser_type') a.text = `[hidden; ${String(a.text ?? '').length} characters]`
+  if (name === 'browser_navigate') a.url = safeBrowserUrl(a.url)
+  return a
 }
 
 function ioSection(label, text, isError) {
@@ -374,7 +442,7 @@ function toolCard(name, args) {
   details.className = 'activity-details'
   details.innerHTML = '<summary>Details</summary><div class="io-card"></div>'
   const card = details.querySelector('.io-card')
-  card.appendChild(ioCardSection('Arguments', JSON.stringify(args, null, 2), false))
+  card.appendChild(ioCardSection('Arguments', JSON.stringify(safeToolArguments(name, args), null, 2), false))
   body.append(row, details)
   const dot = row.querySelector('.t-dot')
   const isWrite = name === 'write_file'
@@ -689,7 +757,7 @@ async function loadState() {
 
   if (data.approval) {
     renderAudit(data.approval.recent || [])
-    if (!state.running) renderApprovalGate(data.approval.pending || [], data.approval.mode)
+    if (!state.running) renderApprovalGate(data.approval.pending || [], data.approval.mode, data.approval.browser)
   }
 
   renderSessions(data.sessions || [])
@@ -799,7 +867,7 @@ function renderDiff(argsText) {
     })
 }
 
-function renderApprovalGate(pending, mode) {
+function renderApprovalGate(pending, mode, browser = null) {
   const previousId = approvalItem?.id
   approvalItem = pending[0] || null
   const box = ui.approval
@@ -814,12 +882,15 @@ function renderApprovalGate(pending, mode) {
   ui.approvalTool.textContent = `${toolTitle(approvalItem.tool)} · ${toolSummary(approvalItem.tool, approvalItem.args)}`
   const argsText = JSON.stringify(approvalItem.args, null, 2)
   const args = approvalItem.args && typeof approvalItem.args === 'object' ? approvalItem.args : {}
-  const humanRequest = approvalItem.tool === 'run_command' ? `Command: ${args.command || args.cmd || '(command)'}`
+  const humanRequest = browserApprovalDetails(approvalItem.tool, args, browser)
+    ?? (approvalItem.tool === 'run_command' ? `Command: ${args.command || args.cmd || '(command)'}`
     : approvalItem.tool === 'write_file' ? `Write file: ${args.path || '(file)'}\n${String(args.content || '').slice(0, 500)}`
-    : `${toolTitle(approvalItem.tool)} ${toolSummary(approvalItem.tool, args)}`
+    : `${toolTitle(approvalItem.tool)} ${toolSummary(approvalItem.tool, args)}`)
   ui.approvalArgs.textContent = humanRequest
   renderDiff(argsText)
-  ui.approvalHint.textContent = `${mode === 'all' ? 'Every action requires approval' : 'This action is covered by the active approval policy'} · rejected if unanswered`
+  ui.approvalHint.textContent = approvalItem.tool.startsWith('browser_')
+    ? 'Allow for this session trusts future uses of this tool (including other tabs/sites and selectors). Allow once is safer; reject if the target is unexpected.'
+    : `${mode === 'all' ? 'Every action requires approval' : 'This action is covered by the active approval policy'} · rejected if unanswered`
   ui.approvalMode.hidden = !mode
   ui.approvalMode.textContent = mode ? `mode ${mode}` : ''
   if (previousId !== approvalItem.id) ui.approvalYes.focus()
@@ -857,7 +928,7 @@ function watchApprovals() {
   fetch('/api/approvals')
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
-      if (state.running && data) renderApprovalGate(data.pending || [], data.mode)
+      if (state.running && data) renderApprovalGate(data.pending || [], data.mode, data.browser)
     })
     .catch(() => {})
 }
