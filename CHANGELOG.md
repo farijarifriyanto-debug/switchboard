@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Channel pairing (`channels.telegram|discord.pairing`): unknown senders get a one-time code, `sbx channels pairing|approve|revoke`.
+- `sbx run --json`: JSON Lines events plus a final `result` line on stdout, exit code 1 on failure.
+- `/changes` and `/undo [n|force]`: per-session before-images of `write_file`, restore newest first, never overwrite
+  a file you edited afterwards (CLI, console composer, `/api/sessions/:id/changes|undo`).
 - Fallback chain (`llm.fallbacks`, `llm.fallbackCooldownMs`): a call that fails before any output moves to the next
   provider/model, failing targets cool down, every switch is traced (`llm/fallback`).
 - Console: "Browse" button next to "Switch root" lists subfolders (`GET /api/dirs`, fenced like

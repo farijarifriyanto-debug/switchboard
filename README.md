@@ -132,6 +132,28 @@ is appended to the system prompt automatically — the shared project-context
 convention (Claude Code / OpenClaw / Hermes). Oversized files are truncated;
 missing files are ignored.
 
+## Scripts and CI: `sbx run --json`
+
+```bash
+sbx run --json --yes "summarise the failing test" > run.jsonl     # JSON Lines on stdout
+sbx run --json --yes "…" | tail -n 1                               # {"type":"result","ok":true,"text":"…","sessionId":"…"}
+```
+
+Every agent event (`delta`, `tool_call`, `tool_result`, `notice`, `metrics`, `error`, …) is one JSON line, then exactly one
+`result` line. Nothing else goes to stdout (progress and warnings stay on stderr). The exit code is `0` when the run
+succeeded and `1` when it failed or an approval was refused (no terminal to ask: pass `--yes` or set `approval.mode`).
+## Undo file changes
+
+Every file the agent writes with `write_file` is journaled first (before-image in `~/.switchboard/undo/<session>/`):
+
+```text
+/changes          what the agent changed in this session
+/undo             restore the newest change   (/undo 3 = the last three, /undo force = even if you edited the file since)
+```
+
+Works in `sbx chat` and in the console composer (`GET /api/sessions/:id/changes`, `POST /api/sessions/:id/undo`).
+A file you edited after the agent is **skipped** unless you pass `force`. Files changed by shell commands are not
+recorded (use git for those); files over 5 MB are not backed up. Turn it off with `"undo": { "enabled": false }`.
 ## Fallback chain (free-tier orchestrator)
 
 Free models hit rate limits and go down. List backup targets and a call that fails **before it

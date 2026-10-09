@@ -172,7 +172,7 @@ function contextCatalog(url?: string): Promise<Record<string, number>> {
  */
 export const webUi = {
   name: 'web-ui',
-  inject: ['agent', 'sessions', 'presets', 'compaction', 'automations', 'tools', 'llm', 'metrics', 'workspace', 'approvals', 'trace', 'providers', 'credentials'],
+  inject: ['agent', 'sessions', 'presets', 'compaction', 'automations', 'tools', 'llm', 'metrics', 'workspace', 'undo', 'approvals', 'trace', 'providers', 'credentials'],
 
   apply(ctx: Context, config: WebUiConfig = {}) {
     const host = config.host ?? '127.0.0.1'
@@ -317,6 +317,18 @@ export const webUi = {
           for (const l of 'CDEFGHIJKLMNOPQRSTUVWXYZ') if (await stat(`${l}:\\`).then(() => true, () => false)) drives.push(`${l}:\\`)
         }
         return json(res, 200, { path: dir, parent: parent === dir ? null : parent, home: os.homedir(), drives, dirs: dirs.slice(0, 500), truncated: dirs.length > 500 })
+      }
+
+      // File changes made by the agent in one session, and undo.
+      const changesMatch = route.match(/^\/api\/sessions\/([^/]+)\/(changes|undo)$/)
+      if (changesMatch) {
+        const sid = decodeURIComponent(changesMatch[1])
+        if (changesMatch[2] === 'changes' && req.method === 'GET') return json(res, 200, { changes: await ctx.undo.list(sid) })
+        if (changesMatch[2] === 'undo' && req.method === 'POST') {
+          const body = await readBody(req)
+          const count = Math.min(50, Math.max(1, Number(body.count) || 1))
+          return json(res, 200, await ctx.undo.undo(sid, count, body.force === true))
+        }
       }
 
       // ---------------------------------------------------------------- files
