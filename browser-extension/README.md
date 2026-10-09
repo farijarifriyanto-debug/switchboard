@@ -60,5 +60,5 @@ A **real Chrome E2E** must also show a prompt in Switchboard -> `browser_*` tool
 
 - MVP integration targets local Switchboard CLI + Chrome/Edge on the **same computer**. Remote VPS-to-laptop control needs a separately authorized transport.
 - Chrome and Edge must support Manifest V3 background WebSockets (Chrome 116+ / equivalent Edge). Auto reconnect can take 30 seconds or longer after suspension (depending on Chrome scheduling).
-- The standalone local CLI bridge supports WebSocket. Standalone `sbx web` requires its own browser bridge listener; don't assume a CLI companion socket exists unless the local CLI is running.
+- Both `sbx chat --preset browser` and `sbx web` start the local authenticated browser bridge on `127.0.0.1:7778` by default and display a one-use pairing code. Only one active Switchboard host can bind this local port at a time.
 - Development builds are **not** Chrome Web Store production releases.

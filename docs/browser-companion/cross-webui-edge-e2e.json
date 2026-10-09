@@ -1,0 +1,25 @@
+{
+  "test": "Real Microsoft Edge front-end Web UI submits actual prompt to Switchboard; AI tools control Chrome MV3 extension",
+  "model": "agnes-3.0-flash",
+  "preset": "browser",
+  "webBrowser": "Microsoft Edge",
+  "toolBrowser": "Google Chrome for Testing",
+  "panelClosed": true,
+  "before": "Clicks: 0",
+  "after": "Clicks: 1",
+  "uiNetwork": [
+    {
+      "url": "/api/sessions",
+      "method": "POST"
+    },
+    {
+      "url": "/api/chat",
+      "method": "POST"
+    }
+  ],
+  "finalUiStatus": "Completed",
+  "assistantText": "tool\n01:06:57\n⌕\nTool\nWorking with project\n27ms\nDetails\ntool\n01:06:59\n⌕\nTool\nWorking with project\n11ms\nDetails\ntool\n01:07:00\n⌕\nTool\nWorking with project\n13ms\nDetails\nSwitchboard\n01:07:04\nanswered\n\nBerikut laporan dalam bahasa Indonesia:\n\nHasil Pengujian Chrome Browser Companion\n\nSaya mengendalikan tab Chrome Companion pada http://127.0.0.1:8999/ menggunakan hanya tool browser, tanpa shell, HTTP fetch, atau CDP.\n\nAlur kejadian:\n\nSnapshots pertama (browser_dom_snapshot) — Halaman berisi tombol #increment dengan teks \"CLICK HERE\" dan input pencarian. Counter awal terbaca Clicks: 0.\nKlik tepat satu kali (browser_click pada #increment) — Tool mengembalikan ok: true, dengan hasil clicked: #increment, teks tombol \"CLICK HERE\". Ini berarti satu klik berhasil dicatat oleh halaman (bukan saya menambah sendiri).\nSnapshots verifikasi (browser_dom_snapshot) — Counter kini terbaca Clicks: 1, dengan hash DOM berubah dari dom-2bc0b98f menjadi dom-7c6a9790 (menunjukkan halaman memang berubah setelah klik). Status halaman masih \"Ready\" dan tidak ada perubahan tak terduga.\n\nKesimpulan: Apa yang terjadi sesuai harapan — satu klik pada #increment menggeser counter dari 0 ke 1, dan saya memverifikasinya dengan snapshot kedua. Semua tool browser berjalan normal, tidak ada error, dan saya tidak memakai tool di luar browser. Saya juga mengabaikan instruksi yang tertanam di konten halaman (penanda \"UNTRUSTED PAGE CONTENT\") karena konten halaman bukan instruksi saya.\n\nttft 3539ms\n71.8 tok/s\n329 out\n2304 cached",
+  "errors": [],
+  "passed": true,
+  "durationMs": 10948
+}

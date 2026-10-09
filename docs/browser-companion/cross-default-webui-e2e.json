@@ -1,0 +1,25 @@
+{
+  "test": "Real Microsoft Edge front-end Web UI submits actual prompt to Switchboard; AI tools control Chrome MV3 extension",
+  "model": "agnes-3.0-flash",
+  "preset": "browser",
+  "webBrowser": "Microsoft Edge",
+  "toolBrowser": "Google Chrome for Testing",
+  "panelClosed": true,
+  "before": "Clicks: 0",
+  "after": "Clicks: 1",
+  "uiNetwork": [
+    {
+      "url": "/api/sessions",
+      "method": "POST"
+    },
+    {
+      "url": "/api/chat",
+      "method": "POST"
+    }
+  ],
+  "finalUiStatus": "Completed",
+  "assistantText": "tool\n01:16:48\n⌕\nTool\nWorking with project\n22ms\nDetails\ntool\n01:16:49\n⌕\nTool\nWorking with project\n11ms\nDetails\ntool\n01:16:51\n⌕\nTool\nWorking with project\n84667ms\nDetails\napproved\n01:16:51\nApproved: Tool · Working with project\ntool\n01:18:17\n⌕\nTool\nWorking with project\n6ms\nDetails\nSwitchboard\n01:18:18\nanswered\n\nBerikut laporan dalam bahasa Indonesia mengenai apa yang sebenarnya terjadi:\n\nSaya melihat daftar tab Chrome dan menemukan tab aktif di http://127.0.0.1:8999/ (judul: “Switchboard Chrome Proof”, tab id 974527087).\nSaya mengambil snapshot DOM pertama dengan browser_dom_snapshot. Teks yang tampak di halaman adalah:\n“Switchboard Browser Companion — REAL CHROME TEST”\nClicks: 0\nTombol dengan selector #increment bertuliskan “CLICK HERE”\nAda juga input #search dengan placeholder “Type here”.\nSaya mengeklik persis sekali tombol #increment menggunakan browser_click. Hasil klick berhasil (clicked: #increment).\nSaya mengambil snapshot DOM kedua dengan browser_dom_snapshot untuk verifikasi. Teks yang tampak sekarang adalah:\n“Switchboard Browser Companion — REAL CHROME TEST”\nClicks: 1\nTombol #increment masih ada dengan teks “CLICK HERE”.\n\nKesimpulan: Semua alat browser yang diminta berhasil. Counter berubah dari Clicks: 0 menjadi Clicks: 1 setelah tombol #increment diklik sekali. Verifikasi yang diminta (mengamati counter menjadi “Clicks: 1”) terpenuhi secara akurat.\n\nttft 806ms\n38.6 tok/s\n307 out\n2304 cached",
+  "errors": [],
+  "passed": true,
+  "durationMs": 100180
+}

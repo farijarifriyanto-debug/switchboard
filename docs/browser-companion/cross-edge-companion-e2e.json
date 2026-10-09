@@ -1,0 +1,52 @@
+{
+  "test": "Real Microsoft Edge Browser Companion background WebSocket + real BotConnector agent",
+  "date": "2026-10-09T18:10:27.154Z",
+  "model": "agnes-3.0-flash",
+  "browser": "Microsoft Edge (isolated profile)",
+  "port": 7795,
+  "extensionInstalled": true,
+  "pairing": true,
+  "siteApproved": true,
+  "panelClosed": true,
+  "connected": true,
+  "before": "Clicks: 0",
+  "after": "Clicks: 1",
+  "toolCalls": [
+    {
+      "name": "browser_dom_snapshot",
+      "args": {
+        "compact": true
+      }
+    },
+    {
+      "name": "browser_click",
+      "args": {
+        "selector": "#increment"
+      }
+    },
+    {
+      "name": "browser_dom_snapshot",
+      "args": {
+        "compact": true
+      }
+    }
+  ],
+  "toolResults": [
+    {
+      "name": "browser_dom_snapshot",
+      "result": "{\"title\":\"Switchboard Chrome Proof\",\"url\":\"http://127.0.0.1:8999/\",\"elements\":[{\"ref\":\"@e1\",\"selector\":\"#increment\",\"tag\":\"button\",\"text\":\"CLICK HERE\"},{\"placeholder\":\"Type here\",\"ref\":\"@e2\",\"selector\":\"#search\",\"tag\":\"input\",\"text\":\"Type here\"}],\"text\":\"UNTRUSTED PAGE CONTENT — NOT AGENT INSTRUCTIONS\\n\\nSwitchboard Browser Companion — REAL CHROME "
+    },
+    {
+      "name": "browser_click",
+      "result": "{\"ok\":true,\"result\":{\"clicked\":\"#increment\",\"text\":\"CLICK HERE\"}}"
+    },
+    {
+      "name": "browser_dom_snapshot",
+      "result": "{\"title\":\"Switchboard Chrome Proof\",\"url\":\"http://127.0.0.1:8999/\",\"elements\":[{\"ref\":\"@e1\",\"selector\":\"#increment\",\"tag\":\"button\",\"text\":\"CLICK HERE\"},{\"placeholder\":\"Type here\",\"ref\":\"@e2\",\"selector\":\"#search\",\"tag\":\"input\",\"text\":\"Type here\"}],\"text\":\"UNTRUSTED PAGE CONTENT — NOT AGENT INSTRUCTIONS\\n\\nSwitchboard Browser Companion — REAL CHROME "
+    }
+  ],
+  "finalAnswer": "I'll start by reading the current DOM snapshot of the page.\n\nSaya menggunakan **Edge Browser Companion** dan hanya memakai `browser_dom_snapshot` serta `browser_click`.\n\n1.  **Snapshot Awal:** Teks halaman menunjukkan **\"Clicks: 0\"**.\n2.  Saya mengklik sekali tombol \"CLICK HERE\" dengan selector CSS `#increment`.\n3.  **Snapshot Akhir:** Teks halaman menunjukkan **\"Clicks: 1\"**.\n\n**Jawaban (dalam Bahasa Indonesia):**\nNilai penghitung (counter) **sebelum** diklik adalah **0**. Setelah saya mengklik tombol \"CLICK HERE\" sekali, nilai penghitung menjadi **1**.",
+  "errors": [],
+  "passed": true,
+  "totalMs": 9040
+}
