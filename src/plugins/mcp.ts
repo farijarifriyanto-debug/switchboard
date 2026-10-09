@@ -286,7 +286,7 @@ export const mcpBridge = {
       let client: Client | undefined
       try {
         const cfg = s.cfg
-        client = new Client({ name: 'switchboard-sbx', version: '0.2.0' })
+        client = new Client({ name: 'switchboard-sbx', version: '0.3.0' })
         if (cfg.transport === 'stdio') {
           await client.connect(
             new StdioClientTransport({

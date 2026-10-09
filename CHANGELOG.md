@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 - Add read-only `search_memory` for project/global notebook notes with scoped
   snippets, Unicode matching, relevance ranking and configurable all/any matches.
 - Search/read unloaded persisted sessions without hydrating them. Live sessions
