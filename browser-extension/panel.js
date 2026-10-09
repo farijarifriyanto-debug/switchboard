@@ -11,23 +11,12 @@ let companionToken = '';
 let recordedWorkflowSteps = [];
 
 // -----------------------------------------------------------------------------
-// UI Utilities & Theme
+// UI utilities
 // -----------------------------------------------------------------------------
 function setBadge(state, label) {
   const badge = $('companion-badge');
   badge.className = `badge ${state}`;
   badge.textContent = label;
-  const overview = $('overview-connection');
-  if (overview) {
-    const online = state === 'connected' || state === 'running';
-    overview.textContent = online ? 'Connected' : 'Offline';
-    overview.className = 'status-pill ' + (online ? 'is-live' : 'is-offline');
-    $('overview-host').textContent = online ? 'Using the local browser bridge' : 'Waiting for a connection';
-    $('overview-hero-title').textContent = online ? 'Connected to Switchboard' : 'Connect to Switchboard';
-    $('overview-hero-desc').textContent = online
-      ? 'Use Switchboard CLI or Web UI to operate an approved tab.'
-      : 'Start Switchboard in your terminal, then connect this extension.';
-  }
 }
 
 // Tab navigation
@@ -497,19 +486,11 @@ $('clear-audit-btn').addEventListener('click', async () => {
 // -----------------------------------------------------------------------------
 // Connection, permission and recent activity overview
 // -----------------------------------------------------------------------------
-const MODES = {
-  ask_every_time: 'Ask every time',
-  auto_safe: 'Auto safe',
-  restricted: 'Read only',
-};
-
 async function updateOverviewStatus() {
-  const { approvedOrigins = [], permissionMode = 'ask_every_time' } =
-    await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
+  const { approvedOrigins = [] } =
+    await chrome.storage.local.get('approvedOrigins');
   const isApproved = Boolean(currentTab?.origin && approvedOrigins.includes(currentTab.origin));
   const hasCapture = Boolean(currentTab?.url);
-  $('overview-capture').textContent = hasCapture ? 'Captured' : 'Not captured';
-  $('overview-mode').textContent = MODES[permissionMode] || 'Ask every time';
   $('overview-site-origin').textContent = currentTab?.origin || 'No site selected';
   $('overview-site-status').textContent = isApproved ? 'Approved' : 'Not approved';
   $('overview-site-status').className = 'status-pill ' + (isApproved ? 'is-live' : 'is-offline');
@@ -584,10 +565,6 @@ $('copy-cli-btn').addEventListener('click', async () => {
     selection.removeAllRanges();
     selection.addRange(range);
   }
-});
-$('overview-refresh-btn').addEventListener('click', async () => {
-  await refreshActiveTab();
-  await refreshAuditLog();
 });
 $('overview-settings-btn').addEventListener('click', () => openPanelTab('tab-settings'));
 $('overview-activity-btn').addEventListener('click', () => {

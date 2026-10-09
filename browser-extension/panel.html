@@ -128,16 +128,18 @@
     .status-pill.is-live {color:var(--success);}
     .status-pill.is-offline {color:#8b7272;}
     .card-note {color:var(--text-muted);font-size:11px;line-height:1.55;margin:0 0 14px;}
-    .connection-main {display:flex;gap:10px;align-items:baseline;margin:0 0 9px;}
-    .connection-main strong {font-size:13px; font-weight:700;}
-    .connection-main small {font-size:11px;color:var(--text-muted);}
     .command-surface {padding:11px 12px;background:var(--subtle);border:1px solid #eff0f3;border-radius:8px;margin-top:15px;}
     .command-surface > span {display:block;color:var(--text-muted);font-size:10px;margin-bottom:6px;}
     .command-line {display:flex;gap:10px;align-items:center;justify-content:space-between;min-width:0;}
     .command-line code {font: 600 11px/1.5 "Cascadia Code", Consolas, monospace;
       white-space:nowrap;text-overflow:ellipsis;overflow:hidden;}
     .command-line button:not(.icon-button) {padding:5px 10px;min-height:29px;font-size:11px;background:white !important;color:var(--primary)!important;border:1px solid #dce3ef!important;}
-    .card-meta {display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text-muted);margin:14px 0 0;}
+    button.link-button:not(.icon-button) {
+      display:inline;min-height:0;padding:0;border:0!important;border-radius:0;
+      background:transparent!important;color:var(--primary)!important;
+      font-size:inherit;font-weight:650;text-decoration:underline;text-underline-offset:2px;
+    }
+    button.link-button:hover:not(:disabled) {text-decoration-thickness:2px;}
     .card-meta strong {font-weight:650;color:var(--text);}
     .card-buttons {display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 0;}
     .card-buttons button:not(.icon-button) {flex:1;min-width:100px;}
@@ -261,28 +263,17 @@
 
     <section id="tab-overview" class="tab-pane active">
       <div class="overview-columns">
-        <section class="ui-card" aria-label="Switchboard connection">
-          <div class="card-head"><h2>Switchboard</h2><span id="overview-connection" class="status-pill is-offline">Offline</span></div>
-          <div class="connection-main">
-            <strong id="overview-hero-title">Connect to Switchboard</strong>
-          </div>
-          <p id="overview-hero-desc" class="card-note">Start Switchboard from your terminal, then connect this extension.</p>
+        <section class="ui-card" aria-label="Open Switchboard">
+          <div class="card-head"><h2>Use Switchboard</h2></div>
+          <p class="card-note">Type instructions in Switchboard. This extension handles browser actions on approved sites.</p>
           <div class="command-surface">
-            <span>Command to start</span>
+            <span>Start from your terminal</span>
             <div class="command-line">
               <code id="cli-command">sbx chat --preset browser</code>
               <button id="copy-cli-btn" aria-label="Copy Switchboard CLI command">Copy</button>
             </div>
           </div>
-          <div class="card-meta">
-            <span>Browser: <strong id="overview-capture">Waiting for a tab</strong></span>
-            <span>Mode: <strong id="overview-mode">Ask every time</strong></span>
-          </div>
-          <div class="card-buttons">
-            <button id="overview-settings-btn" class="secondary">Connection settings</button>
-            <button id="overview-refresh-btn" class="secondary">Refresh status</button>
-          </div>
-          <span id="overview-host" class="site-label" style="margin-top:10px;">Not connected</span>
+          <p class="card-note" style="margin:12px 0 0;">To configure pairing, open the <button id="overview-settings-btn" class="link-button">Connection tab</button>.</p>
         </section>
 
         <section class="ui-card" aria-label="Site permissions">
