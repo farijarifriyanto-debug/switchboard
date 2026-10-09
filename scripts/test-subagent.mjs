@@ -216,8 +216,8 @@ const main = await boot()
 
 try {
   section('config: defaults when the block is absent')
-  assert.deepEqual(validateSubagent(undefined, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true })
-  assert.deepEqual(validateSubagent({}, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true })
+  assert.deepEqual(validateSubagent(undefined, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true, maxWorkers: 12, maxTokens: 1_000_000, maxWorkerTokens: 300_000 })
+  assert.deepEqual(validateSubagent({}, () => {}), { enabled: true, maxParallel: 3, maxSteps: 8, autoResume: true, maxWorkers: 12, maxTokens: 1_000_000, maxWorkerTokens: 300_000 })
 
   section('config: type errors throw naming the key')
   assert.throws(() => validateSubagent({ maxParallel: 2.5 }, () => {}), /"maxParallel" must be an integer >= 1/)

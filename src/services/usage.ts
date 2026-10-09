@@ -113,11 +113,11 @@ export class UsageService extends Service {
   }
 
   /** Totals for a session, folding in the subagent sessions it started. */
-  summary(sessionId: string): UsageSummary {
+  summary(sessionId: string, options: { workersOnly?: boolean } = {}): UsageSummary {
     const sessions = this.ctx.get('sessions', false)
     if (!sessions) return { calls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, complete: true, unpriced: [], subagents: 0 }
-    const ids = [sessionId, ...sessions.list().filter((s) => s.parentSessionId === sessionId && s.kind === 'subagent').map((s) => s.id)]
-    const out: UsageSummary = { calls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, complete: true, unpriced: [], subagents: ids.length - 1 }
+    const ids = [...(options.workersOnly ? [] : [sessionId]), ...sessions.list().filter((s) => s.parentSessionId === sessionId && s.kind === 'subagent').map((s) => s.id)]
+    const out: UsageSummary = { calls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, complete: true, unpriced: [], subagents: ids.length - (options.workersOnly ? 0 : 1) }
     let cost = 0
     let priced = false
     for (const id of ids) {

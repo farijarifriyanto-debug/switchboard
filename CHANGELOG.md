@@ -26,6 +26,7 @@ tested against recording stub model endpoints and, where noted, real tools.
   refused anything that needs approval.
 - **Telegram channel**: private chats from allow-listed users, approvals as inline buttons.
 - **Browser**: Playwright MCP through the MCP bridge; verified against real Chromium in CI.
+- **Subagent budgets**: `maxWorkers`, `maxTokens`, `maxCostUsd` per session and `maxWorkerTokens` per worker.
 - Provider settings with write-only credentials, multi-provider chat, hot-apply (from 0.1.x work).
 
 ### Packaging

@@ -335,9 +335,20 @@ sessions — each one a fresh agent with no memory of your conversation:
   "enabled": true,        // default true (only `enabled: false` turns it off)
   "maxParallel": 3,       // workers in flight per batch (integer >= 1)
   "maxSteps": 8,          // default loop budget per worker (integer >= 1)
-  "autoResume": true      // false = results still inject, but never auto-run
+  "autoResume": true,     // false = results still inject, but never auto-run
+  "maxWorkers": 12,       // workers one session may start in total (integer >= 1)
+  "maxTokens": 1000000,   // tokens all of a session's workers may use together (0 = no limit)
+  "maxCostUsd": 2.5,      // optional: estimated cost of all its workers (needs known prices)
+  "maxWorkerTokens": 300000 // one worker is stopped past this many tokens (0 = no limit)
 }
 ```
+
+Budgets keep a fan-out from running away: a `task` call that would exceed `maxWorkers`, or arrives
+after the token/cost budget is spent, is refused with a message the model can read (nothing starts),
+and a single worker that passes `maxWorkerTokens` is stopped on its own while its siblings finish.
+Tokens are prompt + completion summed over every model call (a long context counts on each step);
+workers' usage also shows in the parent's `/usage`. A batch already running can overshoot a budget by
+what its in-flight workers use.
 
 - **Blocking** — the model waits and gets `[{description, status, result|error}]`
   as the tool result.
