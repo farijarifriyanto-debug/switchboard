@@ -54,6 +54,11 @@ jobs:
           filename="$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP" --silent)"
           echo "path=$RUNNER_TEMP/$filename" >> "$GITHUB_OUTPUT"
           (cd "$RUNNER_TEMP" && sha256sum "$filename" > "$filename.sha256")
+      - name: Package Chrome and Edge Browser Companion
+        run: |
+          node scripts/package-extension.mjs
+          sha256sum switchboard-chrome.zip switchboard-edge.zip > switchboard-browser.sha256
+
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,6 +77,7 @@ jobs:
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -f make_latest=legacy >/dev/null
           fi
           gh release upload "$RELEASE_TAG" "$PACKAGE_FILE" "$PACKAGE_FILE.sha256" --clobber
+          gh release upload "$RELEASE_TAG" switchboard-chrome.zip switchboard-edge.zip switchboard-browser.sha256 --clobber
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
