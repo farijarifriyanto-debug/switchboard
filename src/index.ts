@@ -12,6 +12,7 @@ import { SkillService, toolsSkills } from './services/skills.js'
 import { CompactionService } from './services/compaction.js'
 import { toolsRecall } from './services/recall.js'
 import { telegramChannel } from './channels/telegram.js'
+import { discordChannel } from './channels/discord.js'
 import { AutomationService } from './services/automations.js'
 import { UsageService } from './services/usage.js'
 import { MemoryService, toolsMemory } from './services/memory.js'
@@ -123,6 +124,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
 
   // Chat channels (explicit opt-in; they fail closed when misconfigured).
   if (config.channels?.telegram?.enabled) await ctx.plugin(telegramChannel, { dir: config.settings?.dir, ...config.channels.telegram })
+  if (config.channels?.discord?.enabled) await ctx.plugin(discordChannel, { dir: config.settings?.dir, ...config.channels.discord })
 
   // User-provided plugins.
   for (const spec of config.plugins ?? []) await loadExtraPlugin(ctx, spec)
@@ -148,6 +150,7 @@ export { PresetService } from './services/presets.js'
 export { SkillService } from './services/skills.js'
 export { CompactionService } from './services/compaction.js'
 export { telegramChannel } from './channels/telegram.js'
+export { discordChannel } from './channels/discord.js'
 export { AutomationService } from './services/automations.js'
 export { UsageService, formatUsage, costOf, priceFromModel } from './services/usage.js'
 export { MemoryService, withMemory } from './services/memory.js'

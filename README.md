@@ -291,6 +291,35 @@ sbx channels
 - Your messages and the agent's answers pass through Telegram's servers. Use the `reviewer` or
   `researcher` preset if the bot should never touch files or run commands.
 
+## Discord channel
+
+The same kind of remote control, through a Discord DM. It shares its core with the Telegram channel, so
+sessions, `/new` `/stop` `/compact` `/preset` `/status`, skills and approvals behave identically.
+
+```jsonc
+"channels": { "discord": { "enabled": true, "allowFrom": ["123456789012345678"] } }   // user ids as STRINGS
+```
+
+```sh
+export DISCORD_BOT_TOKEN=...   # Developer Portal > your application > Bot > Reset Token; never in the config file
+sbx channels                   # runs Telegram and/or Discord, whichever is enabled
+```
+
+- Create the application and bot in the [Developer Portal](https://discord.com/developers/applications),
+  copy your own user id (Settings > Advanced > Developer Mode, then right-click yourself > Copy User ID)
+  and open a DM with the bot (it needs to share a server with you, or you add it as a user-installed app).
+  Only the **DIRECT_MESSAGES** intent is requested, so no privileged intent has to be switched on.
+- Only **DMs** from the listed user ids are served. Servers, group DMs, other bots and system messages
+  are dropped without a reply. An empty `allowFrom` refuses to start, as does `approval.mode: "off"`
+  (unless `allowUnattended: true`).
+- Approvals arrive as **Allow / Deny / Always** buttons in the DM; only an allow-listed user's click counts.
+- It connects out to Discord's gateway over a WebSocket (no inbound port) and resumes after a dropped
+  connection. It needs **Node 22+** (the built-in WebSocket) and refuses to start on Node 20.
+- Replies never ping anyone (`allowed_mentions` is empty). Text only. Your messages and the agent's answers
+  pass through Discord's servers: use the `reviewer` or `researcher` preset if the bot should never touch files.
+- Automations can deliver here: `sbx automations add ... --discord <your user id>`.
+- Tested against a fake gateway in CI; **not yet tried by hand against the real Discord**.
+
 ## Automations
 
 Scheduled agent runs: a cron schedule, a prompt, a preset, and where the answer goes.
@@ -615,9 +644,9 @@ What has and has not been tried by a person:
 - Tested by hand: the console (Chrome), skills, automations, Telegram against the real Bot API
   (one private chat), the browser preset against real Chromium, and the docker sandbox on Windows
   (Docker Desktop) and Linux.
-- Not tested by hand: bubblewrap outside Linux CI, macOS, and any channel other than Telegram.
-- The sandbox is isolation, not a security boundary (see above), and Telegram is the only chat
-  channel today.
+- Not tested by hand: bubblewrap outside Linux CI, macOS, and the Discord channel (only a fake gateway in CI).
+- The sandbox is isolation, not a security boundary (see above), and Telegram and Discord are the only chat
+  channels.
 
 ## Credits
 
