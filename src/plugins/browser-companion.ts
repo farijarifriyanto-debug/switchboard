@@ -355,7 +355,7 @@ export class BrowserCompanionService {
     }
     this.socketServer.handleUpgrade(req, socket, head, ws => {
       if (this.activeSocket && this.activeSocket.readyState === WebSocket.OPEN) {
-        this.activeSocket.close(1000, 'Replaced by new session')
+        this.activeSocket.close(4001, 'Another browser companion connected')
       }
       this.activeSocket = ws
       ws.on('error', () => { /* No token or message logging */ })

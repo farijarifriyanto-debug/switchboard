@@ -140,11 +140,16 @@ async function ensureBridgeSocket() {
         bridgeLastError = errorMessage(error);
       }
     });
-    ws.addEventListener('close', () => {
+    ws.addEventListener('close', event => {
       if (generation !== bridgeSocketGeneration || ws !== bridgeSocket) return;
       bridgeSocket = null;
       if (bridgeSocketTimer) clearInterval(bridgeSocketTimer);
       bridgeSocketTimer = null;
+      if (event.code === 4001) {
+        bridgeLastError = 'Another Browser Companion took over this session. Click Connect browser to switch back.';
+        void chrome.storage.local.set({ bridgeConnected: false });
+        return;
+      }
       bridgeLastError = 'Connection interrupted; reconnecting automatically';
       // Alarm is the durable fallback if the worker is suspended.
       setTimeout(() => void ensureBridgeSocket().catch(() => {}), 1800);
@@ -217,7 +222,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.approvedOrigins || changes.permissionMode) scheduleStatusSync();
 });
 
-void chrome.alarms.create(BRIDGE_ALARM, { periodInMinutes: 1 });
+void chrome.alarms.create(BRIDGE_ALARM, { periodInMinutes: 0.5 });
 void ensureBridgeSocket().catch(() => {});
 
 // Bounded Audit Log storage (latest 300 entries in storage.local)

@@ -82,6 +82,23 @@ try {
   assert.equal(info.clientCount,1)
   console.log('PASS actual browser tool dispatch and HTTP result through background WebSocket')
 
+  const original=ws
+  const displaced=new Promise(resolve=>original.once('close',code=>resolve(code)))
+  const replacement=createSocket(TOKEN)
+  await new Promise((resolve,reject)=>{replacement.once('open',resolve);replacement.once('error',reject)})
+  assert.equal(await displaced,4001,'older WS client is explicitly displaced; no reconnect fight')
+  ws=replacement
+  ws.on('message',async raw=>{
+    const frame=JSON.parse(raw.toString())
+    if(frame.type!=='command')return
+    await fetch(BASE+'/api/browser-companion/response',{
+      method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+TOKEN},
+      body:JSON.stringify({id:frame.data.id,ok:true,result:{ok:true,title:'Second browser client'}}),
+    })
+  })
+  const second=await service.executeOnBrowser('browser_dom_snapshot',{})
+  assert.equal(second.title,'Second browser client')
+  console.log('PASS two paired browsers do not receive duplicate commands; latest session wins')
   ws.close()
   await new Promise(resolve=>ws.once('close',resolve))
   await new Promise(resolve=>setTimeout(resolve,80))

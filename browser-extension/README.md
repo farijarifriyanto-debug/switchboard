@@ -16,7 +16,7 @@ Switchboard CLI (sbx chat --preset browser) -> 13 browser_* tools
              tool result -> Switchboard answer
 ```
 
-The connection survives closing the extension side panel. Chrome 116+ WebSocket activity keeps the worker alive; a one-minute alarm reconnects after a browser/worker restart or network outage. If the CLI shuts down, the extension reconnects when it starts again. The initial pairing uses an ephemeral, single-use short code; the persistent token stays in the browser's local storage and the user's private `~/.switchboard/browser-companion-token` file.
+The connection survives closing the extension side panel. Chrome 116+ WebSocket activity keeps the worker alive; a 30-second alarm retries the connection after a browser/worker restart or network outage. If the CLI shuts down, the extension reconnects when it starts again. The initial pairing uses an ephemeral, single-use short code; the persistent token stays in the browser's local storage and the user's private `~/.switchboard/browser-companion-token` file.
 
 ## Development installation (Chrome / Edge)
 
@@ -58,6 +58,6 @@ A **real Chrome E2E** must also show a prompt in Switchboard -> `browser_*` tool
 ## Scope and limitations
 
 - MVP integration targets local Switchboard CLI + Chrome/Edge on the **same computer**. Remote VPS-to-laptop control needs a separately authorized transport.
-- Chrome and Edge must support Manifest V3 background WebSockets (Chrome 116+ / equivalent Edge). Auto reconnect can take up to one minute after suspension.
+- Chrome and Edge must support Manifest V3 background WebSockets (Chrome 116+ / equivalent Edge). Auto reconnect can take 30 seconds or longer after suspension (depending on Chrome scheduling).
 - The standalone local CLI bridge supports WebSocket. Standalone `sbx web` requires its own browser bridge listener; don't assume a CLI companion socket exists unless the local CLI is running.
 - Development builds are **not** Chrome Web Store production releases.
