@@ -27,6 +27,8 @@ declare module 'cordis' {
     'session/append'(payload: { id: string; role: string }): void
     /** A request failed transiently and is about to be retried. */
     'llm/retry'(payload: { attempt: number; max: number; delayMs: number; error: string; sessionId?: string }): void
+    /** A call failed before producing output and moved to the next fallback target. */
+    'llm/fallback'(payload: { from: string; to: string; error: string; sessionId?: string }): void
     /** The workspace boundary changed (root switched at runtime). */
     'workspace/changed'(root: string): void
     /** A tool execution paused for an operator decision. */
