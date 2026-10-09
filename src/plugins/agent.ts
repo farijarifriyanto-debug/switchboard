@@ -217,7 +217,7 @@ export const agentLoop = {
           // Skills: advertise name + description only while the model can actually call load_skill.
           const skillsSvc = ctx.get('skills', false)
           const skillsSection = skillsSvc && !exclude.includes('load_skill') && ctx.tools.get('load_skill') ? await skillsSvc.index() : ''
-          const memorySection = (await ctx.get('memory', false)?.section()) ?? ''
+          const memorySection = (await ctx.get('memory', false)?.section(session.projectRoot)) ?? ''
           const finalSystem = withMcpInstructions(withMemory(withSkills(datedSystem, skillsSection), memorySection), ctx.get('mcp', false)?.instructions() ?? '')
           const systemIndex = session.messages.findIndex((m) => m.role === 'system')
           if (systemIndex === -1) session.messages.unshift({ role: 'system', content: finalSystem })

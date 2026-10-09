@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add read-only `search_memory` for project/global notebook notes with scoped
+  snippets, Unicode matching, relevance ranking and configurable all/any matches.
+- Search/read unloaded persisted sessions without hydrating them. Live sessions
+  override disk copies; malformed, oversized and symlink session files are skipped.
+
 - Preserve MCP structured results via `tools.callResult`; structured-only data
   renders as bounded JSON. Debug logs no longer include structured values.
 - Bridge MCP Resources, resource templates, and prompt templates as namespaced

@@ -12,3 +12,5 @@ Verification limit: real bubblewrap passed; Docker integration skipped because n
 
 Task 2: complete — typecheck/build and npm test passed, including extended MCP over stdio and HTTP, capability absence/collision, pagination, structured-only and error results, binary omission, prompt validation, cancellation and policy checks. Red: structured-only rendering was '(empty result)'.
 Ruling: Resource/prompt lists are fetched fresh instead of cached — list_changed notifications cannot leave cached metadata stale; no extra notification-backed cache is necessary.
+
+Task 3: complete — typecheck/build and full npm test passed, including notebook scope/edit/delete/disabled behavior, unloaded disk history and archives, Unicode normalization, malformed/oversized/symlink files, live-over-disk precedence and preset restrictions. Red: unloaded ledger session was not found. Search remains local and adds no dependencies/provider calls.

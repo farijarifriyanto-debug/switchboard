@@ -152,6 +152,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
 export { Context } from 'cordis'
 export { LLMService } from './services/llm.js'
 export { ToolsService } from './services/tools.js'
+export type { ToolResult, ToolSpec, ToolContext } from './services/tools.js'
 export { SessionService } from './services/session.js'
 export { PresetService } from './services/presets.js'
 export { SkillService } from './services/skills.js'

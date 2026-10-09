@@ -246,6 +246,12 @@ sbx memory forget 2              # by number, or by text
 
 `"memory": { "enabled": false }` removes the tool and the prompt section.
 
+`search_memory` searches project/global notebook notes with source-labelled
+snippets. It reads current files, so hand edits and deletions take effect on
+the next search. `scope` is `project`, `global`, or `all` (default); `limit` is
+at most 20. Disabled memory removes both `remember` and `search_memory`.
+Reviewer/researcher presets do not automatically gain access to the notebook.
+
 ## Compaction
 
 Long conversations are summarized, not just cut. When the prompt passes 80% of
@@ -266,6 +272,16 @@ That makes saved sessions usable as memory: "what did we decide about the billin
 week?". Both are read-only, but they expose your past conversations to the model, so the built-in
 `reviewer` and `researcher` presets leave them out, and so should any preset you build for
 untrusted input.
+
+Search and reading also cover persisted sessions outside the startup hydration
+limit, without adding them to the active session registry. Live transcripts win
+over stale disk copies. Search uses Unicode word matching and normalization,
+ranked by matched terms, bounded frequency, then recency. Both search tools
+default to all query terms; `match: "any"` explicitly allows partial matches.
+Session files over 8 MB, malformed files and symlink files are skipped; notebook
+reads are bounded at 64 KB. Searches use local text only, with no embeddings or
+provider calls. Single-letter terms are ignored and queries are capped at
+1000 characters / 8 distinct terms.
 
 ## Telegram channel
 

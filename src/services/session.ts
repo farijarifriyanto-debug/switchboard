@@ -1,8 +1,9 @@
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
-import { mkdir, readdir, readFile, rename, unlink, writeFile, lstat } from 'node:fs/promises'
+import { mkdir, readdir, rename, unlink, writeFile, lstat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { validBackground, type BackgroundState } from './background-jobs.js'
+import { readBoundedText } from './text-file.js'
 import path from 'node:path'
 import type { SessionUsage, AgentMessage } from '../types.js'
 
@@ -277,8 +278,13 @@ export class SessionService extends Service {
       const file = this.file(id)
       const st = await lstat(file)
       if (!st.isFile() || st.isSymbolicLink() || st.size > 8_000_000) return undefined
-      const data = JSON.parse(await readFile(file, 'utf8')) as SessionData
-      if (data?.id !== id || !Array.isArray(data.messages) || data.messages.some(m => !m || typeof m.content !== 'string')) return undefined
+      const text = await readBoundedText(file, 8_000_000)
+      if (text === undefined) return undefined
+      const data = JSON.parse(text) as SessionData
+      const validMessage = (m: AgentMessage): boolean => !!m && typeof m.content === 'string' && ['user', 'assistant', 'system', 'tool'].includes(m.role) &&
+        (m.tool_calls === undefined || Array.isArray(m.tool_calls) && m.tool_calls.every(c => c && typeof c.function?.name === 'string' && (c.function.arguments === undefined || typeof c.function.arguments === 'string')))
+      if (data?.id !== id || typeof data.title !== 'string' || !Number.isFinite(data.updatedAt) || !Number.isFinite(data.createdAt) || !Array.isArray(data.messages) || !data.messages.every(validMessage)) return undefined
+      if (data.archived !== undefined && (!Array.isArray(data.archived) || !data.archived.every(validMessage))) return undefined
       if (data.background !== undefined && !validBackground(data.background, id)) delete data.background
       return data
     } catch { return undefined }
