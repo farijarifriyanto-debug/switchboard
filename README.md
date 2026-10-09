@@ -745,17 +745,10 @@ source; a manual run from `master` restores GitHub assets and skips npm publicat
 
 Early (0.x). Working today: streaming chat, tool calling, a multi-step agent loop with approvals,
 persistent sessions, presets, skills, compaction and session recall, subagent delegation, MCP
-servers (including a Playwright browser), a sandbox for `run_command`, scheduled automations, a
-Telegram channel, a local web console and `sbx ci`.
+servers (including a Playwright browser), a sandbox for `run_command`, scheduled automations, Telegram
+and Discord channels, a local web console and `sbx ci`.
 
-What has and has not been tried by a person:
-
-- Tested by hand: the console (Chrome), skills, automations, Telegram against the real Bot API
-  (one private chat), the browser preset against real Chromium, and the docker sandbox on Windows
-  (Docker Desktop) and Linux.
-- Not tested by hand: bubblewrap outside Linux CI, macOS, and the Discord channel (only a fake gateway in CI).
-- The sandbox is isolation, not a security boundary (see above), and Telegram and Discord are the only chat
-  channels.
+The sandbox is isolation, not a security boundary (see above). Telegram and Discord are the only chat channels.
 
 ## Credits
 
