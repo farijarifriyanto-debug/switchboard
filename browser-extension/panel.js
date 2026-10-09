@@ -4,15 +4,10 @@
 
 const $ = (id) => document.getElementById(id);
 
-let currentSessionId = null;
-let activeRunAbortController = null;
-let lastPrompt = '';
-let isRunning = false;
 let isRecording = false;
 let currentTab = null;
 let bridgeUrl = 'http://127.0.0.1:7778';
 let companionToken = '';
-let tokenUsage = { prompt: 0, completion: 0 };
 let recordedWorkflowSteps = [];
 
 // -----------------------------------------------------------------------------
@@ -22,6 +17,13 @@ function setBadge(state, label) {
   const badge = $('companion-badge');
   badge.className = `badge ${state}`;
   badge.textContent = label;
+  const overview = $('overview-connection');
+  if (overview) {
+    const online = state === 'connected' || state === 'running';
+    overview.textContent = online ? 'Connected' : 'Offline';
+    overview.className = 'status-pill ' + (online ? 'is-live' : 'is-offline');
+    $('overview-host').textContent = online ? 'Switchboard on this device' : 'Not connected';
+  }
 }
 
 function applyTheme(theme) {
@@ -72,6 +74,7 @@ async function refreshActiveTab() {
   } catch (err) {
     $('active-tab-title').textContent = 'Error: ' + err.message;
   }
+  await updateOverviewStatus();
 }
 
 // -----------------------------------------------------------------------------
@@ -171,33 +174,11 @@ async function connectToSwitchboard() {
     setBadge('connected', 'Connected');
     $('bridge-diagnostics').textContent = `Successfully paired with Switchboard!\nMode: ${pairData.mode}\nApproved origins: ${pairData.approvedOrigins.length}`;
 
-    // 2. Fetch available models from Switchboard
-    await fetchAvailableModels();
+    await updateOverviewStatus();
   } catch (err) {
     setBadge('disconnected', 'Disconnected');
     $('bridge-diagnostics').textContent = `Connection error:\n${err.message}\n\nTroubleshooting:\n- Make sure Switchboard is running (e.g. "sbx web" or host active)\n- Verify port matches (default 7778)\n- Check that loopback host 127.0.0.1 is accessible`;
   }
-}
-
-async function fetchAvailableModels() {
-  try {
-    const res = await fetch(`${bridgeUrl}/api/state`, {
-      headers: companionToken ? { authorization: `Bearer ${companionToken}` } : {},
-    });
-    if (res.ok) {
-      const state = await res.json();
-      if (Array.isArray(state.models) && state.models.length > 0) {
-        const select = $('model-select');
-        select.innerHTML = '';
-        state.models.forEach((m) => {
-          const opt = document.createElement('option');
-          opt.value = m.provider && m.provider !== 'default' ? `${m.provider}::${m.id}` : m.id;
-          opt.textContent = `${m.id}${m.providerName ? ` · ${m.providerName}` : ''}`;
-          select.appendChild(opt);
-        });
-      }
-    }
-  } catch (_) {}
 }
 
 $('connect-bridge-btn').addEventListener('click', () => connectToSwitchboard());
@@ -207,133 +188,10 @@ $('disconnect-bridge-btn').addEventListener('click', async () => {
   await chrome.storage.local.set({ bridgeConnected: false });
   setBadge('disconnected', 'Disconnected');
   $('bridge-diagnostics').textContent = 'Disconnected from Switchboard.';
+  await updateOverviewStatus();
 });
 
-// -----------------------------------------------------------------------------
-// Agent Chat Loop & SSE Streaming
-// -----------------------------------------------------------------------------
-function appendMessage(role, text) {
-  const list = $('messages-list');
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  div.textContent = text;
-  list.appendChild(div);
-  list.scrollTop = list.scrollHeight;
-  return div;
-}
-
-function appendToolCard(toolName, args) {
-  const list = $('messages-list');
-  const card = document.createElement('div');
-  card.className = 'tool-card';
-  card.textContent = `🔧 ${toolName}: ${JSON.stringify(args)}`;
-  list.appendChild(card);
-  list.scrollTop = list.scrollHeight;
-  return card;
-}
-
-async function sendInstruction(promptText) {
-  const prompt = promptText || $('prompt-input').value.trim();
-  if (!prompt || isRunning) return;
-
-  lastPrompt = prompt;
-  $('prompt-input').value = '';
-  appendMessage('user', prompt);
-
-  isRunning = true;
-  setBadge('running', 'Running');
-  $('send-btn').disabled = true;
-  $('stop-btn').disabled = false;
-  $('retry-btn').disabled = true;
-
-  const model = $('model-select').value;
-  const preset = $('preset-select').value;
-
-  activeRunAbortController = new AbortController();
-  const assistantMsg = appendMessage('assistant', '');
-
-  try {
-    // Sync current browser tab state to Switchboard before turn starts
-    await syncCurrentTabToBridge();
-
-    const response = await fetch(`${bridgeUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(companionToken ? { authorization: `Bearer ${companionToken}` } : {}),
-      },
-      body: JSON.stringify({
-        prompt,
-        model,
-        preset,
-        sessionId: currentSessionId,
-      }),
-      signal: activeRunAbortController.signal,
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(`Agent error (${response.status}): ${err.error || 'Request failed'}`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('data: ')) {
-          try {
-            const ev = JSON.parse(line.slice(6));
-            handleAgentEvent(ev, assistantMsg);
-          } catch (_) {}
-        }
-      }
-    }
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      assistantMsg.textContent += '\n[⏹ Stopped by user]';
-    } else {
-      assistantMsg.textContent += `\n[⚠️ Error: ${err.message}]`;
-    }
-  } finally {
-    isRunning = false;
-    setBadge('connected', 'Connected');
-    $('send-btn').disabled = false;
-    $('stop-btn').disabled = true;
-    $('retry-btn').disabled = false;
-    activeRunAbortController = null;
-    await refreshActiveTab();
-    await refreshAuditLog();
-  }
-}
-
-function handleAgentEvent(ev, assistantMsg) {
-  if (ev.type === 'session') {
-    currentSessionId = ev.sessionId;
-  } else if (ev.type === 'text' || ev.type === 'chunk') {
-    assistantMsg.textContent += ev.content || ev.text || '';
-    $('messages-list').scrollTop = $('messages-list').scrollHeight;
-  } else if (ev.type === 'tool' || ev.type === 'tool_call') {
-    appendToolCard(ev.name || ev.tool, ev.args || {});
-  } else if (ev.type === 'approval_request') {
-    showApprovalBanner(ev);
-  } else if (ev.type === 'usage' || ev.usage) {
-    const u = ev.usage || ev;
-    tokenUsage.prompt += Number(u.promptTokens || u.inputTokens || 0);
-    tokenUsage.completion += Number(u.completionTokens || u.outputTokens || 0);
-    const cost = ((tokenUsage.prompt * 0.15 + tokenUsage.completion * 0.6) / 1_000_000).toFixed(4);
-    $('token-usage-bar').textContent = `Tokens: ${tokenUsage.prompt} in / ${tokenUsage.completion} out · Est. cost: $${cost}`;
-  }
-}
+// Browser prompts belong in Switchboard CLI or Web UI, not in the companion.
 
 async function syncCurrentTabToBridge() {
   if (!currentTab) return;
@@ -361,32 +219,6 @@ async function syncCurrentTabToBridge() {
     });
   } catch (_) {}
 }
-
-$('send-btn').addEventListener('click', () => sendInstruction());
-$('prompt-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendInstruction();
-  }
-});
-
-$('stop-btn').addEventListener('click', async () => {
-  if (activeRunAbortController) {
-    activeRunAbortController.abort();
-  }
-  if (currentSessionId) {
-    try {
-      await fetch(`${bridgeUrl}/api/runs/${encodeURIComponent(currentSessionId)}/cancel`, {
-        method: 'POST',
-        headers: companionToken ? { authorization: `Bearer ${companionToken}` } : {},
-      });
-    } catch (_) {}
-  }
-});
-
-$('retry-btn').addEventListener('click', () => {
-  if (lastPrompt) sendInstruction(lastPrompt);
-});
 
 // -----------------------------------------------------------------------------
 // Approval Banner
@@ -494,15 +326,22 @@ function renderWorkflowSteps() {
   recordedWorkflowSteps.forEach((step, idx) => {
     const item = document.createElement('div');
     item.className = 'step-item';
-    item.innerHTML = `
-      <span><strong>#${idx + 1}</strong> ${step.action} <code>${step.selector || step.url || ''}</code></span>
-      <button class="danger" style="padding:2px 6px;font-size:10px" data-idx="${idx}">✕</button>
-    `;
-    item.querySelector('button').addEventListener('click', async () => {
+    const description = document.createElement('span');
+    const label = document.createElement('strong');
+    label.textContent = '#' + (idx + 1) + ' ';
+    const target = document.createElement('code');
+    target.textContent = String(step.selector || step.url || '');
+    description.append(label, document.createTextNode(String(step.action || '') + ' '), target);
+    const remove = document.createElement('button');
+    remove.className = 'danger';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', 'Remove workflow step ' + (idx + 1));
+    remove.addEventListener('click', async () => {
       recordedWorkflowSteps.splice(idx, 1);
       await chrome.storage.local.set({ workflowSteps: recordedWorkflowSteps });
       renderWorkflowSteps();
     });
+    item.append(description, remove);
     container.appendChild(item);
   });
 }
@@ -638,15 +477,16 @@ async function refreshAuditLog() {
   list.slice(0, 50).forEach((entry) => {
     const tr = document.createElement('tr');
     const time = new Date(entry.timestamp).toLocaleTimeString();
-    tr.innerHTML = `
-      <td>${time}</td>
-      <td><strong>${entry.tool}</strong></td>
-      <td>${entry.selector || entry.url || entry.action || '-'}</td>
-      <td>${entry.decision}</td>
-      <td style="color:${entry.status === 'success' ? 'var(--success)' : 'var(--danger)'}">${entry.status}</td>
-    `;
+    const values = [time, entry.tool || '-', entry.selector || entry.url || entry.action || '-', entry.decision || '-', entry.status || '-'];
+    values.forEach((value, i) => {
+      const td = document.createElement('td');
+      td.textContent = String(value);
+      if (i === 4) td.style.color = entry.status === 'success' ? 'var(--success)' : 'var(--danger)';
+      tr.appendChild(td);
+    });
     tbody.appendChild(tr);
   });
+  renderOverviewActivity(list);
 }
 
 $('refresh-audit-btn').addEventListener('click', refreshAuditLog);
@@ -656,14 +496,118 @@ $('clear-audit-btn').addEventListener('click', async () => {
 });
 
 // -----------------------------------------------------------------------------
+// Connection, permission and recent activity overview
+// -----------------------------------------------------------------------------
+const MODES = {
+  ask_every_time: 'Ask every time',
+  auto_safe: 'Auto safe',
+  restricted: 'Read only',
+};
+
+async function updateOverviewStatus() {
+  const { approvedOrigins = [], permissionMode = 'ask_every_time' } =
+    await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
+  const isApproved = Boolean(currentTab?.origin && approvedOrigins.includes(currentTab.origin));
+  const hasCapture = Boolean(currentTab?.url);
+  $('overview-capture').textContent = hasCapture ? 'Tab captured' : 'Waiting for a tab';
+  $('overview-mode').textContent = MODES[permissionMode] || 'Ask every time';
+  $('overview-site-origin').textContent = currentTab?.origin || 'No site selected';
+  $('overview-site-status').textContent = isApproved ? 'Approved' : 'Not approved';
+  $('overview-site-status').className = 'status-pill ' + (isApproved ? 'is-live' : 'is-offline');
+  $('overview-site-desc').textContent = isApproved
+    ? 'Switchboard can perform browser actions on this approved site, subject to the selected permission mode.'
+    : 'Allow a site to let Switchboard perform browser actions. Unapproved sites remain protected.';
+  $('overview-allow-btn').disabled = !hasCapture || isApproved;
+  $('overview-revoke-btn').disabled = !hasCapture || !isApproved;
+  $('site-permission-status').textContent = isApproved ? 'Approved' : 'Not approved';
+  $('site-permission-status').style.color = isApproved ? 'var(--success)' : 'var(--warning)';
+}
+
+function renderOverviewActivity(entries) {
+  const container = $('overview-activity');
+  if (!container) return;
+  container.replaceChildren();
+  const recent = entries.slice(0, 5);
+  if (!recent.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-activity';
+    const icon = document.createElement('span');
+    icon.className = 'empty-icon';
+    icon.textContent = '↗';
+    const body = document.createElement('div');
+    const label = document.createElement('strong');
+    label.textContent = 'No actions yet';
+    const p = document.createElement('p');
+    p.textContent = 'Browser actions from your Switchboard sessions appear here.';
+    body.append(label,p);
+    empty.append(icon,body);
+    container.appendChild(empty);
+    return;
+  }
+  recent.forEach(entry => {
+    const row = document.createElement('div');
+    row.className = 'activity-row';
+    const symbol = document.createElement('span');
+    symbol.className = 'activity-symbol';
+    symbol.textContent = entry.status === 'success' ? '✓' : '!';
+    const info = document.createElement('div');
+    info.className = 'activity-main';
+    const name = document.createElement('span');
+    name.className = 'activity-name';
+    name.textContent = String(entry.tool || 'Browser action');
+    const detail = document.createElement('span');
+    detail.className = 'activity-sub';
+    detail.textContent = String(entry.selector || entry.url || entry.action || 'Browser tab');
+    info.append(name,detail);
+    const outcome = document.createElement('span');
+    outcome.className = 'activity-outcome' + (entry.status === 'success' ? '' : ' failed');
+    outcome.textContent = entry.status === 'success' ? 'Completed' : 'Failed';
+    row.append(symbol,info,outcome);
+    container.appendChild(row);
+  });
+}
+
+function openPanelTab(tab) {
+  document.querySelector('nav button[data-tab="' + tab + '"]')?.click();
+}
+
+$('copy-cli-btn').addEventListener('click', async () => {
+  const value = $('cli-command').textContent;
+  try {
+    await navigator.clipboard.writeText(value);
+    $('copy-cli-btn').textContent = 'Copied ✓';
+    $('copy-cli-btn').setAttribute('aria-label','Command copied to clipboard');
+  } catch (_) {
+    $('copy-cli-btn').textContent = 'Select text';
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents($('cli-command'));
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+});
+$('overview-refresh-btn').addEventListener('click', async () => {
+  await refreshActiveTab();
+  await refreshAuditLog();
+});
+$('overview-settings-btn').addEventListener('click', () => openPanelTab('tab-settings'));
+$('overview-activity-btn').addEventListener('click', () => {
+  openPanelTab('tab-security');
+  void refreshAuditLog();
+});
+$('overview-allow-btn').addEventListener('click', () => $('allow-current-origin-btn').click());
+$('overview-revoke-btn').addEventListener('click', () => $('revoke-current-origin-btn').click());
+
+// -----------------------------------------------------------------------------
 // Initialization
 // -----------------------------------------------------------------------------
 (async function init() {
-  const savedTheme = localStorage.getItem('sb_theme') || 'dark';
+  const savedTheme = localStorage.getItem('sb_theme') || 'light';
   applyTheme(savedTheme);
   await loadStoredConfig();
   await refreshActiveTab();
   await refreshAuditLog();
+  await updateOverviewStatus();
   // Auto connect if token stored
   if (companionToken) {
     connectToSwitchboard();

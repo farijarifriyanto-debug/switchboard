@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Switchboard Browser Agent</title>
+  <title>Switchboard · Browser Companion</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -264,26 +264,186 @@
       max-height: 200px;
       white-space: pre-wrap;
     }
+
+    /* Companion-first visual language. Designed for a narrow side panel and full tab. */
+    :root {
+      --bg: #f5f7fb; --card-bg: #ffffff; --border: #e2e8f2;
+      --text: #15243a; --text-muted: #718099; --primary: #2c63e8;
+      --primary-hover: #214fbc; --danger: #c74858; --danger-hover: #a92d41;
+      --success: #168c67; --warning: #b47417; --radius: 16px;
+      --subtle: #f8faff; --surface-hover: #edf3ff;
+      --shadow: 0 10px 28px rgba(32, 52, 89, .045);
+    }
+    [data-theme="dark"] {
+      --bg: #0b1220; --card-bg: #151f32; --border: #27364b;
+      --text: #f3f6fd; --text-muted: #9aaac2; --primary: #5487ff;
+      --primary-hover: #729bff; --danger: #ef657a; --danger-hover: #f28b98;
+      --success: #43cba2; --warning: #f2bd64; --subtle: #101a2b;
+      --surface-hover: #24344f; --shadow: 0 20px 42px rgba(0, 0, 0, .18);
+    }
+    * { box-sizing: border-box; }
+    body { padding: 0; margin: 0; min-width: 280px; background: var(--bg); color: var(--text);
+      font: 13px/1.55 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased; }
+    .app-shell { margin: 0 auto; padding: 0 22px 32px; max-width: 1130px; }
+    header.sb-header { margin: 0; padding: 19px max(22px, calc((100vw - 1086px) / 2)); border-bottom: 1px solid var(--border);
+      background: var(--card-bg); align-items: center; gap: 14px; }
+    .brand { gap: 11px; }
+    .brand-logo { display:grid; place-items:center; width:37px; height:37px; color:white; flex:none;
+      border-radius: 12px; background:linear-gradient(145deg,#4383ff,#3257d6); box-shadow:0 6px 16px #3e75e844; }
+    .brand-logo svg { display:block; }
+    .brand-copy { display:flex; flex-direction:column; line-height:1.24; }
+    .brand-title { font-size:15px; font-weight:760; letter-spacing:-.035em; }
+    .brand-subtitle { margin-top:3px; font-size:10px; color:var(--text-muted); font-weight:550; letter-spacing:.025em; }
+    .header-right { display:flex; align-items:center; gap:9px; }
+    button { padding:10px 14px; font-size:12px; font-weight:700; border-radius:10px; transition:background .17s,transform .17s; }
+    button:hover:not(:disabled) { transform:translateY(-1px); }
+    button.secondary { background:transparent; color:var(--text); border:1px solid var(--border); }
+    button.secondary:hover:not(:disabled) { background:var(--surface-hover); }
+    .icon-button { min-width:35px; height:35px; padding:0; font-size:17px; }
+    .badge { border-radius:999px; padding:5px 11px; font-weight:740; font-size:10px; border:1px solid var(--border);
+      background:var(--subtle); white-space:nowrap; }
+    .badge::before { content:""; display:inline-block; width:6px; height:6px; background:currentColor; border-radius:50%; margin-right:6px; vertical-align:1px; }
+    .badge.connected { color:var(--success); border-color:color-mix(in srgb,var(--success) 29%,var(--border)); }
+    .badge.disconnected { color:var(--danger); border-color:color-mix(in srgb,var(--danger) 29%,var(--border)); }
+    .badge.running { color:var(--primary); }
+    .main-top { display:flex; align-items:center; justify-content:space-between; margin:24px 0 14px; gap:16px; }
+    .section-eyebrow { font-size:10px; letter-spacing:.16em; text-transform:uppercase; font-weight:800; color:var(--primary); }
+    .page-title { font-size:22px; font-weight:780; line-height:1.16; letter-spacing:-.045em; margin:4px 0 0; }
+    .page-sub { color:var(--text-muted); margin:5px 0 0; font-size:12px; }
+    .context-bar { border-radius:14px; margin:0 0 16px; padding:16px 17px; background:var(--card-bg);
+      box-shadow:var(--shadow); display:flex; align-items:center; gap:16px; justify-content:space-between; }
+    .site-icon { display:grid;place-items:center; width:42px; height:42px; flex:none; background:var(--subtle);
+      color:var(--primary); border:1px solid var(--border); border-radius:13px; font-size:19px; }
+    .site-details { min-width:0; flex:1; }
+    .site-label { color:var(--text-muted); font-size:10px; font-weight:760; text-transform:uppercase;letter-spacing:.1em; }
+    #active-tab-title { display:block; font-size:14px; color:var(--text); font-weight:760; overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    #active-tab-origin { display:block; font-size:11px; color:var(--text-muted); overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    #site-permission-status { display:block; font-size:11px; font-weight:740; color:var(--warning); white-space:nowrap; }
+    .site-permission { padding-left:16px; border-left:1px solid var(--border); flex:none; }
+    nav { background:transparent; border:0; padding:0; margin:0 0 18px; border-bottom:1px solid var(--border);
+      border-radius:0; gap:16px; overflow-x:auto; scrollbar-width:none; }
+    nav button { border:0; background:transparent; border-radius:0; color:var(--text-muted); font-size:11px; font-weight:710;
+      padding:11px 2px 12px; border-bottom:2px solid transparent; }
+    nav button.active { background:transparent; color:var(--primary); border-bottom-color:var(--primary); }
+    nav button:hover:not(.active) { background:transparent; color:var(--text); }
+    .tab-pane { animation:fade-in .17s ease both; }
+    @keyframes fade-in { from {opacity:.5; transform:translateY(3px)} to {opacity:1;transform:none} }
+    .hero-card { position:relative; overflow:hidden; padding:26px 26px 24px; color:white;
+      border-radius:18px; background:linear-gradient(118deg,#142b59 0%,#18376f 62%,#2454a6 100%); margin-bottom:16px; }
+    .hero-card::after { content:""; pointer-events:none; position:absolute; right:-78px; top:-140px; width:330px;height:330px;
+      border:1px solid rgba(191,217,255,.22);border-radius:50%;box-shadow:0 0 0 57px rgba(176,205,255,.04),0 0 0 118px rgba(176,205,255,.028); }
+    .hero-eyebrow { font-size:10px; font-weight:800; letter-spacing:.18em; color:#a5c9ff; text-transform:uppercase; }
+    .hero-card h2 { font-size:clamp(20px,3vw,29px); max-width:510px; line-height:1.19;letter-spacing:-.045em; margin:9px 0; }
+    .hero-card p { margin:0 0 20px; max-width:540px; line-height:1.62; color:#d0def6; font-size:12px; }
+    .command-bar { display:flex;align-items:center;gap:10px; max-width:475px; background:rgba(2,13,38,.45);
+      border:1px solid rgba(205,224,255,.22);border-radius:11px; padding:7px 8px 7px 13px; }
+    .command-bar code { flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      color:#eaf2ff;font:600 12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .command-bar button { background:#fff; color:#203f77; flex:none; padding:7px 11px; font-size:10px; }
+    .command-bar button:hover { background:#e7f0ff; }
+    .cards-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-bottom:16px; }
+    .ui-card { background:var(--card-bg); border:1px solid var(--border); border-radius:16px;
+      padding:18px 19px; box-shadow:var(--shadow); min-width:0; }
+    .card-head { display:flex;align-items:center;justify-content:space-between;gap:8px; margin-bottom:17px; }
+    .card-head h3 { font-size:13px; font-weight:780; margin:0; letter-spacing:-.015em; }
+    .tiny-label { font-size:10px; color:var(--text-muted); font-weight:680; }
+    .status-pill { display:inline-flex;align-items:center;gap:6px; font-size:10px; font-weight:760; color:var(--text-muted); }
+    .status-pill::before { content:""; width:7px;height:7px;border-radius:50%;background:currentColor; }
+    .status-pill.is-live { color:var(--success); }
+    .status-pill.is-offline { color:var(--danger); }
+    .metric-row { display:flex; align-items:center;justify-content:space-between;gap:12px; padding:10px 0;
+      border-top:1px solid var(--border); }
+    .metric-row:first-of-type { border-top:0; }
+    .metric-label { font-size:11px; color:var(--text-muted); }
+    .metric-value { font-size:11px; font-weight:740; text-align:right; overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+    .card-buttons { display:flex;gap:8px;margin-top:15px;flex-wrap:wrap; }
+    .card-buttons button { flex:1;min-width:118px; }
+    .card-note { color:var(--text-muted);font-size:11px;margin:12px 0 0; }
+    .activity-list { display:flex;flex-direction:column;gap:0; }
+    .activity-row { display:flex;align-items:center;gap:11px;padding:12px 0;border-top:1px solid var(--border); }
+    .activity-row:first-child { border-top:0; }
+    .activity-symbol { width:32px;height:32px;display:grid;place-items:center;border-radius:10px;background:var(--subtle);
+      color:var(--primary);border:1px solid var(--border);font-size:15px;flex:none; }
+    .activity-main { flex:1;min-width:0; }
+    .activity-name { font-size:11px;font-weight:740;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    .activity-sub {font-size:10px;color:var(--text-muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .activity-outcome {font-size:10px;font-weight:760;color:var(--success);}
+    .activity-outcome.failed {color:var(--danger);}
+    .empty-activity {display:flex;align-items:center;gap:15px;padding:9px 0 7px;}
+    .empty-icon {display:grid;place-items:center;flex:none;width:38px;height:38px;background:var(--subtle);
+      border:1px solid var(--border);border-radius:12px;color:var(--primary);font-size:21px;}
+    .empty-activity strong {font-size:11px;display:block;}
+    .empty-activity p {font-size:11px;color:var(--text-muted);margin:3px 0 0;}
+    .panel-hint {background:var(--subtle);border:1px solid var(--border);padding:12px 15px;
+      border-radius:12px;color:var(--text-muted);font-size:11px;margin:0 0 15px;}
+    .tab-pane > .row, .tab-pane > .panel-hint, .tab-pane > label, .tab-pane > pre,
+    .tab-pane > textarea {margin-bottom:10px;}
+    .tab-pane:not(#tab-overview) {background:var(--card-bg);border:1px solid var(--border);padding:20px;
+      border-radius:16px;box-shadow:var(--shadow);}
+    label { font-weight:730; font-size:11px; margin:10px 0 6px; }
+    input,select,textarea { padding:11px 12px; border-radius:10px; font-size:12px; background:var(--subtle); }
+    pre { border-radius:11px; background:var(--subtle);font-size:11px;padding:13px; }
+    #approval-banner {background:var(--card-bg);border:2px solid var(--warning);padding:16px;margin:0 0 16px;border-radius:14px;}
+    .approval-title {color:var(--warning);}
+    .audit-table {font-size:11px;}
+    .audit-table th,.audit-table td {padding:10px 8px;border:0;border-bottom:1px solid var(--border);}
+    .audit-table th {color:var(--text-muted);font-weight:730;background:var(--subtle);}
+    button:focus-visible,nav button:focus-visible {outline:3px solid var(--primary);outline-offset:3px;}
+    @media (max-width:700px) {
+      .app-shell {padding:0 13px 22px;}
+      header.sb-header {padding:14px 13px;}
+      .main-top {margin-top:20px;}
+      .page-title {font-size:19px;}
+      .cards-grid {grid-template-columns:minmax(0,1fr);gap:12px;}
+      .hero-card {padding:23px 19px;}
+      .hero-card h2 {font-size:22px;}
+      .context-bar {padding:12px;gap:10px;}
+      .site-permission {padding-left:10px;}
+      nav {gap:13px;}
+      .tab-pane:not(#tab-overview) {padding:15px 12px;}
+    }
+    @media (max-width:370px) {
+      .brand-subtitle,.site-permission {display:none;}
+      .brand-title {font-size:13px;}
+      .command-bar code {font-size:10px;}
+      .header-right {gap:5px;}
+      nav {gap:11px;}
+      nav button {font-size:10px;}
+    }
+
   </style>
 </head>
 <body>
-  <header>
+  <header class="sb-header">
     <div class="brand">
-      <span>⚡ Switchboard</span>
-      <span id="companion-badge" class="badge disconnected">Disconnected</span>
+      <div class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h9m-3-3 3 3-3 3M20 17H11m3-3-3 3 3 3M4 17h3M17 7h3"/>
+        </svg>
+      </div>
+      <div class="brand-copy"><span class="brand-title">Switchboard</span><span class="brand-subtitle">BROWSER COMPANION</span></div>
     </div>
-    <div>
-      <button id="theme-toggle" class="secondary" title="Toggle theme" style="padding:4px 8px;font-size:11px">🌓</button>
-      <button id="toolbar-capture-btn" class="secondary" title="Capture active tab" style="padding:4px 8px;font-size:11px">📸 Capture</button>
+    <div class="header-right">
+      <span id="companion-badge" class="badge disconnected" role="status" aria-live="polite">Disconnected</span>
+      <button id="theme-toggle" class="secondary icon-button" title="Toggle light / dark theme" aria-label="Toggle theme">◐</button>
     </div>
   </header>
-
-  <div class="context-bar">
-    <div><strong>Active Tab:</strong> <span id="active-tab-title">Loading...</span></div>
-    <div><strong>Origin:</strong> <span id="active-tab-origin">No HTTP(S) page loaded</span></div>
-    <div><strong>Permission:</strong> <span id="site-permission-status">Read-only</span></div>
-  </div>
-
+  <div class="app-shell">
+    <div class="main-top">
+      <div><span class="section-eyebrow">YOUR BROWSER WORKSPACE</span><h1 class="page-title">Browser control center</h1>
+        <p class="page-sub">See what Switchboard can access and what it has done.</p></div>
+      <button id="toolbar-capture-btn" class="secondary">↻ &nbsp; Refresh tab</button>
+    </div>
+    <div class="context-bar">
+      <div class="site-icon" aria-hidden="true">◎</div>
+      <div class="site-details">
+        <div class="site-label">ACTIVE BROWSER TAB</div>
+        <strong id="active-tab-title">No tab captured</strong>
+        <span id="active-tab-origin">Select an HTTP(S) page to begin</span>
+      </div>
+      <div class="site-permission"><span class="site-label">SITE ACCESS</span><span id="site-permission-status">Not approved</span></div>
+    </div>
   <!-- Approval Banner -->
   <div id="approval-banner">
     <div class="approval-title">⚠️ Action Requires Operator Approval</div>
@@ -295,56 +455,51 @@
     </div>
   </div>
 
-  <nav>
-    <button class="active" data-tab="tab-chat">Agent Chat</button>
+  <nav aria-label="Companion sections">
+    <button class="active" data-tab="tab-overview">Overview</button>
     <button data-tab="tab-tools">Inspector</button>
     <button data-tab="tab-workflows">Workflows</button>
-    <button data-tab="tab-security">Security & Audit</button>
-    <button data-tab="tab-settings">Settings</button>
+    <button data-tab="tab-security">Permissions</button>
+    <button data-tab="tab-settings">Connection</button>
   </nav>
 
-  <!-- TAB 1: AGENT CHAT -->
-  <div id="tab-chat" class="tab-pane active">
-    <div class="row" style="margin-bottom:8px">
-      <div>
-        <label for="model-select">Model</label>
-        <select id="model-select">
-          <option value="agnes-3.0-flash">agnes-3.0-flash (default)</option>
-          <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
-          <option value="gpt-oss-20b">gpt-oss-20b</option>
-        </select>
-      </div>
-      <div>
-        <label for="preset-select">Preset</label>
-        <select id="preset-select">
-          <option value="browser" selected>Browser (automation)</option>
-          <option value="reviewer">Code Reviewer</option>
-          <option value="researcher">Researcher</option>
-          <option value="default">Default</option>
-        </select>
+  <!-- The extension is a browser companion. Prompts remain in Switchboard CLI/Web UI. -->
+  <section id="tab-overview" class="tab-pane active">
+    <div class="hero-card">
+      <span class="hero-eyebrow">BROWSER AGENT · LOCAL & PRIVATE</span>
+      <h2>Your browser is ready for Switchboard.</h2>
+      <p>Write your instructions in Switchboard. This companion securely carries browser actions to the active tab and sends results back to your agent.</p>
+      <div class="command-bar">
+        <code id="cli-command">sbx chat --preset browser</code>
+        <button id="copy-cli-btn" aria-label="Copy Switchboard CLI command">Copy command</button>
       </div>
     </div>
-
-    <div class="chat-container">
-      <div id="messages-list" class="messages-list">
-        <div class="msg system">Switchboard Browser Companion ready. Type an instruction to operate this browser tab.</div>
+    <div class="cards-grid">
+      <article class="ui-card">
+        <div class="card-head"><h3>Connection health</h3><span id="overview-connection" class="status-pill is-offline">Offline</span></div>
+        <div class="metric-row"><span class="metric-label">Agent connection</span><strong id="overview-host" class="metric-value">Not connected</strong></div>
+        <div class="metric-row"><span class="metric-label">Browser capture</span><strong id="overview-capture" class="metric-value">Waiting for a tab</strong></div>
+        <div class="metric-row"><span class="metric-label">Execution mode</span><strong id="overview-mode" class="metric-value">Ask every time</strong></div>
+        <div class="card-buttons"><button id="overview-refresh-btn" class="secondary">Refresh status</button><button id="overview-settings-btn" class="secondary">Connection settings</button></div>
+      </article>
+      <article class="ui-card">
+        <div class="card-head"><h3>Site permission</h3><span id="overview-site-status" class="status-pill is-offline">Not approved</span></div>
+        <p id="overview-site-desc" class="card-note">Allow a site to let the agent click, type, or navigate on it. Unapproved sites stay protected.</p>
+        <div class="metric-row"><span class="metric-label">Current origin</span><strong id="overview-site-origin" class="metric-value">No site selected</strong></div>
+        <div class="card-buttons"><button id="overview-allow-btn">Allow this site</button><button id="overview-revoke-btn" class="secondary">Revoke access</button></div>
+        <p class="card-note">Passwords and sensitive payment fields remain protected.</p>
+      </article>
+    </div>
+    <article class="ui-card">
+      <div class="card-head"><h3>Recent browser activity</h3><button id="overview-activity-btn" class="secondary">View audit log →</button></div>
+      <div id="overview-activity" class="activity-list" aria-live="polite">
+        <div class="empty-activity"><span class="empty-icon">↗</span><div><strong>No actions yet</strong><p>Browser actions from your Switchboard sessions appear here.</p></div></div>
       </div>
-      <div id="token-usage-bar" class="token-bar">Tokens: 0 in / 0 out · Est. cost: $0.000</div>
-    </div>
+    </article>
+  </section>
 
-    <div style="margin-bottom:8px">
-      <textarea id="prompt-input" rows="2" placeholder="e.g. Find the login button and click it, then report what happened..."></textarea>
-    </div>
-
-    <div class="row">
-      <button id="send-btn">Send Instruction</button>
-      <button id="stop-btn" class="danger" disabled>Stop</button>
-      <button id="retry-btn" class="secondary">Retry</button>
-    </div>
-  </div>
-
-  <!-- TAB 2: INSPECTOR & DOM TOOLS -->
-  <div id="tab-tools" class="tab-pane">
+  <!-- Inspector & DOM Tools -->
+  <div id="tab-tools" class="tab-pane"><div class="panel-hint">Inspect the captured page without sending instructions to AI. Webpage content is always untrusted.</div>
     <div class="row" style="margin-bottom:8px">
       <button id="refresh-dom-btn">Refresh DOM Snapshot</button>
       <button id="capture-screenshot-btn" class="secondary">Take Viewport Screenshot</button>
@@ -370,8 +525,8 @@
     <pre id="logs-view" style="display:none;margin-top:8px"></pre>
   </div>
 
-  <!-- TAB 3: WORKFLOWS -->
-  <div id="tab-workflows" class="tab-pane">
+  <!-- Workflows -->
+  <div id="tab-workflows" class="tab-pane"><div class="panel-hint">Local browser workflows and replay controls. Use Switchboard to plan and execute agent tasks.</div>
     <div class="row" style="margin-bottom:8px">
       <button id="record-workflow-btn" class="secondary">⏺ Start Recording</button>
       <button id="replay-workflow-btn" disabled>▶ Replay Workflow</button>
@@ -398,8 +553,8 @@
     </div>
   </div>
 
-  <!-- TAB 4: SECURITY & AUDIT -->
-  <div id="tab-security" class="tab-pane">
+  <!-- Permissions & Audit -->
+  <div id="tab-security" class="tab-pane"><div class="panel-hint">Site permissions and agent activity stay under your control. Review permissions before granting access.</div>
     <label for="permission-mode-select">Permission Mode</label>
     <select id="permission-mode-select">
       <option value="ask_every_time">Ask Every Time (Confirm all mutating actions)</option>
@@ -435,8 +590,8 @@
     </div>
   </div>
 
-  <!-- TAB 5: SETTINGS -->
-  <div id="tab-settings" class="tab-pane">
+  <!-- Connection settings -->
+  <div id="tab-settings" class="tab-pane"><div class="panel-hint">Pair this Chrome companion with Switchboard running on the same computer. No AI provider key is stored in the extension.</div>
     <label for="bridge-url-input">Switchboard Host URL</label>
     <input id="bridge-url-input" value="http://127.0.0.1:7778">
 
@@ -452,6 +607,7 @@
     <pre id="bridge-diagnostics">Checking local Switchboard service...</pre>
   </div>
 
+  </div><!-- app-shell -->
   <script src="panel.js"></script>
 </body>
 </html>
