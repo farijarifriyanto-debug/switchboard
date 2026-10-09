@@ -12,7 +12,7 @@ import { readFile } from 'node:fs/promises'
 const src = await readFile(new URL('../web/settings.js', import.meta.url), 'utf8').catch(() => '')
 assert.ok(src.trim(), 'web/settings.js should exist and be non-empty')
 const factory = new Function(
-  `${src}\n;return { validateProviderForm, groupModelsByProvider, credentialSourceLabel, deleteRecoveryCopy, diffDiscovery, encodeModelOption, parseModelOption, PROTOCOL_OPTIONS }`,
+  `${src}\n;return { validateProviderForm, groupModelsByProvider, credentialSourceLabel, deleteRecoveryCopy, diffDiscovery, encodeModelOption, parseModelOption, applyModelPick, PROTOCOL_OPTIONS }`,
 )
 const {
   validateProviderForm,
@@ -22,6 +22,7 @@ const {
   diffDiscovery,
   encodeModelOption,
   parseModelOption,
+  applyModelPick,
   PROTOCOL_OPTIONS,
 } = factory()
 
@@ -165,6 +166,17 @@ const {
 
 // --------------------------------------------- option value encode/parse
 {
+  // regression (found in a real browser): after a run the picker snapped to the first model because the
+  // session's `model` held the encoded value and was encoded a second time
+  const session = { model: 'old', provider: undefined }
+  applyModelPick(session, 'default::gemini-2.5-flash-lite')
+  assert.deepEqual(session, { model: 'gemini-2.5-flash-lite', provider: 'default' })
+  assert.equal(encodeModelOption(session.provider, session.model), 'default::gemini-2.5-flash-lite', 'encodes once, matching the option value')
+  applyModelPick(session, 'openrouter::gpt-6')
+  assert.deepEqual(session, { model: 'gpt-6', provider: 'openrouter' })
+  applyModelPick(session, 'bare-id')
+  assert.deepEqual(session, { model: 'bare-id', provider: 'default' })
+  assert.equal(applyModelPick(null, 'x'), null)
   assert.equal(encodeModelOption('openrouter', 'gpt-6'), 'openrouter::gpt-6')
   assert.equal(encodeModelOption(null, 'agnes-3.0-flash'), 'agnes-3.0-flash', 'legacy value stays bare')
   assert.equal(encodeModelOption('default', 'm1'), 'default::m1', 'explicit default is still encodable')

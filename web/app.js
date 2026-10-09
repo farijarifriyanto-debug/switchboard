@@ -633,7 +633,7 @@ function renderPresetPicker() {
   ui.presetMini.innerHTML = (state.presets || [])
     .map((p) => {
       const value = p.id === 'default' ? '' : p.id
-      const tools = p.tools?.allow ? ` · ${p.tools.allow.length} tools` : ''
+      const tools = p.tools?.allow ? (p.tools.allow.some((n) => n.endsWith('*')) ? ' · restricted tools' : ` · ${p.tools.allow.length} tools`) : ''
       return `<option value="${esc(value)}" title="${esc(p.description || '')}"${value === current ? ' selected' : ''}>${esc(p.name)}${esc(tools)}</option>`
     })
     .join('')
@@ -823,6 +823,9 @@ async function submitApproval(decision) {
     body: JSON.stringify({ decision }),
   })
   renderApprovalGate([], 'off')
+  // the card shrinks the transcript: keep following the answer instead of leaving it below the fold
+  state.pinned = true
+  scrollDown(true)
   void loadState().catch(() => {})
 }
 
@@ -1530,6 +1533,7 @@ async function send(prompt) {
   const toolNodes = new Map()
   const callStarts = new Map()
 
+  let pendingApproval = null
   const seal = () => {
     if (live) live.seal()
     if (reasoning) reasoning.seal()
@@ -1561,7 +1565,7 @@ async function send(prompt) {
         switch (type) {
           case 'session':
             state.sessionId = event.sessionId
-            if (state.selectedSession) state.selectedSession.model = state.activeTurnModel
+            applyModelPick(state.selectedSession, state.activeTurnModel)
             updateSessionLabel(state.selectedSession || { id: event.sessionId, title: 'New task', model: state.activeTurnModel, projectRoot: state.workspace?.root })
             void loadState().catch(() => {})
             break
@@ -1594,6 +1598,14 @@ async function send(prompt) {
           case 'tool_result': {
             const card = toolNodes.get(event.id)
             const dur = callStarts.get(event.id)
+            if (pendingApproval) {
+              // the "waiting" line must not stay orange after the answer is known
+              const rejected = String(event.result || '').startsWith('Error: the operator rejected')
+              pendingApproval.waiting.querySelector('.kind').textContent = rejected ? 'rejected' : 'approved'
+              pendingApproval.waiting.querySelector('.body').textContent = `${rejected ? 'Rejected' : 'Approved'}: ${pendingApproval.waitingText}`
+              pendingApproval.waiting.classList.add('resolved')
+              pendingApproval = null
+            }
             if (card) card.done(event.result, dur != null ? Date.now() - dur : null)
             else {
               const li = entry('tool-result', toolTitle(event.name))
@@ -1616,7 +1628,10 @@ async function send(prompt) {
             setStatus('waiting_approval', 'Waiting approval')
             setActivity('')
             const waiting = entry('notice', 'waiting approval')
-            waiting.querySelector('.body').textContent = `Waiting for approval: ${toolTitle(event.name)} · ${toolSummary(event.name, event.args)}`
+            const waitingText = `${toolTitle(event.name)} · ${toolSummary(event.name, event.args)}`
+            waiting.querySelector('.body').textContent = `Waiting for approval: ${waitingText}`
+            pendingApproval = { waiting, waitingText }
+            scrollDown(true)
             break
           }
           case 'cancelled':
