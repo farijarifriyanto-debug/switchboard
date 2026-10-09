@@ -420,6 +420,30 @@ async function main(): Promise<void> {
   if (args.approval) config.approval = { ...config.approval, mode: args.approval }
   if (args.sandbox) config.tools = { ...config.tools, shell: { ...config.tools?.shell, sandbox: { ...config.tools?.shell?.sandbox, mode: args.sandbox } } }
 
+  // CLI owns the local browser bridge: browser tools execute inside the same
+  // Switchboard agent session, not in a second extension chat session.
+  if ((args.command === 'chat' || args.command === 'run') && config.browser?.enabled !== false) {
+    const browserDir = path.join(os.homedir(), '.switchboard')
+    const tokenFile = path.join(browserDir, 'browser-companion-token')
+    await fs.mkdir(browserDir, { recursive: true, mode: 0o700 })
+    let browserToken: string
+    try {
+      browserToken = (await fs.readFile(tokenFile, 'utf8')).trim()
+      if (!/^[a-f0-9]{48}$/.test(browserToken)) throw new Error('Invalid companion token file')
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') throw error
+      browserToken = randomBytes(24).toString('hex')
+      await fs.writeFile(tokenFile, browserToken + '\n', { flag: 'wx', mode: 0o600 })
+    }
+    // Never accept a public bind for the CLI browser companion.
+    config.browser = {
+      ...config.browser,
+      host: '127.0.0.1',
+      port: config.browser?.port ?? 7778,
+      token: config.browser?.token ?? browserToken,
+    }
+  }
+
   const host = await createHost(config)
   const { ctx } = host
   if (args.preset && !ctx.presets.get(args.preset)) {

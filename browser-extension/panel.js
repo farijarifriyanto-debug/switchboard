@@ -10,7 +10,7 @@ let lastPrompt = '';
 let isRunning = false;
 let isRecording = false;
 let currentTab = null;
-let bridgeUrl = 'http://127.0.0.1:7777';
+let bridgeUrl = 'http://127.0.0.1:7778';
 let companionToken = '';
 let tokenUsage = { prompt: 0, completion: 0 };
 let recordedWorkflowSteps = [];
@@ -146,7 +146,7 @@ function startBridgeCommandListener() {
 }
 
 async function connectToSwitchboard() {
-  bridgeUrl = $('bridge-url-input').value.trim().replace(/\/+$/, '') || 'http://127.0.0.1:7777';
+  bridgeUrl = $('bridge-url-input').value.trim().replace(/\/+$/, '') || 'http://127.0.0.1:7778';
   companionToken = $('bridge-token-input').value.trim();
   $('bridge-diagnostics').textContent = `Connecting to ${bridgeUrl}...`;
 
@@ -175,7 +175,7 @@ async function connectToSwitchboard() {
     await fetchAvailableModels();
   } catch (err) {
     setBadge('disconnected', 'Disconnected');
-    $('bridge-diagnostics').textContent = `Connection error:\n${err.message}\n\nTroubleshooting:\n- Make sure Switchboard is running (e.g. "sbx web" or host active)\n- Verify port matches (default 7777)\n- Check that loopback host 127.0.0.1 is accessible`;
+    $('bridge-diagnostics').textContent = `Connection error:\n${err.message}\n\nTroubleshooting:\n- Make sure Switchboard is running (e.g. "sbx web" or host active)\n- Verify port matches (default 7778)\n- Check that loopback host 127.0.0.1 is accessible`;
   }
 }
 

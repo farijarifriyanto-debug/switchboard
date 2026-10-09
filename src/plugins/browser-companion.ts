@@ -316,7 +316,7 @@ export class BrowserCompanionService {
 
     // 2. Origin check: Allow chrome-extension://, moz-extension://, loopback, or absent
     const origin = String(req.headers.origin ?? '')
-    if (origin && !origin.startsWith('chrome-extension://') && !origin.startsWith('extension://') && !origin.startsWith('http://127.0.0.1') && !origin.startsWith('http://localhost')) {
+    if (origin && !(/^(chrome-extension:\/\/)[a-p]{32}$/.test(origin) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin))) {
       res.writeHead(403, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: `Forbidden: origin "${origin}" not allowed.` }))
       return
