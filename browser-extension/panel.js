@@ -56,3 +56,7 @@ $('export').addEventListener('click', async () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 refresh().catch(e => setStatus(String(e))); showWorkflow().catch(e => setStatus(String(e)));
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && changes.captured) refresh().catch(e => setStatus(String(e)));
+});
