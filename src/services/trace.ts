@@ -58,6 +58,11 @@ export class TraceService extends Service {
       summary: `Retry ${event.attempt}/${event.max}`,
       detail: event.error,
     }))
+    ctx.on('llm/fallback', (event) => this.record({
+      kind: 'status', sessionId: event.sessionId, level: 'warn',
+      summary: `Fallback ${event.from} -> ${event.to}`,
+      detail: event.error,
+    }))
     ctx.on('llm/metrics', (result) => this.record({
       kind: 'llm', sessionId: result.sessionId, model: result.model,
       ttftMs: result.ttftMs, totalMs: result.totalMs,

@@ -35,6 +35,20 @@ export interface LLMConfig {
    * model's context window when the endpoint itself does not advertise one.
    */
   contextCatalogUrl?: string
+  /**
+   * Fallback chain (the "AI orchestrator"). When a call fails before it produced
+   * any output (rate limit, 5xx, network, timeout, bad key, ...), the same request
+   * is retried on the next target. A target without `provider` keeps the caller's
+   * provider; without `model` it keeps the caller's model. Useful with free tiers.
+   */
+  fallbacks?: FallbackTarget[]
+  /** How long a failing target is skipped by later requests, in ms (default 60 000). 0 disables it. */
+  fallbackCooldownMs?: number
+}
+
+export interface FallbackTarget {
+  provider?: string
+  model?: string
 }
 
 const DEFAULTS: Required<Pick<LLMConfig, 'baseURL' | 'defaultModel' | 'timeoutMs'>> = {
@@ -159,8 +173,8 @@ export class LLMService extends Service {
    * Client errors (400, 401, 403, 404, ...) are returned immediately: retrying
    * them would only burn quota.
    */
-  private async fetchWithRetry(request: AdapterRequest, controller: AbortController, signal?: AbortSignal, sessionId?: string): Promise<Response> {
-    const maxRetries = Math.max(0, this.settings.retries ?? 0)
+  private async fetchWithRetry(request: AdapterRequest, controller: AbortController, signal?: AbortSignal, sessionId?: string, retryCap?: number): Promise<Response> {
+    const maxRetries = Math.min(Math.max(0, this.settings.retries ?? 0), retryCap ?? Infinity)
     const base = this.settings.retryDelayMs ?? 500
     const cap = this.settings.retryMaxDelayMs ?? 8000
 
@@ -243,6 +257,63 @@ export class LLMService extends Service {
    * calls and a final result carrying latency metrics.
    */
   async *stream(opts: GenerateOptions): AsyncGenerator<LLMEvent> {
+    const chain = this.chainFor(opts)
+    const errors: string[] = []
+    for (let i = 0; i < chain.length; i += 1) {
+      const target = chain[i]
+      const last = i === chain.length - 1
+      if (!last && this.isCooling(target)) {
+        errors.push(`${label(target)}: skipped (cooling down after a failure)`)
+        continue
+      }
+      let produced = false
+      try {
+        // With a fallback waiting, do not spend the whole retry budget on this target.
+        for await (const ev of this.streamOnce({ ...opts, ...target }, last ? undefined : 1)) {
+          if (ev.type !== 'done') produced = true
+          yield ev
+        }
+        return
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        // Output already reached the caller (or the caller stopped): switching now would duplicate text.
+        if (produced || opts.signal?.aborted || last) {
+          throw chain.length > 1 && !produced && !opts.signal?.aborted ? new Error(`all ${chain.length} targets failed: ${[...errors, `${label(target)}: ${message}`].join(' | ')}`) : error
+        }
+        errors.push(`${label(target)}: ${message}`)
+        if (/HTTP (408|409|425|429|5\d\d)|fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|abort|timeout/i.test(message)) this.cool(target)
+        const next = chain.slice(i + 1).find((t) => !this.isCooling(t)) ?? chain[chain.length - 1]
+        this.ctx.emit('llm/fallback', { from: label(target), to: label(next), error: message.slice(0, 300), ...(opts.sessionId ? { sessionId: opts.sessionId } : {}) })
+      }
+    }
+    throw new Error(`all ${chain.length} targets failed: ${errors.join(' | ')}`)
+  }
+
+  private cooling = new Map<string, number>()
+  private isCooling(t: { provider?: string; model?: string }): boolean {
+    return (this.cooling.get(label(t)) ?? 0) > Date.now()
+  }
+  private cool(t: { provider?: string; model?: string }): void {
+    const ms = this.settings.fallbackCooldownMs ?? 60_000
+    if (ms > 0) this.cooling.set(label(t), Date.now() + ms)
+  }
+
+  /** The caller's own provider/model first, then the configured fallbacks (deduplicated). */
+  private chainFor(opts: GenerateOptions): Array<{ provider?: string; model: string }> {
+    const first = { ...(opts.provider ? { provider: opts.provider } : {}), model: this.resolveModel(opts.model) }
+    const seen = new Set([label(first)])
+    const chain = [first]
+    for (const f of this.settings.fallbacks ?? []) {
+      const t = { ...((f.provider ?? opts.provider) ? { provider: (f.provider ?? opts.provider) as string } : {}), model: f.model || first.model }
+      if (!seen.has(label(t))) {
+        seen.add(label(t))
+        chain.push(t)
+      }
+    }
+    return chain
+  }
+
+  private async *streamOnce(opts: GenerateOptions, retryCap?: number): AsyncGenerator<LLMEvent> {
     const model = this.resolveModel(opts.model)
     const started = Date.now()
 
@@ -266,7 +337,7 @@ export class LLMService extends Service {
 
     let ttftMs = 0
     try {
-      const res = await this.fetchWithRetry(request, controller, opts.signal, opts.sessionId)
+      const res = await this.fetchWithRetry(request, controller, opts.signal, opts.sessionId, retryCap)
       // The adapter parses the wire format per protocol into the same events
       // the console has always seen; `tool_call` events arrive before `done`.
       const events = parseStream(res, profile)
@@ -308,6 +379,8 @@ export class LLMService extends Service {
     }
   }
 }
+
+const label = (t: { provider?: string; model?: string }): string => `${t.provider || 'default'}:${t.model ?? ''}`
 
 declare module 'cordis' {
   interface Context {
