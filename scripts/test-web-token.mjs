@@ -14,6 +14,19 @@ const base = {
 }
 const TOKEN = `t-${randomBytes(12).toString('hex')}`
 
+// A busy port gives a message that says what to do.
+{
+  const first = await createHost({ ...base, web: { enabled: true, port: 0 } })
+  try {
+    const { port } = await first.ctx.web.ready()
+    const second = await createHost({ ...base, web: { enabled: true, port } })
+    await assert.rejects(second.ctx.web.ready(), /already in use .*--port/)
+    await second.dispose()
+  } finally {
+    await first.dispose()
+  }
+}
+
 // A non-loopback bind without a token must refuse to start.
 await assert.rejects(
   createHost({ ...base, web: { enabled: true, port: 0, host: '0.0.0.0' } }),

@@ -8,6 +8,8 @@ export const SUMMARY_MARKER = '[Summary of the earlier conversation]'
 /** Originals kept on the session after compaction (searchable, never sent to the model). */
 const ARCHIVE_CAP = 2_000
 const TRANSCRIPT_CAP = 60_000
+/** Below this many estimated tokens a compaction cannot save anything useful. */
+const MIN_WORTH_TOKENS = 600
 
 export interface CompactionConfig {
   /** Set false to fall back to dropping old messages when the prompt is too long. */
@@ -105,6 +107,8 @@ export class CompactionService extends Service {
     const { systems, rest, cut } = parts
     const old = rest.slice(0, cut)
     const before = estimateMessages(session.messages)
+    // A short history is not worth a model call: the summary would be as long as what it replaces.
+    if (before < MIN_WORTH_TOKENS) return { ok: false, reason: `the conversation is only ~${before} tokens; compacting starts to pay off around ${MIN_WORTH_TOKENS}` }
 
     let summary: string
     try {
@@ -132,8 +136,12 @@ export class CompactionService extends Service {
     this.failedAt.delete(sessionId)
 
     const summaryMessage: AgentMessage = { role: 'user', content: `${SUMMARY_MARKER}\n${summary}` }
-    sessions.replaceMessages(sessionId, [...systems, summaryMessage, ...rest.slice(cut)], old)
-    return { ok: true, summarized: old.length, before, after: estimateMessages(session.messages), summary }
+    const next = [...systems, summaryMessage, ...rest.slice(cut)]
+    const after = estimateMessages(next)
+    // Never trade a short history for a longer summary: leave the conversation as it was.
+    if (after >= before * 0.9) return { ok: false, reason: `the summary (~${after} tokens) would not be shorter than the history (~${before}); left unchanged` }
+    sessions.replaceMessages(sessionId, next, old)
+    return { ok: true, summarized: old.length, before, after, summary }
   }
 }
 
