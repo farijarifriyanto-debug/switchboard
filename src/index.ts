@@ -129,10 +129,19 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   // User-provided plugins.
   for (const spec of config.plugins ?? []) await loadExtraPlugin(ctx, spec)
 
+  if (config.sessions?.load !== false && (config.web?.enabled || config.channels?.telegram?.enabled || config.channels?.discord?.enabled)) {
+    if (config.web?.enabled) await ctx.web.ready()
+    if (config.channels?.telegram?.enabled) await ctx.telegram?.ready()
+    if (config.channels?.discord?.enabled) await ctx.discord?.ready()
+    await ctx.subagent?.recover()
+  }
+
   return {
     ctx,
     config,
     async dispose() {
+      await ctx.subagent?.shutdown()
+      await ctx.sessions.flush()
       for (const runtime of [...ctx.registry.values()]) {
         for (const fiber of [...runtime.fibers]) {
           await fiber.dispose()
@@ -145,6 +154,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
 export { Context } from 'cordis'
 export { LLMService } from './services/llm.js'
 export { ToolsService } from './services/tools.js'
+export type { ToolResult, ToolSpec, ToolContext } from './services/tools.js'
 export { SessionService } from './services/session.js'
 export { PresetService } from './services/presets.js'
 export { SkillService } from './services/skills.js'

@@ -45,7 +45,8 @@ export const toolsShell = {
         },
         required: ['command'],
       },
-      execute(args: { command: string }, toolCtx: { signal?: AbortSignal }) {
+      execute(args: { command: string }, toolCtx: { signal?: AbortSignal; workspace?: string }) {
+        const commandCwd = toolCtx.workspace ?? cwd
         return new Promise<string>((resolve) => {
           if (sandbox) {
             const problem = sandboxProblem(sandbox)
@@ -55,7 +56,7 @@ export const toolsShell = {
           // Windows: PowerShell instead of cmd.exe, so common Unix-style
           // commands (ls, cat, ...) keep working through its aliases.
           const wrapped = sandbox
-            ? buildSandboxCommand(sandbox, { workspace: cwd, command: args.command, name: randomBytes(6).toString('hex'), uid: process.getuid?.(), gid: process.getgid?.() })
+            ? buildSandboxCommand(sandbox, { workspace: commandCwd, command: args.command, name: randomBytes(6).toString('hex'), uid: process.getuid?.(), gid: process.getgid?.() })
             : undefined
           const [file, argv] = wrapped
             ? [wrapped.file, wrapped.args]
@@ -64,7 +65,7 @@ export const toolsShell = {
             : ['/bin/sh', ['-c', args.command]]
           // spawn (not exec/execFile): only spawn honors `detached`, which makes the
           // command lead its own process group so killTree reaches grandchildren.
-          const child = spawn(file, argv, { cwd, windowsHide: true, detached: !isWin })
+          const child = spawn(file, argv, { cwd: commandCwd, windowsHide: true, detached: !isWin })
           const stop = (grace?: number): void => {
             killTree(child, grace)
             if (wrapped?.container) killContainer(wrapped.container)

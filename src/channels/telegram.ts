@@ -185,10 +185,12 @@ export const telegramChannel = {
       (error) => log.warn('getMe failed: %s', String(error)),
     )
     // restore the chat -> session map, then start polling
-    void core.restore().then(() => poll())
+    const ready = core.restore()
+    void ready.then(() => poll())
 
     // Used by automations to deliver results; only allow-listed private chats can receive.
     ctx.reflect.provide('telegram', {
+      ready: () => ready,
       async send(chatId: number, text: string): Promise<void> {
         if (!allow.has(String(chatId))) throw new Error('chat is not on the Telegram allow-list')
         await say(chatId, text)
@@ -204,6 +206,6 @@ export const telegramChannel = {
 
 declare module 'cordis' {
   interface Context {
-    telegram?: { send(chatId: number, text: string): Promise<void> }
+    telegram?: { ready(): Promise<void>; send(chatId: number, text: string): Promise<void> }
   }
 }

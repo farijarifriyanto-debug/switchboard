@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Context } from 'cordis'
-import type { ToolSpec } from '../services/tools.js'
+import type { ToolSpec, ToolContext } from '../services/tools.js'
 import { expandHome } from '../services/session.js'
 import { confine } from '../services/confine.js'
 
@@ -25,7 +25,7 @@ export const toolsFs = {
     })
     // Boundary guard against the *live* root (symlinks included); re-checked on
     // every call so a workspace switch takes effect immediately.
-    const boundary = (target: string): Promise<string> => confine(root, expandHome(target))
+    const boundary = (target: string, workspace = root): Promise<string> => confine(workspace, expandHome(target))
 
     const defs: ToolSpec[] = [
       {
@@ -38,8 +38,8 @@ export const toolsFs = {
           },
           required: ['path'],
         },
-        async execute(args: { path: string }) {
-          const file = await boundary(args.path)
+        async execute(args: { path: string }, tctx: ToolContext) {
+          const file = await boundary(args.path, tctx.workspace)
           const buf = await fs.readFile(file)
           const text = buf.subarray(0, maxBytes).toString('utf8')
           return buf.length > maxBytes ? `${text}\n...[truncated ${buf.length - maxBytes} bytes]` : text
@@ -56,8 +56,8 @@ export const toolsFs = {
           },
           required: ['path', 'content'],
         },
-        async execute(args: { path: string; content: string }) {
-          const file = await boundary(args.path)
+        async execute(args: { path: string; content: string }, tctx: ToolContext) {
+          const file = await boundary(args.path, tctx.workspace)
           await fs.mkdir(path.dirname(file), { recursive: true })
           await fs.writeFile(file, args.content, 'utf8')
           return `Wrote ${Buffer.byteLength(args.content)} bytes to ${args.path}`
@@ -71,8 +71,8 @@ export const toolsFs = {
           type: 'object',
           properties: { path: { type: 'string', description: 'Defaults to "."' } },
         },
-        async execute(args: { path?: string }) {
-          const dir = await boundary(args.path ?? '.')
+        async execute(args: { path?: string }, tctx: ToolContext) {
+          const dir = await boundary(args.path ?? '.', tctx.workspace)
           const entries = await fs.readdir(dir, { withFileTypes: true })
           return entries
             .map((e) => `${e.isDirectory() ? 'dir ' : 'file'}  ${e.name}`)
@@ -93,8 +93,9 @@ export const toolsFs = {
           },
           required: ['pattern'],
         },
-        async execute(args: { pattern: string; path?: string; maxResults?: number }) {
-          const dir = await boundary(args.path ?? '.')
+        async execute(args: { pattern: string; path?: string; maxResults?: number }, tctx: ToolContext) {
+          const searchRoot = tctx.workspace ?? root
+          const dir = await boundary(args.path ?? '.', searchRoot)
           const re = new RegExp(args.pattern)
           const limit = args.maxResults ?? 50
           const hits: string[] = []
@@ -109,11 +110,11 @@ export const toolsFs = {
                 await walk(full)
               } else {
                 // a link inside the workspace may point outside it: skip, never read through it
-                if (await boundary(full).then(() => false, () => true)) continue
+                if (await boundary(full, searchRoot).then(() => false, () => true)) continue
                 const text = await fs.readFile(full, 'utf8').catch(() => '')
                 text.split(/\r?\n/).forEach((line, i) => {
                   if (hits.length < limit && re.test(line)) {
-                    hits.push(`${path.relative(root, full)}:${i + 1}: ${line.trim().slice(0, 200)}`)
+                    hits.push(`${path.relative(searchRoot, full)}:${i + 1}: ${line.trim().slice(0, 200)}`)
                   }
                 })
               }

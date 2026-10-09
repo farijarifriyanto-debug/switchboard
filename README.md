@@ -246,6 +246,12 @@ sbx memory forget 2              # by number, or by text
 
 `"memory": { "enabled": false }` removes the tool and the prompt section.
 
+`search_memory` searches project/global notebook notes with source-labelled
+snippets. It reads current files, so hand edits and deletions take effect on
+the next search. `scope` is `project`, `global`, or `all` (default); `limit` is
+at most 20. Disabled memory removes both `remember` and `search_memory`.
+Reviewer/researcher presets do not automatically gain access to the notebook.
+
 ## Compaction
 
 Long conversations are summarized, not just cut. When the prompt passes 80% of
@@ -266,6 +272,16 @@ That makes saved sessions usable as memory: "what did we decide about the billin
 week?". Both are read-only, but they expose your past conversations to the model, so the built-in
 `reviewer` and `researcher` presets leave them out, and so should any preset you build for
 untrusted input.
+
+Search and reading also cover persisted sessions outside the startup hydration
+limit, without adding them to the active session registry. Live transcripts win
+over stale disk copies. Search uses Unicode word matching and normalization,
+ranked by matched terms, bounded frequency, then recency. Both search tools
+default to all query terms; `match: "any"` explicitly allows partial matches.
+Session files over 8 MB, malformed files and symlink files are skipped; notebook
+reads are bounded at 64 KB. Searches use local text only, with no embeddings or
+provider calls. Single-letter terms are ignored and queries are capped at
+1000 characters / 8 distinct terms.
 
 ## Telegram channel
 
@@ -403,9 +419,20 @@ Switchboard tool source — no plugin needed. Configure it in the `mcp` block:
 - Server `instructions` are injected into the system prompt while connected.
 - Child processes get a scrubbed environment (`KEY|PASSWORD|SECRET|TOKEN|
   CREDENTIAL` names and `BOTCONNECTOR_*` are dropped; your `env` entries win).
-- Known deviations from the reference DeepSeek Harness client (image results as
-  text, `structuredContent` logged only, no config hot-reload, no Resources/
-  prompt bridging, headers-only auth) are listed in the design spec.
+- Structured-only results render as bounded JSON instead of an empty result.
+  `ctx.tools.callResult(name, args, context)` preserves `structuredContent`, raw
+  content blocks, and `isError` for programmatic callers; `call()` still returns
+  text. Debug logs record the presence of structured data without its values.
+- Servers advertising Resources or Prompts gain namespaced `list_resources`,
+  `read_resource`, `list_resource_templates`, `list_prompts`, and `get_prompt`
+  tools (for example `mcp__memory__read_resource`). Lists follow pagination,
+  capped at 50 pages / 5000 entries, and are fetched fresh on every call.
+  These operations honor approval and preset restrictions. Prompt templates
+  return as data, never as automatically installed system instructions.
+- Binary results still become bounded diagnostics in model context. Attachment
+  storage, config hot-reload, and OAuth flows remain outside this bridge;
+  authentication is headers-based. A server tool that collides with a reserved
+  bridge operation is rejected explicitly, leaving the host usable.
 
 ## Subagent delegation
 
@@ -443,10 +470,16 @@ what its in-flight workers use.
   your `AGENTS.md`/date context, and inherit the session model unless the task
   overrides it. Background children carry `kind: 'subagent'`,
   `parentSessionId`, `jobId` in their persisted session record.
-- Jobs live in memory only: unloading the host (`host.dispose()`) aborts
-  in-flight workers, marks queued jobs `aborted before start (unload)` and
-  running jobs `aborted (unload)`, clears the registry, and drops pending
-  injections.
+- Background job checkpoints and delivery receipts are saved with the parent
+  session. On restart, `sbx web` and `sbx channels` resume workers that had not
+  started and deliver saved results once. Work already running is marked
+  interrupted and is **never automatically repeated**. An interrupted parent
+  wake waits for your next input. Normal shutdown preserves queued work.
+- Recovery requires session persistence and loading. Read-only/one-shot commands
+  never run the saved queue. A process ownership lock prevents two hosts from
+  dispatching the same work; live, unknown, or foreign-host owners are not stolen.
+  Recovery still uses current approvals and budgets. Workers keep their session's
+  saved project root when the console switches to another workspace.
 
 ## Usage
 

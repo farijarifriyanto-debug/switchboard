@@ -207,7 +207,7 @@ export const agentLoop = {
           const exclude = options.excludeTools ?? []
           // Per-turn assembly: runSystem is the base (replaces the closure reference).
           const platformPrompt = runSystem.includes('Platform:') ? runSystem : `${runSystem} ${PLATFORM_HINT}`
-          const system = withAgentsMd(platformPrompt, ctx.workspace?.root ?? process.cwd(), globalAgents)
+          const system = withAgentsMd(platformPrompt, session.projectRoot ?? ctx.workspace?.root ?? process.cwd(), globalAgents)
           // Refresh the stored system prompt every turn so the date line never
           // goes stale on a long-running server (boot-time `system` is frozen).
           const datedSystem = withDateContext(system)
@@ -217,7 +217,7 @@ export const agentLoop = {
           // Skills: advertise name + description only while the model can actually call load_skill.
           const skillsSvc = ctx.get('skills', false)
           const skillsSection = skillsSvc && !exclude.includes('load_skill') && ctx.tools.get('load_skill') ? await skillsSvc.index() : ''
-          const memorySection = (await ctx.get('memory', false)?.section()) ?? ''
+          const memorySection = exclude.includes('search_memory') ? '' : (await ctx.get('memory', false)?.section(session.projectRoot)) ?? ''
           const finalSystem = withMcpInstructions(withMemory(withSkills(datedSystem, skillsSection), memorySection), ctx.get('mcp', false)?.instructions() ?? '')
           const systemIndex = session.messages.findIndex((m) => m.role === 'system')
           if (systemIndex === -1) session.messages.unshift({ role: 'system', content: finalSystem })
@@ -373,7 +373,7 @@ export const agentLoop = {
                   data: { name: call.function.name, args, callId: call.id },
                 }))
                 const startedAt = Date.now()
-                const toolCtx = { sessionId: session.id, signal: controller.signal, ...(exclude.length ? { deny: exclude } : {}) }
+                const toolCtx = { sessionId: session.id, workspace: session.projectRoot, signal: controller.signal, ...(exclude.length ? { deny: exclude } : {}) }
                 let beforeFile: string | undefined
                 if (call.function.name === 'write_file' && typeof (args as any)?.path === 'string') {
                   const previous = await ctx.tools.call('read_file', { path: (args as any).path }, toolCtx)

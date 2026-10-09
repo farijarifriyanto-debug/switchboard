@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, writeFile, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { createHost } from '../dist/index.js'
+const root=await mkdtemp(path.join(tmpdir(),'sbx-memory-search-')),dir=path.join(root,'sessions'),ws=path.join(root,'workspace'),globalFile=path.join(root,'MEMORY.md')
+await mkdir(dir);await mkdir(ws);await mkdir(path.join(ws,'.switchboard'))
+const date=Date.now()
+const disk=(id,text,updatedAt=date)=>({id,title:id,createdAt:date,updatedAt,messages:[{role:'user',content:text}]})
+const old=disk('s-old','Keputusan billing ledger memakai Postgres. CAFÉ café. 東京 記憶.',date-10000)
+old.archived=[{role:'assistant',content:'Arsip migrasi ledger tenant.'}]
+await writeFile(path.join(dir,'s-old.json'),JSON.stringify(old))
+await writeFile(path.join(dir,'s-latest.json'),JSON.stringify(disk('s-latest','unrelated',date+10000)))
+await writeFile(path.join(dir,'s-broken.json'),'not json')
+await writeFile(path.join(dir,'s-large.json'),JSON.stringify(disk('s-large','oversized-private '+'x'.repeat(8000001))))
+await writeFile(path.join(root,'outside.json'),JSON.stringify(disk('s-link','symlink-private')))
+if(process.platform!=='win32')await symlink(path.join(root,'outside.json'),path.join(dir,'s-link.json'))
+await writeFile(globalFile,'# Memory\n- 2026-01-01 Pilih PostgreSQL untuk billing.\n- 2026-01-02 Answer in Indonesian.\n')
+await writeFile(path.join(ws,'.switchboard','MEMORY.md'),'# Memory\n- 2026-01-03 Keputusan billing ledger memakai Postgres.\n')
+const config={llm:{baseURL:'http://127.0.0.1:9/v1',defaultModel:'stub',retries:0},settings:{dir:''},sessions:{dir,max:1},metrics:{persist:'',load:false},workspace:{root:ws,remember:false},memory:{globalFile},approval:{mode:'off'}}
+const host=await createHost(config)
+try{
+  const ctx=host.ctx,current=ctx.sessions.create({title:'Current'})
+  const call=(n,a)=>ctx.tools.call(n,a,{sessionId:current.id})
+  assert.equal(ctx.sessions.get('s-old'),undefined)
+  assert.match(await call('search_sessions',{query:'billing ledger'}),/s-old/,'search includes sessions beyond hydration limit')
+  assert.equal(ctx.sessions.get('s-old'),undefined,'search does not hydrate old sessions')
+  assert.match(await call('read_session',{id:'s-old'}),/Keputusan billing ledger/)
+  assert.match(await call('read_session',{id:'s-old',archived:true}),/Arsip migrasi/)
+  assert.match(await call('search_sessions',{query:'CAFÉ'}),/s-old/,'Unicode case matching')
+  assert.match(await call('search_sessions',{query:'cafe\u0301'}),/s-old/,'Unicode canonical normalization')
+  assert.match(await call('search_sessions',{query:'東京 記憶'}),/s-old/)
+  assert.match(await call('search_sessions',{query:'ledger missing',match:'any'}),/s-old/)
+  assert.match(await call('search_sessions',{query:'ledger missing'}),/No earlier/,'all terms remain default')
+  assert.match(await call('search_sessions',{query:'ledger',match:'bogus'}),/^Error:/)
+  assert.match(await call('search_sessions',{query:'oversized-private'}),/No earlier/)
+  assert.match(await call('search_sessions',{query:'symlink-private'}),/No earlier/)
+  assert.match(await call('read_session',{id:'../outside'}),/Error:/)
+  assert.match(await call('search_memory',{query:'billing'}),/project[\s\S]*global|global[\s\S]*project/)
+  assert.match(await call('search_memory',{query:'billing',scope:'project'}),/project/)
+  assert.ok(!(await call('search_memory',{query:'billing',scope:'project'})).includes('PostgreSQL'))
+  assert.match(await call('search_memory',{query:'billing',scope:'global'}),/PostgreSQL/)
+  assert.match(await call('search_memory',{query:'billing',scope:'bad'}),/^Error:/)
+  await writeFile(globalFile,'# Memory\n- 2026-01-04 changed preference.\n')
+  assert.match(await call('search_memory',{query:'changed preference'}),/changed preference/,'external edits are visible')
+  await rm(globalFile)
+  assert.match(await call('search_memory',{query:'changed preference'}),/No memory/,'deleted notebook is not cached')
+  const live=await ctx.sessions.restoreStored('s-old')
+  ctx.sessions.replaceMessages(live.id,[{role:'user',content:'live override ledger'}])
+  assert.match(await call('search_sessions',{query:'billing ledger'}),/No earlier/,'new live transcript wins over stale disk copy')
+  assert.match(await call('search_sessions',{query:'live override'}),/1 match\(es\)/,'live/disk results do not duplicate')
+  for(const preset of ['reviewer','researcher'])assert.ok(ctx.presets.resolve(preset,ctx.tools.list().map(t=>t.name)).excludeTools.includes('search_memory'))
+  const denied=await ctx.tools.call('search_memory',{query:'ledger'},{deny:['search_memory']});assert.match(denied,/not available/)
+  console.log('memory-search: OK (notebooks, disk history, archives, Unicode, limits, live precedence, restrictions)')
+}finally{await host.dispose()}
+const off=await createHost({...config,memory:{globalFile,enabled:false}})
+try{assert.equal(off.ctx.tools.get('search_memory'),undefined)}finally{await off.dispose();await rm(root,{recursive:true,force:true})}

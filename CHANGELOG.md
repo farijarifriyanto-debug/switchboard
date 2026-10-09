@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- Add read-only `search_memory` for project/global notebook notes with scoped
+  snippets, Unicode matching, relevance ranking and configurable all/any matches.
+- Search/read unloaded persisted sessions without hydrating them. Live sessions
+  override disk copies; malformed, oversized and symlink session files are skipped.
+
+- Preserve MCP structured results via `tools.callResult`; structured-only data
+  renders as bounded JSON. Debug logs no longer include structured values.
+- Bridge MCP Resources, resource templates, and prompt templates as namespaced
+  tools with pagination, cancellation, capability checks, and existing policies.
+
+- Persist background jobs, result delivery receipts and interrupted-wake state
+  with parent sessions. Long-running hosts recover queued jobs without repeating
+  started work or delivering results twice; normal shutdown preserves queues.
+- Serialize strict session checkpoints and refuse dispatch on persistence errors.
+  An exclusive recovery owner prevents competing hosts from dispatching jobs.
+- Workers use their saved project workspace for filesystem/shell tools.
+- Snapshot queued workers' effective model/provider and step budget; route worker
+  approval requests to their parent Telegram/Discord chat after restart.
+- Publish background batches atomically, release failed wake initialization,
+  reclaim dead recovery guards, and include older foreground workers in budgets.
+  Wait for channel chat maps before recovery; restricted presets receive no
+  notebook prompt projection.
+- Process-tree tests distinguish killed Linux zombies from executing processes
+  in containers whose PID 1 does not reap orphaned grandchildren.
+
 ## 0.2.0
 
 First release prepared for other people to run. Everything below is on `master`; each item was

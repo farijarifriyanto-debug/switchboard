@@ -5,6 +5,8 @@ import type { SessionData } from '../services/session.js'
 import type { ToolContext } from '../services/tools.js'
 import type { RunEvent } from '../types.js'
 import { isSessionBusyError } from './agent.js'
+import type { StoredBackgroundJob } from '../services/background-jobs.js'
+import { acquireRecoveryLock } from '../services/recovery-lock.js'
 
 /** Worker system prompt (spec §6.1) — content pinned by tests. */
 export const WORKER_SYSTEM_PROMPT =
@@ -84,6 +86,8 @@ export interface SubagentService {
   job(id: string): JobRecord | undefined
   state(sessionId: string): SubagentRunState
   flush(sessionId: string): Promise<void>
+  recover(): Promise<void>
+  shutdown(): Promise<void>
 }
 
 const EMPTY_VIEW: SubagentRunState = { pending: 0, busy: false, wakeBlocked: false, waking: false }
@@ -118,6 +122,19 @@ export const subagent = {
     const parents = new Map<string, ParentState>() // per-parent inject/wake state
     let jobSeq = 0
     let disposed = false
+    let stopping = false
+    let releaseLock: (() => Promise<void>) | undefined
+    const settling = new Set<Promise<unknown>>()
+
+    const persistJob = async (record: JobRecord, task?: TaskSpec): Promise<void> => {
+      const parent = sessionsRef.get(record.parentSessionId)
+      if (!parent) throw new Error('background parent session was deleted')
+      const state = parent.background ??= { version: 1, jobs: [] }
+      const old = state.jobs.find(j => j.jobId === record.jobId)
+      if (old) Object.assign(old, record)
+      else if (task) state.jobs.push({ ...record, task })
+      await sessionsRef.checkpoint(parent.id)
+    }
 
     // ---- inject/wake state (spec §7.2) ---------------------------------------
     const ensureParent = (id: string): ParentState => {
@@ -138,35 +155,46 @@ export const subagent = {
       st.flushScheduled = true
       setImmediate(() => {
         st.flushScheduled = false
-        void runFlush(id)
+        void runFlush(id).catch(e => ctx.logger('subagent').error('delivery checkpoint: %s', String(e)))
       })
     }
 
-    const appendInjections = (id: string, batch: Injection[]): void => {
+    const appendInjections = async (id: string, batch: Injection[]): Promise<void> => {
       const session = ctx.sessions.get(id)
       if (!session) return
-      for (const inj of batch) session.messages.push({ role: 'user', content: inj.body })
-      void ctx.sessions.flush() // persistence parity with the rest of the codebase
+      for (const inj of batch) {
+        const stored = session.background?.jobs.find(j => j.jobId === inj.jobId)
+        if (stored?.delivered) continue
+        ctx.sessions.append(id, { role: 'user', content: inj.body })
+        if (stored) stored.delivered = true
+      }
+      if (session.background) session.background.wakePending = true
+      await sessionsRef.checkpoint(id)
     }
 
     const wakeController = new AbortController() // shared wake signal (aborted on unload)
 
     const runFlush = async (id: string): Promise<void> => {
-      if (disposed) return
+      if (disposed || stopping) return
       const st = parents.get(id) // NO ensure — unknown parent → bail
-      if (!st || st.pending.length === 0) return
+      if (!st || st.pending.length === 0 && !ctx.sessions.get(id)?.background?.wakePending) return
       if (st.busy || st.wakeToken) return
       if (!ctx.sessions.get(id)) { st.pending = []; return } // session gone → discarded
 
       const batch = st.pending.splice(0, st.pending.length)
-      appendInjections(id, batch) // spec §7.2 step 6: injection ALWAYS delivered…
+      try { await appendInjections(id, batch) } catch (e) { st.pending.unshift(...batch); throw e }
+      if (disposed || stopping) return
       if (!resolved.autoResume) { st.wakeBlocked = true; return } // …only the wake is gated
       if (st.wakeBlocked) return // step 7: stay down until trigger (i) pushInjection or (ii) user-turn end
 
       const token = Symbol('wake')
       st.wakeToken = token
+      const bg = ctx.sessions.get(id)?.background
+      let wakeStarted = false
       let sawFinal = false
       try {
+        if (bg) { bg.wakeRunning = true; await sessionsRef.checkpoint(id) }
+        wakeStarted = true
         for await (const raw of ctx.agent.stream('', id, { signal: wakeController.signal })) {
           const ev = raw as { type: string }
           if (ev.type === 'final') sawFinal = true
@@ -175,6 +203,7 @@ export const subagent = {
         if (!sawFinal && status === 'failed') throw new Error('wake ended without a final (session failed)')
         if (!sawFinal && status === 'cancelled') throw new Error('wake was cancelled')
       } catch (err) {
+        if (!wakeStarted) throw err // checkpoint failure leaves a retryable wake
         if (disposed) return
         const message = err instanceof Error ? err.message : String(err)
         if (isSessionBusyError(err)) {
@@ -186,12 +215,17 @@ export const subagent = {
       } finally {
         const cur = parents.get(id)
         if (cur?.wakeToken === token) cur.wakeToken = undefined
-        if (!disposed) scheduleFlush(id) // drain injections that arrived during the wake
+        if (bg && !disposed && !stopping) {
+          bg.wakeRunning = false
+          bg.wakePending = !wakeStarted || st.pending.length > 0
+          await sessionsRef.checkpoint(id)
+        }
+        if (!disposed && wakeStarted) scheduleFlush(id) // avoid a disk-failure retry loop
       }
     }
 
     const pushInjection = (id: string, inj: Injection): void => {
-      if (disposed) return
+      if (disposed || stopping) return
       const st = ensureParent(id)
       st.pending.push(inj)
       st.wakeBlocked = false // trigger (i): a result arrived
@@ -207,7 +241,7 @@ export const subagent = {
      *  and subagent/start emission live in runEntry (batch semantics, spec §9). */
     const runChild = async (
       child: SessionData, task: TaskSpec, link: AbortController,
-      onStart: () => void,
+      onStart: () => void | Promise<void>,
     ): Promise<Outcome> => {
       // one controller per worker, chained to the batch's: a worker over its token budget stops alone
       const own = new AbortController()
@@ -215,8 +249,9 @@ export const subagent = {
       if (link.signal.aborted) own.abort()
       else link.signal.addEventListener('abort', chain, { once: true })
       controllers.set(child.id, own)
-      onStart()
       try {
+        await onStart()
+        if (disposed || stopping || own.signal.aborted) throw new Error('aborted before start')
         let ok = false
         let result: string | undefined
         let error: string | undefined
@@ -246,11 +281,11 @@ export const subagent = {
           error = limit
         }
         if (!ok && !error) error = 'child produced no answer'
-        if (!disposed) ctx.emit('subagent/done', { sessionId: child.id, ok })
+        if (!disposed && !stopping) ctx.emit('subagent/done', { sessionId: child.id, ok })
         return { description: task.description, status: ok ? 'ok' : 'failed', ...(ok ? { result: result ?? '' } : { error: error ?? 'failed' }), sessionId: child.id }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        if (!disposed) ctx.emit('subagent/done', { sessionId: child.id, ok: false })
+        if (!disposed && !stopping) ctx.emit('subagent/done', { sessionId: child.id, ok: false })
         return { description: task.description, status: 'failed', error: message, sessionId: child.id }
       } finally {
         link.signal.removeEventListener('abort', chain)
@@ -262,8 +297,8 @@ export const subagent = {
     // ---- wave pool (spec §4.4): maxParallel waves, outcomes aligned by index ----
     const runWaves = async (
       tasks: TaskSpec[], children: SessionData[], link: AbortController,
-      onStart: (index: number) => void, // queued → running (job bookkeeping)
-      onUpdate: (index: number, outcome: Outcome) => void,
+      onStart: (index: number) => void | Promise<void>, // queued → running (job bookkeeping)
+      onUpdate: (index: number, outcome: Outcome) => void | Promise<void>,
     ): Promise<Outcome[]> => {
       await new Promise((r) => setImmediate(r)) // jobs observable as 'queued' synchronously after tool_result
       const outcomes: Outcome[] = []
@@ -272,11 +307,11 @@ export const subagent = {
         // start'` when the batch link is aborted (parent Stop) or the plugin
         // disposed. Mark EVERY remaining task (not just this wave) — otherwise a
         // job beyond the first skipped wave would sit `queued` forever.
-        if (disposed || link.signal.aborted) {
+        if (disposed || stopping || link.signal.aborted) {
           const why = disposed ? 'aborted before start (unload)' : 'aborted before start'
           for (let j = i; j < tasks.length; j++) {
             const skipped: Outcome = { description: tasks[j].description, status: 'failed', error: why, sessionId: children[j].id }
-            onUpdate(j, skipped)
+            await onUpdate(j, skipped)
             outcomes[j] = skipped
           }
           break
@@ -284,16 +319,16 @@ export const subagent = {
         const wave = tasks.slice(i, i + resolved.maxParallel)
         await Promise.all(wave.map(async (task, w) => {
           const idx = i + w
-          if (disposed || link.signal.aborted) {
+          if (disposed || stopping || link.signal.aborted) {
             const why = disposed ? 'aborted before start (unload)' : 'aborted before start'
             const aborted: Outcome = { description: task.description, status: 'failed', error: why, sessionId: children[idx].id }
-            onUpdate(idx, aborted)
+            await onUpdate(idx, aborted)
             outcomes[idx] = aborted
             return
           }
           const outcome = await runChild(children[idx], task, link, () => onStart(idx))
           outcomes[idx] = outcome
-          onUpdate(idx, outcome)
+          await onUpdate(idx, outcome)
         }))
       }
       return outcomes
@@ -332,11 +367,17 @@ export const subagent = {
 
     // ---- batch entry (tool `execute` → runEntry) ------------------------------
     const runEntry = async (parentSid: string, raw: unknown, toolSignal?: AbortSignal): Promise<string> => {
+      if (disposed || stopping) return 'Error: task: host is shutting down'
       const validated = validateTaskArgs(raw, (m) => ctx.logger('subagent').warn('%s', m))
       if ('error' in validated) return validated.error
       const { tasks, background } = validated
       const refused = overBudget(parentSid, tasks.length)
       if (refused) return refused
+      if (background && sessionsRef.dir && !releaseLock) {
+        try { releaseLock = await acquireRecoveryLock(sessionsRef.dir) }
+        catch (e) { return `Error: task: background checkpoint unavailable: ${String(e)}` }
+        if (!releaseLock) return 'Error: task: background work is owned by another host'
+      }
 
       // jobIds BEFORE session creation so background children carry jobId (spec §6.2)
       const jobIds = background ? tasks.map(() => `j-${Date.now().toString(36)}-${(++jobSeq).toString(36)}`) : []
@@ -345,8 +386,8 @@ export const subagent = {
         title: task.description.replace(/\s+/g, ' ').slice(0, 72),
         system: WORKER_SYSTEM_PROMPT,
         projectRoot: parent.projectRoot ?? ctx.workspace.root,
-        model: parent.model,
-        provider: parent.provider,
+        model: ctx.get('llm', false)?.resolveModel(task.model ?? parent.model) ?? task.model ?? parent.model,
+        provider: parent.provider ?? 'default',
         kind: 'subagent',
         parentSessionId: parentSid,
         ...(background && { jobId: jobIds[i] }),
@@ -358,6 +399,7 @@ export const subagent = {
 
       if (!background) {
         const link = new AbortController()
+        if (toolSignal?.aborted) link.abort()
         toolSignal?.addEventListener('abort', () => link.abort(), { once: true })
         const outcomes = await runWaves(tasks, children, link, () => {}, () => {})
         const payload = outcomes.map((o) => ({
@@ -372,29 +414,129 @@ export const subagent = {
         jobs.set(jobIds[i], { jobId: jobIds[i], sessionId: children[i].id, parentSessionId: parentSid, description: task.description, status: 'queued' })
         return { jobId: jobIds[i], sessionId: children[i].id, description: task.description }
       })
+      try {
+        await Promise.all(children.map(child => sessionsRef.checkpoint(child.id)))
+        const state = parent.background ??= { version: 1, jobs: [] }
+        state.jobs.push(...tasks.map((task, i) => ({ ...jobs.get(jobIds[i])!, task: { ...task, model: children[i].model, maxSteps: task.maxSteps ?? resolved.maxSteps } })))
+        // Publish the complete batch in one atomic parent snapshot. A rejected
+        // batch must never leave a recoverable queued prefix on disk.
+        await sessionsRef.checkpoint(parent.id)
+      } catch (e) {
+        for (const id of jobIds) {
+          const job = jobs.get(id)!
+          job.status = 'failed'; job.error = `checkpoint failed: ${String(e)}`
+          const saved = parent.background?.jobs.find(j => j.jobId === id)
+          if (saved) Object.assign(saved, job)
+        }
+        return `Error: task: background checkpoint failed: ${String(e)}`
+      }
       const link = new AbortController()
+      if (toolSignal?.aborted) link.abort()
       // spec §5: background IS linked to the parent run signal — inert on a normal
       // end (the controller is only aborted via the 'abort' event), but a parent
       // Stop during the spawn run fails queued jobs 'aborted before start' and
       // aborts the running wave. Detached jobs from earlier completed runs stay safe.
       toolSignal?.addEventListener('abort', () => link.abort(), { once: true })
-      void runWaves(
+      const work = runWaves(
         tasks, children, link,
-        (i) => {
-          if (disposed) return // spec 16(d): bookkeeping stops at unload
+        async (i) => {
+          if (disposed || stopping) throw new Error('aborted before start')
           const j = jobs.get(jobIds[i]); if (j && j.status === 'queued') { j.status = 'running'; j.startedAt = Date.now() }
+          if (j) await persistJob(j)
         },
-        (i, o) => {
-          if (disposed) return // spec 16(d): a late settle callback writes nothing
+        async (i, o) => {
+          if (disposed || stopping) return // spec 16(d): a late settle callback writes nothing
           const j = jobs.get(jobIds[i]); if (!j) return
           j.finishedAt = Date.now()
           if (o.status === 'ok') { j.status = 'done'; j.result = o.result }
           else { j.status = 'failed'; j.error = o.error ?? 'failed' }
+          await persistJob(j)
           // background results flow into the parent via inject/wake (spec §7.2)
           pushInjection(parentSid, { jobId: jobIds[i], body: injectionBody(jobIds[i], o) })
         },
       ).catch((err) => ctx.logger('subagent').error('background batch failed: %s', err instanceof Error ? err.message : err))
+      settling.add(work); void work.finally(() => settling.delete(work))
       return JSON.stringify(descriptors, null, 2)
+    }
+
+    const recover = async (): Promise<void> => {
+      if (!resolved.enabled || !sessionsRef.dir || disposed || releaseLock) return
+      releaseLock = await acquireRecoveryLock(sessionsRef.dir)
+      if (!releaseLock) { ctx.logger('subagent').warn('background recovery is owned by another host'); return }
+      const queued: StoredBackgroundJob[] = []
+      for await (const stored of sessionsRef.stored()) {
+        if (!stored.background) continue
+        const parent = (await sessionsRef.restoreStored(stored.id))!
+        const bg = parent.background!
+        // A wake that began before the process died may have external effects.
+        const interruptedWake = bg.wakeRunning === true || bg.wakeBlocked === true
+        bg.wakeRunning = false
+        bg.wakeBlocked = interruptedWake
+        if (interruptedWake) bg.wakePending = false
+        if (parent.status === 'working' || parent.status === 'waiting_approval') sessionsRef.setStatus(parent.id, 'idle')
+        const st = ensureParent(parent.id)
+        st.wakeBlocked = interruptedWake
+        for (const record of bg.jobs) {
+          const job: JobRecord = { ...record }
+          jobs.set(job.jobId, job)
+          if (job.status === 'running') {
+            job.status = 'failed'; job.error = 'interrupted by restart; started work was not replayed'; job.finishedAt = Date.now()
+            Object.assign(record, job)
+            const child = await sessionsRef.restoreStored(job.sessionId)
+            if (child) { sessionsRef.setStatus(child.id, 'cancelled'); await sessionsRef.checkpoint(child.id) }
+          }
+          if (job.status === 'queued') queued.push(record)
+          else if (!record.delivered) st.pending.push({ jobId: job.jobId, body: injectionBody(job.jobId, { description: job.description, status: job.status === 'done' ? 'ok' : 'failed', result: job.result, error: job.error, sessionId: job.sessionId }) })
+        }
+        await sessionsRef.checkpoint(parent.id)
+        scheduleFlush(parent.id)
+      }
+      // Recovered work uses a bounded pool and persisted children; started jobs
+      // are never fed back through runEntry, so worker-count budgets are not double charged.
+      const work = (async () => {
+        for (let i = 0; i < queued.length; i += resolved.maxParallel) {
+          if (disposed || stopping) break
+          await Promise.all(queued.slice(i, i + resolved.maxParallel).map(async record => {
+            const job = jobs.get(record.jobId)!
+            const child = await sessionsRef.restoreStored(job.sessionId)
+            const parent = sessionsRef.get(job.parentSessionId)
+            if (disposed || stopping) return
+            let outcome: Outcome
+            const budget = overBudget(job.parentSessionId, 0)
+            if (!child || !parent || child.status === 'cancelled' || budget) outcome = { description: job.description, sessionId: job.sessionId, status: 'failed', error: budget ?? (child?.status === 'cancelled' ? 'worker was cancelled' : 'saved parent or worker is missing') }
+            else {
+              const link = new AbortController()
+              outcome = await runChild(child, record.task, link, async () => {
+                if (disposed || stopping) throw new Error('aborted before start')
+                job.status = 'running'; job.startedAt = Date.now(); await persistJob(job)
+              })
+            }
+            if (disposed || stopping) return
+            job.status = outcome.status === 'ok' ? 'done' : 'failed'; job.finishedAt = Date.now()
+            if (outcome.status === 'ok') job.result = outcome.result
+            else job.error = outcome.error
+            await persistJob(job)
+            pushInjection(job.parentSessionId, { jobId: job.jobId, body: injectionBody(job.jobId, outcome) })
+          }))
+        }
+      })().catch(e => ctx.logger('subagent').error('recovery failed: %s', String(e)))
+      settling.add(work); void work.finally(() => settling.delete(work))
+    }
+
+    const shutdown = async (): Promise<void> => {
+      if (stopping) return
+      stopping = true
+      wakeController.abort()
+      for (const ac of controllers.values()) ac.abort()
+      await Promise.allSettled([...settling])
+      for (const session of sessionsRef.list()) {
+        if (!session.background || !session.background.jobs.some(j => jobs.has(j.jobId))) continue
+        for (const job of session.background.jobs) {
+          if (job.status === 'running') { job.status = 'failed'; job.error = 'interrupted by shutdown; started work was not replayed'; job.finishedAt = Date.now() }
+        }
+        await sessionsRef.checkpoint(session.id)
+      }
+      await releaseLock?.(); releaseLock = undefined
     }
 
     if (resolved.enabled) {
@@ -445,7 +587,11 @@ export const subagent = {
         const wasWake = st.wakeToken !== undefined
         st.busy = false
         st.wakeToken = undefined
-        if (!wasWake) st.wakeBlocked = false // trigger (ii): a user turn ended
+        if (!wasWake) {
+          st.wakeBlocked = false // trigger (ii): a user turn ended
+          const bg = sessionsRef.get(ev.sessionId)?.background
+          if (bg) bg.wakeBlocked = false
+        }
         scheduleFlush(ev.sessionId)
       }
     })
@@ -501,6 +647,8 @@ export const subagent = {
         return { pending: st.pending.length, busy: st.busy, wakeBlocked: st.wakeBlocked, waking: st.wakeToken !== undefined }
       },
       flush: (sessionId) => runFlush(sessionId),
+      recover,
+      shutdown,
     }
     ctx.reflect.provide('subagent', api)
   },

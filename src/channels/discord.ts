@@ -285,10 +285,12 @@ export const discordChannel = {
         delay = Math.min(delay * 2, 30_000)
       }
     }
-    void core.restore().then(() => run())
+    const ready = core.restore()
+    void ready.then(() => run())
 
     // Used by automations to deliver results; only allow-listed users can receive (opens a DM with them).
     ctx.reflect.provide('discord', {
+      ready: () => ready,
       async send(userId: string, text: string): Promise<void> {
         if (!allow.has(String(userId))) throw new Error('user is not on the Discord allow-list')
         const dm = await rest<{ id: string }>('POST', '/users/@me/channels', { recipient_id: String(userId) })
@@ -310,6 +312,6 @@ export const discordChannel = {
 
 declare module 'cordis' {
   interface Context {
-    discord?: { send(userId: string, text: string): Promise<void> }
+    discord?: { ready(): Promise<void>; send(userId: string, text: string): Promise<void> }
   }
 }

@@ -5,6 +5,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
 import { childEnv, validateMcpServers, type McpConfig, type ResolvedMcpServer } from '../config.js'
 import { planMcpGeneration } from '../mcp/naming.js'
+import { capabilityTools, listPages, type CapabilityTool } from '../mcp/capabilities.js'
+import type { ToolResult } from '../services/tools.js'
 import { renderMcpResult } from '../mcp/render.js'
 import type { JsonSchema } from '../types.js'
 
@@ -162,21 +164,24 @@ export const mcpBridge = {
       raw: string,
       args: unknown,
       tctx: { sessionId?: string; signal?: AbortSignal },
-    ): Promise<string> => {
+      capability?: CapabilityTool,
+    ): Promise<ToolResult> => {
       const started = Date.now()
       let ok = false
       try {
         if (s.state !== 'up' || !s.client) {
           throw new Error(`MCP server '${s.name}' is down${s.lastError ? `: ${s.lastError}` : ''}`)
         }
-        const result = (await s.client.callTool({ name: raw, arguments: (args ?? {}) as Record<string, unknown> }, undefined, {
+        const opts = {
           timeout: s.cfg.toolCallTimeoutMs,
           ...(tctx.signal ? { signal: tctx.signal } : {}),
-        })) as { content?: unknown; structuredContent?: unknown; isError?: boolean }
+        }
+        const result = capability
+          ? await capability.run(s.client, args ?? {}, opts)
+          : await s.client.callTool({ name: raw, arguments: (args ?? {}) as Record<string, unknown> }, undefined, opts) as { content?: unknown; structuredContent?: unknown; isError?: boolean }
         const text = renderMcpResult(result, (m) => ctx.logger('mcp').debug('%s', m))
-        if (result.isError) throw new Error(text)
-        ok = true
-        return text
+        ok = !result.isError
+        return { content: text, ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}), ...(Array.isArray(result.content) ? { blocks: result.content } : {}), ...(result.isError ? { isError: true } : {}) }
       } finally {
         ctx.emit('mcp/tool:call', { server: s.name, tool: raw, ms: Date.now() - started, ok })
       }
@@ -184,7 +189,11 @@ export const mcpBridge = {
 
     const syncGeneration = async (s: ServerRuntime): Promise<void> => {
       if (!s.client) throw new Error('not connected')
-      const listed = await s.client.listTools(undefined, { timeout: s.cfg.toolCallTimeoutMs })
+      const remote = s.client.getServerCapabilities()?.tools
+        ? (await listPages(cursor => s.client!.listTools(cursor ? { cursor } : undefined, { timeout: s.cfg.toolCallTimeoutMs }), 'tools')).tools as Array<{name: string; description?: string; inputSchema?: unknown; annotations?: { readOnlyHint?: boolean }}>
+        : []
+      const bridge = capabilityTools(s.client)
+      const listed = { tools: [...remote, ...bridge.map(t => ({ name: t.name, description: t.description, inputSchema: t.parameters, annotations: { readOnlyHint: true } }))] }
       const plan = planMcpGeneration(
         s.name,
         listed.tools.map((t) => t.name),
@@ -219,7 +228,7 @@ export const mcpBridge = {
           description: entry.description,
           parameters: entry.parameters,
           ...(entry.risk ? { risk: entry.risk } : {}),
-          execute: (args, tctx) => executeTool(s, entry.raw, args, tctx),
+          execute: (args, tctx) => executeTool(s, entry.raw, args, tctx, bridge.find(t => t.name === entry.raw)),
         }),
       }))
     }
