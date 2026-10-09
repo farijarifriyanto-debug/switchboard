@@ -90,6 +90,61 @@ async function loadStoredConfig() {
   $('bridge-token-input').value = companionToken;
 }
 
+let bridgeCommandAbort = null;
+
+function startBridgeCommandListener() {
+  if (bridgeCommandAbort) bridgeCommandAbort.abort();
+  const controller = new AbortController();
+  bridgeCommandAbort = controller;
+  const endpoint = bridgeUrl;
+  const token = companionToken;
+  (async () => {
+    while (!controller.signal.aborted) {
+      try {
+        const response = await fetch(endpoint + '/api/browser-companion/events', {
+          headers: { authorization: 'Bearer ' + token },
+          signal: controller.signal,
+        });
+        if (!response.ok || !response.body) throw new Error('Bridge events HTTP ' + response.status);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() || '';
+          for (const frame of frames) {
+            const kind = frame.match(/(?:^|\n)event: ([^\n]+)/)?.[1];
+            const raw = frame.match(/(?:^|\n)data: ([^\n]+)/)?.[1];
+            if (kind !== 'command' || !raw) continue;
+            const command = JSON.parse(raw);
+            let result, ok = true, error;
+            try {
+              const reply = await chrome.runtime.sendMessage({
+                type: 'SWITCHBOARD_EXECUTE_TOOL', tool: command.tool, args: command.args || {},
+              });
+              if (!reply?.ok) throw new Error(reply?.error || 'Browser tool rejected');
+              result = reply;
+            } catch (e) { ok = false; error = String(e?.message || e); }
+            await fetch(endpoint + '/api/browser-companion/response', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+              body: JSON.stringify({ id: command.id, ok, ...(ok ? { result } : { error }) }),
+              signal: controller.signal,
+            });
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) break;
+        $('bridge-diagnostics').textContent = 'Bridge reconnecting: ' + String(error?.message || error);
+      }
+      if (!controller.signal.aborted) await new Promise(r => setTimeout(r, 1200));
+    }
+  })();
+}
+
 async function connectToSwitchboard() {
   bridgeUrl = $('bridge-url-input').value.trim().replace(/\/+$/, '') || 'http://127.0.0.1:7777';
   companionToken = $('bridge-token-input').value.trim();
@@ -112,6 +167,7 @@ async function connectToSwitchboard() {
     companionToken = pairData.token;
     await chrome.storage.local.set({ bridgeUrl, companionToken, bridgeConnected: true });
 
+    startBridgeCommandListener();
     setBadge('connected', 'Connected');
     $('bridge-diagnostics').textContent = `Successfully paired with Switchboard!\nMode: ${pairData.mode}\nApproved origins: ${pairData.approvedOrigins.length}`;
 
@@ -146,6 +202,8 @@ async function fetchAvailableModels() {
 
 $('connect-bridge-btn').addEventListener('click', () => connectToSwitchboard());
 $('disconnect-bridge-btn').addEventListener('click', async () => {
+  if (bridgeCommandAbort) bridgeCommandAbort.abort();
+  bridgeCommandAbort = null;
   await chrome.storage.local.set({ bridgeConnected: false });
   setBadge('disconnected', 'Disconnected');
   $('bridge-diagnostics').textContent = 'Disconnected from Switchboard.';
