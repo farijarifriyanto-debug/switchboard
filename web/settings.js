@@ -140,6 +140,20 @@ function encodeModelOption(provider, model) {
   return provider ? `${provider}::${id}` : id
 }
 
+/**
+ * Records the picker choice on a session object as separate `provider` and `model`
+ * fields. Storing the encoded `provider::model` string in `model` made the next
+ * encode produce `default::default::id`, which matches no option, so the picker
+ * snapped back to the first model (and the next message used it).
+ */
+function applyModelPick(session, value) {
+  if (!session) return session
+  const picked = parseModelOption(value)
+  session.model = picked.model
+  session.provider = picked.provider
+  return session
+}
+
 /** Inverse of encodeModelOption — bare ids map to the default provider (spec §8). */
 function parseModelOption(value) {
   const raw = typeof value === 'string' ? value : ''

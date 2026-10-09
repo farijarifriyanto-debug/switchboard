@@ -1246,6 +1246,11 @@ body.rail-collapsed .reveal {
   color: var(--sb-alias-state-warn-label);
 }
 
+/* an approval that has been answered is history, not a warning */
+.entry.notice.resolved .body {
+  color: var(--sb-alias-label-secondary);
+}
+
 .cursor {
   display: inline-block;
   width: 7px;
