@@ -308,7 +308,7 @@ export class BrowserCompanionService {
     } catch {
       hostname = ''
     }
-    if (!LOOPBACK_HOSTS.has(hostname) && hostname !== '') {
+    if (!LOOPBACK_HOSTS.has(hostname)) {
       res.writeHead(403, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: `Forbidden: non-loopback host "${hostHeader}" rejected.` }))
       return
@@ -323,7 +323,7 @@ export class BrowserCompanionService {
     }
 
     // Add CORS headers for extension
-    res.setHeader('Access-Control-Allow-Origin', origin || '*')
+    if (origin) res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Switchboard-Companion-Token')
 
@@ -353,7 +353,7 @@ export class BrowserCompanionService {
       try {
         const body = await readJson()
         const providedToken = String(body.token || '').trim()
-        if (providedToken && providedToken !== this.token) {
+        if (!providedToken || providedToken !== this.token) {
           res.writeHead(401, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: 'Invalid pairing token' }))
           return
