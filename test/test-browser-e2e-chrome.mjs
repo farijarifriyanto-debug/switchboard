@@ -395,16 +395,21 @@ try {
   )
 
   const toolCallsSeen = []
+  const agentErrors = []
   let finalAnswer = ''
 
   for await (const event of agentStream) {
     if (event.type === 'tool' || event.type === 'tool_call') {
       toolCallsSeen.push(event.name || event.tool)
+    } else if (event.type === 'error') {
+      agentErrors.push(String(event.error || event.message || 'unknown agent error'))
     } else if (event.type === 'text' || event.type === 'chunk') {
       finalAnswer += event.content || event.text || ''
     }
   }
 
+  console.log('Agent errors:', agentErrors)
+  assert.deepEqual(agentErrors, [], 'agent must complete without provider or tool errors')
   console.log('Agent tool calls:', toolCallsSeen)
   console.log('Agent final answer:', finalAnswer.slice(0, 300))
 
