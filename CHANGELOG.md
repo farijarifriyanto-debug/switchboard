@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Publish GitHub releases and built package/checksum assets independently of npm
+  credentials. Skip optional npm publication with a notice when NPM_TOKEN is
+  missing, and allow rerunning an existing tag without duplicating releases.
+
 ## 0.3.0
 
 - Add read-only `search_memory` for project/global notebook notes with scoped

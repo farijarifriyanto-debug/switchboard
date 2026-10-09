@@ -1,11 +1,23 @@
 name: Release
 
-# Push a tag like v0.2.0 (it must match package.json) to test, publish to npm and
-# create the GitHub release. Needs the NPM_TOKEN repository secret (an npm
-# automation token with publish rights on the @botconnector scope).
+# Tags publish a tested GitHub release with an installable package and checksum.
+# npm publication is optional and uses the NPM_TOKEN repository secret.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v0.3.0
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -17,6 +29,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -24,7 +38,7 @@ jobs:
           cache: npm
       - name: Tag matches package.json
         run: |
-          [ "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME does not match package.json version"; exit 1; }
+          [ "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG" ] || { echo "::error::tag $RELEASE_TAG does not match package.json version"; exit 1; }
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
@@ -34,18 +48,51 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: npm test
+      - name: Package release
+        id: package
+        run: |
+          filename="$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP" --silent)"
+          echo "path=$RUNNER_TEMP/$filename" >> "$GITHUB_OUTPUT"
+          (cd "$RUNNER_TEMP" && sha256sum "$filename" > "$filename.sha256")
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_FILE: ${{ steps.package.outputs.path }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          notes_file="$RUNNER_TEMP/switchboard-release-notes.md"
+          awk -v v="## $version" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md > "$notes_file"
+          [ -s "$notes_file" ] || printf '%s\n' 'See CHANGELOG.md' > "$notes_file"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "Switchboard $version" --notes-file "$notes_file" --draft=false
+          else
+            gh release create "$RELEASE_TAG" --title "Switchboard $version" --notes-file "$notes_file" --verify-tag --latest=false
+            release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id)"
+            # GitHub selects Latest by its version/date rules, not rerun order.
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -f make_latest=legacy >/dev/null
+          fi
+          gh release upload "$RELEASE_TAG" "$PACKAGE_FILE" "$PACKAGE_FILE.sha256" --clobber
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PRIVATE_REPO: ${{ github.event.repository.private }}
+          PACKAGE_FILE: ${{ steps.package.outputs.path }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "::error::the NPM_TOKEN secret is not set, nothing was published"; exit 1; }
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::NPM_TOKEN is not configured; npm publication skipped. GitHub release is available."
+            echo 'npm publication skipped: configure NPM_TOKEN to enable it.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          package_name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$(npm view "$package_name@$version" version 2>/dev/null || true)" = "$version" ]; then
+            echo "::notice::npm version $version is already published; skipping."
+            exit 0
+          fi
+          if [ "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" ]; then
+            echo "::notice::npm publication skipped: run from the release tag to preserve source provenance. GitHub assets are available."
+            exit 0
+          fi
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || { echo "::error::checked-out release commit differs from workflow source SHA; npm publication refused"; exit 1; }
           # provenance needs a public repository
-          if [ "$PRIVATE_REPO" = "false" ]; then npm publish --access public --provenance; else npm publish --access public; fi
-      - name: GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          notes="$(awk -v v="## $version" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)"
-          gh release create "$GITHUB_REF_NAME" --title "Switchboard $version" --notes "${notes:-See CHANGELOG.md}" --verify-tag
+          if [ "$PRIVATE_REPO" = "false" ]; then npm publish "$PACKAGE_FILE" --access public --provenance; else npm publish "$PACKAGE_FILE" --access public; fi

@@ -665,6 +665,25 @@ npm run debug:live -- gpt-oss-120b   # live probe; needs BOTCONNECTOR_API_KEY
 `debug:live` prints `content`/`reasoning` as base64 on purpose: raw terminal
 output containing think tags may itself be parsed by the caller's UI.
 
+## Releases
+
+Pushing a tag such as `v0.3.0` starts the Release workflow. The tag must match
+`package.json`. After typecheck, build and tests pass, it creates or updates the
+GitHub release and attaches the built npm tarball and its SHA-256 checksum.
+Install the downloaded tarball with `npm install -g ./botconnector-switchboard-0.3.0.tgz`.
+
+Set the repository secret `NPM_TOKEN` to enable publishing to the npm registry
+with permission for the `@botconnector` scope. Without it, GitHub releases still
+complete and the workflow reports that npm publication was skipped. An actual
+npm publication error remains a workflow failure after the GitHub release is available.
+
+Use the Release workflow's **Run workflow** action with an existing tag to
+recover or update its release assets. Reruns update the same release and skip
+npm versions that are already published. Rerunning an older release preserves
+the current Latest release. npm publication requires the workflow's source ref
+and commit to match the release tag so its provenance identifies the correct
+source; a manual run from `master` restores GitHub assets and skips npm publication.
+
 ## Status
 
 Early (0.x). Working today: streaming chat, tool calling, a multi-step agent loop with approvals,
