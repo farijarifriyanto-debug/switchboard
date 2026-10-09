@@ -2930,3 +2930,10 @@ body[data-theme] {
 .mcp-seg--ok { color: #067647; background: #ecfdf3; border-color: #abefc6; }
 .mcp-seg--warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
 .mcp-seg--dim { color: #667085; background: #f2f4f7; border-color: #e4e7ec; }
+
+/* workspace folder picker */
+.ws-browser { margin: 6px 0 10px; }
+.ws-browser-bar { display: flex; align-items: center; gap: 6px; }
+.ws-browser-bar .ws-current { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-browser .recent-list { max-height: 220px; overflow-y: auto; }
+.ws-dir { cursor: pointer; }

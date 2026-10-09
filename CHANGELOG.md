@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Console: "Browse" button next to "Switch root" lists subfolders (`GET /api/dirs`, fenced like
+  the rest of `/api`, hides dotfolders and `node_modules`, drive list on Windows) so a
+  workspace can be picked without typing the path.
 - Publish GitHub releases and built package/checksum assets independently of npm
   credentials. Skip optional npm publication with a notice when NPM_TOKEN is
   missing, and allow rerunning an existing tag without duplicating releases.

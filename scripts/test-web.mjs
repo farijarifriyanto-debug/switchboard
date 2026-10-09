@@ -396,6 +396,18 @@ try {
   assert.ok(markerFiles.files.map((f) => f.name).includes('marker.txt'), 'the file browser follows the switch')
   assert.equal(await host.ctx.tools.call('read_file', { path: 'marker.txt' }), 'api-switched')
 
+  // Folder picker: lists subfolders of any directory, rejects non-directories, honours the fence.
+  await mkdir(path.join(scratch, 'sub-a'), { recursive: true })
+  await mkdir(path.join(scratch, '.hidden'), { recursive: true })
+  const dirsRes = await fetch(`${url}api/dirs?path=${encodeURIComponent(scratch)}`)
+  assert.equal(dirsRes.status, 200)
+  const dirsBody = await dirsRes.json()
+  assert.equal(dirsBody.path, path.resolve(scratch))
+  assert.deepEqual(dirsBody.dirs, ['sub-a'], 'only visible subfolders (no files, no dotfolders)')
+  assert.equal(dirsBody.parent, path.dirname(path.resolve(scratch)))
+  assert.equal((await fetch(`${url}api/dirs?path=${encodeURIComponent(path.join(scratch, 'marker.txt'))}`)).status, 400, 'a file is not a folder')
+  assert.equal((await (await fetch(`${url}api/dirs`)).json()).path, path.resolve(scratch), 'default = current workspace root')
+
   console.log('test-web: all checks passed')
 } finally {
   await host.dispose()

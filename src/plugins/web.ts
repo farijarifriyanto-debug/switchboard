@@ -2,11 +2,13 @@ import type { Context } from 'cordis'
 import http from 'node:http'
 import { readFile, stat, readdir } from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { AgentEvent, RunEvent } from '../types.js'
 import type { McpServiceApi } from './mcp.js'
 import { SettingsError } from '../services/settings-error.js'
+import { expandHome } from '../services/session.js'
 import { PROTOCOLS } from '../services/providers.js'
 import { listModels as discoverModels } from '../llm/discovery.js'
 import type { ProviderProfile } from '../llm/adapters.js'
@@ -290,6 +292,31 @@ export const webUi = {
           name: await projectName(resolved),
           recents: ctx.workspace.recents,
         })
+      }
+
+      // Folder picker for "Switch root": subfolders of any directory (a browser cannot hand a
+      // page a real path). Same trust as POST /api/workspace above: fenced, loopback-only by default.
+      if (route === '/api/dirs' && req.method === 'GET') {
+        const q = new URL(req.url ?? '/', 'http://x').searchParams.get('path')?.trim()
+        const dir = path.resolve(expandHome(q || ctx.workspace.root))
+        let entries
+        try {
+          entries = await readdir(dir, { withFileTypes: true })
+        } catch (error) {
+          return json(res, 400, { error: `cannot open ${dir}: ${(error as NodeJS.ErrnoException).code ?? 'error'}` })
+        }
+        const dirs: string[] = []
+        for (const e of entries) {
+          if (e.name.startsWith('.') || e.name === 'node_modules') continue
+          if (e.isDirectory() || (e.isSymbolicLink() && (await stat(path.join(dir, e.name)).catch(() => null))?.isDirectory())) dirs.push(e.name)
+        }
+        dirs.sort((a, b) => a.localeCompare(b))
+        const parent = path.dirname(dir)
+        const drives: string[] = []
+        if (process.platform === 'win32') {
+          for (const l of 'CDEFGHIJKLMNOPQRSTUVWXYZ') if (await stat(`${l}:\\`).then(() => true, () => false)) drives.push(`${l}:\\`)
+        }
+        return json(res, 200, { path: dir, parent: parent === dir ? null : parent, home: os.homedir(), drives, dirs: dirs.slice(0, 500), truncated: dirs.length > 500 })
       }
 
       // ---------------------------------------------------------------- files
