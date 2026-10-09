@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Switchboard Browser Companion",
+  "version": "0.1.0",
+  "description": "User-controlled browser assistance for Switchboard",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [],
+  "action": {
+    "default_title": "Open Switchboard Companion"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
