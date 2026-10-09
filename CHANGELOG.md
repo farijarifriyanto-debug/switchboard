@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Channel pairing (`channels.telegram|discord.pairing`): unknown senders get a one-time code, `sbx channels pairing|approve|revoke`.
 - Fallback chain (`llm.fallbacks`, `llm.fallbackCooldownMs`): a call that fails before any output moves to the next
   provider/model, failing targets cool down, every switch is traced (`llm/fallback`).
 - Console: "Browse" button next to "Switch root" lists subfolders (`GET /api/dirs`, fenced like
