@@ -23,6 +23,10 @@ function setBadge(state, label) {
     overview.textContent = online ? 'Connected' : 'Offline';
     overview.className = 'status-pill ' + (online ? 'is-live' : 'is-offline');
     $('overview-host').textContent = online ? 'Switchboard on this device' : 'Not connected';
+    $('overview-hero-title').textContent = online ? 'Your browser is ready for Switchboard.' : 'Connect Switchboard to get started.';
+    $('overview-hero-desc').textContent = online
+      ? 'Write your instructions in Switchboard. This companion securely carries browser actions to the active tab and sends results back to your agent.'
+      : 'Start Switchboard CLI, then connect this browser companion. Your instructions will stay in Switchboard.';
   }
 }
 
@@ -109,6 +113,7 @@ function startBridgeCommandListener() {
           signal: controller.signal,
         });
         if (!response.ok || !response.body) throw new Error('Bridge events HTTP ' + response.status);
+        setBadge('connected', 'Connected');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -141,9 +146,13 @@ function startBridgeCommandListener() {
         }
       } catch (error) {
         if (controller.signal.aborted) break;
+        setBadge('disconnected', 'Reconnecting');
         $('bridge-diagnostics').textContent = 'Bridge reconnecting: ' + String(error?.message || error);
       }
-      if (!controller.signal.aborted) await new Promise(r => setTimeout(r, 1200));
+      if (!controller.signal.aborted) {
+        setBadge('disconnected', 'Reconnecting');
+        await new Promise(r => setTimeout(r, 1200));
+      }
     }
   })();
 }
@@ -610,6 +619,8 @@ $('overview-revoke-btn').addEventListener('click', () => $('revoke-current-origi
   await updateOverviewStatus();
   // Auto connect if token stored
   if (companionToken) {
-    connectToSwitchboard();
+    await connectToSwitchboard();
+  } else {
+    setBadge('disconnected', 'Disconnected');
   }
 })();
