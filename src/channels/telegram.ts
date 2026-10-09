@@ -1,3 +1,4 @@
+import { formatUsage } from '../services/usage.js'
 import type { Context } from 'cordis'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -261,7 +262,7 @@ export const telegramChannel = {
       if (name === 'status') {
         const id = sessionFor(chatId)
         const session = ctx.sessions.get(id)
-        return void (await say(chatId, [`session ${id}`, `preset ${session?.preset ?? 'none'}`, `approval ${ctx.approvals.mode}`, running.has(chatId) ? 'running' : 'idle'].join('\n')))
+        return void (await say(chatId, [`session ${id}`, `preset ${session?.preset ?? 'none'}`, `approval ${ctx.approvals.mode}`, `usage ${ctx.get('usage', false) ? formatUsage(ctx.get('usage', false)!.summary(id)) : 'n/a'}`, running.has(chatId) ? 'running' : 'idle'].join('\n')))
       }
       if (name === 'preset') {
         const id = sessionFor(chatId)

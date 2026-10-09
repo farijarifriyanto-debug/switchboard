@@ -7,6 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { createHost } from './index.js'
 import { describeToolCall } from './services/approval.js'
+import { formatUsage } from './services/usage.js'
 import { loadConfig, type SwitchboardConfig } from './config.js'
 
 const USAGE = `sbx — Switchboard
@@ -668,7 +669,7 @@ async function main(): Promise<void> {
         const seed = args.positional.join(' ').trim()
         let prompt: string | null = seed
         console.log(C.bold('Switchboard') + C.dim(` — ${ctx.llm.settings.defaultModel} · session ${session.id}${session.resumed ? ' (resumed)' : ''}`))
-        console.log(C.dim('type /exit to quit, /new for a new session, /sessions to list, /compact to summarize history, /metrics for latency'))
+        console.log(C.dim('type /exit to quit, /new for a new session, /sessions to list, /compact to summarize history, /usage for tokens and cost, /metrics for latency'))
         if (!prompt) prompt = await ask(C.cyan('you › '))
 
         while (prompt && prompt.trim()) {
@@ -677,6 +678,15 @@ async function main(): Promise<void> {
           if (text === '/metrics') {
             for (const [model, s] of Object.entries(ctx.metrics.summary())) {
               console.log(`${model.padEnd(30)} calls=${s.calls} ttft p50=${s.ttftP50}ms p95=${s.ttftP95}ms tok/s p50=${s.tpsP50}`)
+            }
+            prompt = await ask(C.cyan('you › '))
+            continue
+          }
+          if (text === '/usage') {
+            const usage = ctx.get('usage', false)
+            if (usage) {
+              await usage.refresh()
+              console.log(C.dim(formatUsage(usage.summary(session.id))))
             }
             prompt = await ask(C.cyan('you › '))
             continue

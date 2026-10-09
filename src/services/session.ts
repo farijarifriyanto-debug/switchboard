@@ -2,7 +2,7 @@ import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { AgentMessage } from '../types.js'
+import type { SessionUsage, AgentMessage } from '../types.js'
 
 export interface SessionConfig {
   /** Directory holding one JSON file per session. `~` is expanded; `""` disables persistence. */
@@ -39,6 +39,8 @@ export interface SessionData {
   createdAt: number
   updatedAt: number
   messages: AgentMessage[]
+  /** Token usage per model, summed over every model call of this session. */
+  usage?: SessionUsage
 }
 
 /** Expands a leading `~` to the user's home directory. */
@@ -163,6 +165,20 @@ export class SessionService extends Service {
     data.updatedAt = Date.now()
     this.schedule(id)
     return data
+  }
+
+  /** Adds one model call's tokens to the session's running usage (no `updatedAt` bump: it is bookkeeping). */
+  addUsage(id: string, model: string, usage: { promptTokens?: number; completionTokens?: number; cachedTokens?: number; cacheWriteTokens?: number }): void {
+    const data = this.sessions.get(id)
+    if (!data) return
+    const byModel = (data.usage ??= { byModel: {} }).byModel
+    const row = (byModel[model] ??= { calls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 })
+    row.calls += 1
+    row.promptTokens += usage.promptTokens ?? 0
+    row.completionTokens += usage.completionTokens ?? 0
+    row.cachedTokens += usage.cachedTokens ?? 0
+    row.cacheWriteTokens += usage.cacheWriteTokens ?? 0
+    this.schedule(id)
   }
 
   rename(id: string, title: string): SessionData {

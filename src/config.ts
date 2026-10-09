@@ -119,6 +119,8 @@ export interface SwitchboardConfig {
   subagent?: SubagentConfig
   /** Scheduled agent runs. Always available; the scheduler only ticks in `sbx web` / `sbx channels`. */
   automations?: { dir?: string; runTimeoutMs?: number }
+  /** Token/cost accounting: prices come from the endpoint's model list; `pricing` (USD per 1M tokens, by model id) overrides them. */
+  usage?: { pricing?: Record<string, { input: number; output: number; cachedInput?: number; cacheWrite?: number }>; refreshMs?: number }
   /** Chat channels that drive the agent (Telegram). Off unless `enabled` and fully configured. */
   channels?: { telegram?: import('./channels/telegram.js').TelegramConfig }
   /** Context compaction: summarize old history instead of dropping it. On unless `enabled: false`. */
