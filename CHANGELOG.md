@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `sbx run --json`: JSON Lines events plus a final `result` line on stdout, exit code 1 on failure.
 - Console: "Browse" button next to "Switch root" lists subfolders (`GET /api/dirs`, fenced like
   the rest of `/api`, hides dotfolders and `node_modules`, drive list on Windows) so a
   workspace can be picked without typing the path.
