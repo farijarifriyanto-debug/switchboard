@@ -1,5 +1,5 @@
 // Switchboard Browser Companion — Side Panel Controller (Chrome & Edge)
-// Connects to Switchboard agent harness, streams SSE chat, controls browser tools,
+// Connects to Switchboard agent harness and relays browser tools,
 // manages permission modes, records/replays workflows, and inspects DOM/logs.
 
 const $ = (id) => document.getElementById(id);
@@ -22,23 +22,13 @@ function setBadge(state, label) {
     const online = state === 'connected' || state === 'running';
     overview.textContent = online ? 'Connected' : 'Offline';
     overview.className = 'status-pill ' + (online ? 'is-live' : 'is-offline');
-    $('overview-host').textContent = online ? 'Switchboard on this device' : 'Not connected';
-    $('overview-hero-title').textContent = online ? 'Your browser is ready for Switchboard.' : 'Connect Switchboard to get started.';
+    $('overview-host').textContent = online ? 'Using the local browser bridge' : 'Waiting for a connection';
+    $('overview-hero-title').textContent = online ? 'Connected to Switchboard' : 'Connect to Switchboard';
     $('overview-hero-desc').textContent = online
-      ? 'Write your instructions in Switchboard. This companion securely carries browser actions to the active tab and sends results back to your agent.'
-      : 'Start Switchboard CLI, then connect this browser companion. Your instructions will stay in Switchboard.';
+      ? 'Use Switchboard CLI or Web UI to operate an approved tab.'
+      : 'Start Switchboard in your terminal, then connect this extension.';
   }
 }
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('sb_theme', theme);
-}
-
-$('theme-toggle').addEventListener('click', () => {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
-  applyTheme(current === 'dark' ? 'light' : 'dark');
-});
 
 // Tab navigation
 document.querySelectorAll('nav button').forEach((btn) => {
@@ -73,7 +63,7 @@ async function refreshActiveTab() {
       $('approved-origins-view').textContent = approvedOrigins.join('\n') || 'None';
     } else {
       $('active-tab-title').textContent = 'No active capture';
-      $('active-tab-origin').textContent = 'Click "Capture" on an HTTP(S) tab.';
+      $('active-tab-origin').textContent = 'Select an HTTP(S) webpage, then refresh the tab.';
     }
   } catch (err) {
     $('active-tab-title').textContent = 'Error: ' + err.message;
@@ -518,14 +508,14 @@ async function updateOverviewStatus() {
     await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
   const isApproved = Boolean(currentTab?.origin && approvedOrigins.includes(currentTab.origin));
   const hasCapture = Boolean(currentTab?.url);
-  $('overview-capture').textContent = hasCapture ? 'Tab captured' : 'Waiting for a tab';
+  $('overview-capture').textContent = hasCapture ? 'Captured' : 'Not captured';
   $('overview-mode').textContent = MODES[permissionMode] || 'Ask every time';
   $('overview-site-origin').textContent = currentTab?.origin || 'No site selected';
   $('overview-site-status').textContent = isApproved ? 'Approved' : 'Not approved';
   $('overview-site-status').className = 'status-pill ' + (isApproved ? 'is-live' : 'is-offline');
   $('overview-site-desc').textContent = isApproved
-    ? 'Switchboard can perform browser actions on this approved site, subject to the selected permission mode.'
-    : 'Allow a site to let Switchboard perform browser actions. Unapproved sites remain protected.';
+    ? 'Switchboard may work on this site within your permission settings.'
+    : 'This site is not available for browser actions until you allow it.';
   $('overview-allow-btn').disabled = !hasCapture || isApproved;
   $('overview-revoke-btn').disabled = !hasCapture || !isApproved;
   $('site-permission-status').textContent = isApproved ? 'Approved' : 'Not approved';
@@ -545,9 +535,9 @@ function renderOverviewActivity(entries) {
     icon.textContent = '↗';
     const body = document.createElement('div');
     const label = document.createElement('strong');
-    label.textContent = 'No actions yet';
+    label.textContent = 'No activity yet';
     const p = document.createElement('p');
-    p.textContent = 'Browser actions from your Switchboard sessions appear here.';
+    p.textContent = 'Actions from Switchboard sessions appear here.';
     body.append(label,p);
     empty.append(icon,body);
     container.appendChild(empty);
@@ -611,8 +601,9 @@ $('overview-revoke-btn').addEventListener('click', () => $('revoke-current-origi
 // Initialization
 // -----------------------------------------------------------------------------
 (async function init() {
-  const savedTheme = localStorage.getItem('sb_theme') || 'light';
-  applyTheme(savedTheme);
+  // This companion intentionally uses one neutral light theme.
+  document.documentElement.removeAttribute('data-theme');
+  localStorage.removeItem('sb_theme');
   await loadStoredConfig();
   await refreshActiveTab();
   await refreshAuditLog();
