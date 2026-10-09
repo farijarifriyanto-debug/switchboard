@@ -1,6 +1,7 @@
 import type { Context } from 'cordis'
 import path from 'node:path'
 import { createChatCore, type ChatTransport } from './core.js'
+import { PairingStore } from './pairing.js'
 import { expandHome } from '../services/session.js'
 
 export interface TelegramConfig {
@@ -16,6 +17,8 @@ export interface TelegramConfig {
    * shell commands with nobody confirming. Off unless you set it on purpose.
    */
   allowUnattended?: boolean
+  /** Let unknown private senders request a pairing code that you approve with `sbx channels approve <code>`. Off by default. */
+  pairing?: boolean
   /** Bot API base. Tests point it at a local fake. Default https://api.telegram.org */
   apiBase?: string
   /** Long-poll seconds for getUpdates (default 25). */
@@ -41,7 +44,7 @@ export function splitMessage(text: string, limit = LIMIT): string[] {
   return out.length ? out : ['(empty)']
 }
 
-interface TgUser { id: number }
+interface TgUser { id: number; username?: string; first_name?: string }
 interface TgChat { id: number; type: string }
 interface TgMessage { message_id: number; text?: string; from?: TgUser; chat: TgChat }
 interface TgCallback { id: string; from: TgUser; data?: string; message?: TgMessage }
@@ -72,7 +75,7 @@ export const telegramChannel = {
     const token = process.env[tokenEnv]?.trim()
     if (!token) throw new Error(`telegram channel: set ${tokenEnv} to the bot token (from @BotFather)`)
     const allow = new Set((config.allowFrom ?? []).map((id) => String(id).trim()).filter(Boolean))
-    if (!allow.size) throw new Error('telegram channel: channels.telegram.allowFrom must list at least one Telegram user id')
+    if (!allow.size && !config.pairing) throw new Error('telegram channel: channels.telegram.allowFrom must list at least one Telegram user id (or set "pairing": true)')
     if (ctx.approvals.mode === 'off' && !config.allowUnattended) {
       throw new Error('telegram channel: approval.mode is "off", so chat messages could run shell commands unconfirmed. Use "risky" (default) or set channels.telegram.allowUnattended')
     }
@@ -82,6 +85,7 @@ export const telegramChannel = {
     const pollSeconds = Math.max(1, Math.min(config.pollSeconds ?? 25, 50))
     const mapFile = path.join(path.resolve(expandHome(config.dir ?? '~/.switchboard')), 'channels.json')
     const log = ctx.logger('telegram')
+    const pairing = config.pairing ? new PairingStore(path.join(path.dirname(mapFile), 'pairing.json')) : undefined
 
     // ------------------------------------------------------------ api
     const api = async <T = unknown>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal, timeoutMs = 15_000): Promise<T> => {
@@ -128,9 +132,10 @@ export const telegramChannel = {
     const core = createChatCore(ctx, transport, { mapFile, ...(config.preset ? { preset: config.preset } : {}), title: 'Telegram' })
     const root = new AbortController()
 
-    const authorized = (user: TgUser | undefined, chat: TgChat | undefined): boolean => Boolean(user && chat && chat.type === 'private' && allow.has(String(user.id)))
+    const authorized = (user: TgUser | undefined, chat: TgChat | undefined): boolean => Boolean(user && chat && chat.type === 'private' && (allow.has(String(user.id)) || pairing?.has('telegram', String(user.id))))
 
     const handleCallback = async (cb: TgCallback): Promise<void> => {
+      await pairing?.load()
       const match = /^ap\|([^|]+)\|([yna])$/.exec(cb.data ?? '')
       const chat = cb.message?.chat
       if (!match || !authorized(cb.from, chat)) {
@@ -142,8 +147,13 @@ export const telegramChannel = {
     }
 
     const handleMessage = async (message: TgMessage): Promise<void> => {
+      await pairing?.load()
       if (!authorized(message.from, message.chat)) {
         log.warn('ignored a message from an unauthorized sender')
+        if (pairing && message.from && message.chat?.type === 'private') {
+          const offer = await pairing.request('telegram', String(message.from.id), message.from.username ?? message.from.first_name)
+          if (offer) await quiet(say(message.chat.id, `Not paired yet. Ask the owner to run:\n  sbx channels approve ${offer.code}\nThe code expires in one hour.`))
+        }
         return
       }
       await core.handleText(String(message.chat.id), message.text ?? '')
@@ -192,7 +202,8 @@ export const telegramChannel = {
     ctx.reflect.provide('telegram', {
       ready: () => ready,
       async send(chatId: number, text: string): Promise<void> {
-        if (!allow.has(String(chatId))) throw new Error('chat is not on the Telegram allow-list')
+        await pairing?.load()
+        if (!allow.has(String(chatId)) && !pairing?.has('telegram', String(chatId))) throw new Error('chat is not on the Telegram allow-list')
         await say(chatId, text)
       },
     })

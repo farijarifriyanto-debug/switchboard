@@ -350,6 +350,20 @@ sbx channels
 - Your messages and the agent's answers pass through Telegram's servers. Use the `reviewer` or
   `researcher` preset if the bot should never touch files or run commands.
 
+### Pairing (Telegram and Discord)
+
+Instead of looking up your numeric id, set `"pairing": true` on the channel (an empty `allowFrom` is then allowed). A stranger who writes
+to the bot gets a one-time code and nothing else, and you approve it on the machine:
+
+```bash
+sbx channels pairing                      # pending codes and approved senders
+sbx channels approve K7M2QX9P             # the code the bot showed
+sbx channels revoke telegram 123456789    # take access away again
+```
+
+Codes are 8 characters, valid for one hour, at most 5 are pending at once, and the bot answers a sender at most once every 10 minutes.
+Approved ids live in `~/.switchboard/pairing.json` next to your static `allowFrom` list. Telegram: private chats only; Discord: DMs only.
+
 ## Discord channel
 
 The same kind of remote control, through a Discord DM. It shares its core with the Telegram channel, so

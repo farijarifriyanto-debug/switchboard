@@ -1,6 +1,7 @@
 import type { Context } from 'cordis'
 import path from 'node:path'
 import { expandHome } from '../services/session.js'
+import { PairingStore } from './pairing.js'
 import { createChatCore, type ChatTransport } from './core.js'
 
 export interface DiscordConfig {
@@ -13,6 +14,8 @@ export interface DiscordConfig {
   preset?: string
   /** Allow running while `approval.mode` is `off`. Off unless you set it on purpose. */
   allowUnattended?: boolean
+  /** Let unknown DM senders request a pairing code that you approve with `sbx channels approve <code>`. Off by default. */
+  pairing?: boolean
   /** REST base. Tests point it at a local fake. Default https://discord.com/api/v10 */
   apiBase?: string
   /** Gateway URL override (tests). Default: what `GET /gateway/bot` returns. */
@@ -75,7 +78,7 @@ export const discordChannel = {
     }).filter(Boolean)
     for (const id of ids) if (!/^\d{5,25}$/.test(id)) throw new Error(`discord channel: "${id}" is not a Discord user id (digits only; enable Developer Mode, right-click yourself, Copy User ID)`)
     const allow = new Set(ids)
-    if (!allow.size) throw new Error('discord channel: channels.discord.allowFrom must list at least one Discord user id')
+    if (!allow.size && !config.pairing) throw new Error('discord channel: channels.discord.allowFrom must list at least one Discord user id (or set "pairing": true)')
     if (ctx.approvals.mode === 'off' && !config.allowUnattended) {
       throw new Error('discord channel: approval.mode is "off", so chat messages could run shell commands unconfirmed. Use "risky" (default) or set channels.discord.allowUnattended')
     }
@@ -86,6 +89,7 @@ export const discordChannel = {
     const base = (config.apiBase ?? 'https://discord.com/api/v10').replace(/\/+$/, '')
     const mapFile = path.join(path.resolve(expandHome(config.dir ?? '~/.switchboard')), 'channels-discord.json')
     const log = ctx.logger('discord')
+    const pairing = config.pairing ? new PairingStore(path.join(path.dirname(mapFile), 'pairing.json')) : undefined
     const root = new AbortController()
 
     // ------------------------------------------------------------ REST
@@ -141,12 +145,17 @@ export const discordChannel = {
     // ------------------------------------------------------ gateway events
     let selfId = ''
     /** DMs only (no guild), from an allow-listed human. */
-    const authorized = (userId: string | undefined, guildId: unknown): boolean => Boolean(userId && !guildId && userId !== selfId && allow.has(userId))
+    const authorized = (userId: string | undefined, guildId: unknown): boolean => Boolean(userId && !guildId && userId !== selfId && (allow.has(userId) || pairing?.has('discord', userId)))
 
     const onMessage = async (m: any): Promise<void> => {
       if (m?.author?.bot) return
+      await pairing?.load()
       if (!authorized(m?.author?.id, m?.guild_id) || typeof m.channel_id !== 'string') {
         log.warn('ignored a message from an unauthorized sender')
+        if (pairing && m?.author?.id && !m.guild_id && m.author.id !== selfId && typeof m.channel_id === 'string') {
+          const offer = await pairing.request('discord', String(m.author.id), m.author.username)
+          if (offer) await quiet(say(m.channel_id, `Not paired yet. Ask the owner to run:\n  sbx channels approve ${offer.code}\nThe code expires in one hour.`))
+        }
         return
       }
       // type 0 = normal message, 19 = reply; anything else (joins, pins, ...) is not for the agent
@@ -155,6 +164,7 @@ export const discordChannel = {
     }
     const onInteraction = async (i: any): Promise<void> => {
       if (i?.type !== 3) return // message components only
+      await pairing?.load()
       const user = i.user ?? i.member?.user
       const match = /^ap\|([^|]+)\|([yna])$/.exec(String(i.data?.custom_id ?? ''))
       const ack = (content?: string): Promise<unknown> =>
@@ -292,7 +302,8 @@ export const discordChannel = {
     ctx.reflect.provide('discord', {
       ready: () => ready,
       async send(userId: string, text: string): Promise<void> {
-        if (!allow.has(String(userId))) throw new Error('user is not on the Discord allow-list')
+        await pairing?.load()
+        if (!allow.has(String(userId)) && !pairing?.has('discord', String(userId))) throw new Error('user is not on the Discord allow-list')
         const dm = await rest<{ id: string }>('POST', '/users/@me/channels', { recipient_id: String(userId) })
         await say(dm.id, text)
       },

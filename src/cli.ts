@@ -2,6 +2,7 @@
 import { constants, promises as fs, realpathSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +25,8 @@ Commands:
   sessions           List stored sessions
   presets            List agent presets (use one with --preset <id>)
   automations [cmd]  list | add <cron> <prompt…> | run <id> | remove <id> (scheduled agent runs)
-  channels           Run the configured chat channels (Telegram) until interrupted
+  channels           Run the configured chat channels (Telegram, Discord) until interrupted
+  channels pairing   List pending pairing codes and approved senders (also: channels approve <code>, channels revoke <channel> <id>)
   skills             List skills found for this workspace (SKILL.md folders)
   info               Show config, endpoint and loaded plugins
   doctor             Run diagnostics (config, host, endpoint, key, data dir)
@@ -562,6 +564,28 @@ async function main(): Promise<void> {
         break
       }
       case 'channels': {
+        const [sub, ...subArgs] = args.positional
+        if (sub === 'pairing' || sub === 'approve' || sub === 'revoke') {
+          const { PairingStore } = await import('./channels/pairing.js')
+          const dir = path.resolve((config.settings?.dir ?? '~/.switchboard').replace(/^~(?=$|[\\/])/, os.homedir()))
+          const store = new PairingStore(path.join(dir, 'pairing.json'))
+          if (sub === 'approve') {
+            const who = subArgs[0] ? await store.approve(subArgs[0]) : null
+            console.log(who ? C.green(`approved ${who.channel} user ${who.userId}${who.label ? ` (${who.label})` : ''}`) : C.red('unknown or expired code'))
+            if (!who) process.exitCode = 1
+          } else if (sub === 'revoke') {
+            const ok = subArgs[0] && subArgs[1] ? await store.revoke(subArgs[0], subArgs[1]) : false
+            console.log(ok ? C.green('revoked') : C.red('usage: sbx channels revoke <telegram|discord> <user id> (must be an approved id)'))
+            if (!ok) process.exitCode = 1
+          } else {
+            const { pending, approved } = await store.list()
+            console.log(C.bold('pending') + (pending.length ? '' : C.dim('  (none)')))
+            for (const p of pending) console.log(`  ${p.code}  ${p.channel}  ${p.userId}${p.label ? `  ${p.label}` : ''}`)
+            console.log(C.bold('approved') + (approved.length ? '' : C.dim('  (none)')))
+            for (const a of approved) console.log(`  ${a.channel}  ${a.userId}`)
+          }
+          break
+        }
         const tg = config.channels?.telegram?.enabled ? config.channels.telegram : undefined
         const dc = config.channels?.discord?.enabled ? config.channels.discord : undefined
         if (!tg && !dc) {
