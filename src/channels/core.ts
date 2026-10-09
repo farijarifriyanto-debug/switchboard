@@ -86,7 +86,9 @@ export function createChatCore(ctx: Context, transport: ChatTransport, options: 
   const prompts = new Map<string, { chat: string; ref?: string }>()
 
   const onRequest = ({ id, tool, args, sessionId }: { id: string; tool: string; args: unknown; sessionId?: string }): void => {
-    const chat = sessionId ? chatOfSession.get(sessionId) : undefined
+    const session = sessionId ? ctx.sessions.get(sessionId) : undefined
+    const parent = session?.kind === 'subagent' ? session.parentSessionId : undefined
+    const chat = (sessionId ? chatOfSession.get(sessionId) : undefined) ?? (parent ? chatOfSession.get(parent) : undefined)
     if (chat === undefined) return // not a session of this channel: the console/CLI handles it
     prompts.set(id, { chat })
     void (async () => {

@@ -131,6 +131,8 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
 
   if (config.sessions?.load !== false && (config.web?.enabled || config.channels?.telegram?.enabled || config.channels?.discord?.enabled)) {
     if (config.web?.enabled) await ctx.web.ready()
+    if (config.channels?.telegram?.enabled) await ctx.telegram?.ready()
+    if (config.channels?.discord?.enabled) await ctx.discord?.ready()
     await ctx.subagent?.recover()
   }
 

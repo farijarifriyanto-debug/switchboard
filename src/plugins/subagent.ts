@@ -190,9 +190,11 @@ export const subagent = {
       const token = Symbol('wake')
       st.wakeToken = token
       const bg = ctx.sessions.get(id)?.background
-      if (bg) { bg.wakeRunning = true; await sessionsRef.checkpoint(id) }
+      let wakeStarted = false
       let sawFinal = false
       try {
+        if (bg) { bg.wakeRunning = true; await sessionsRef.checkpoint(id) }
+        wakeStarted = true
         for await (const raw of ctx.agent.stream('', id, { signal: wakeController.signal })) {
           const ev = raw as { type: string }
           if (ev.type === 'final') sawFinal = true
@@ -201,6 +203,7 @@ export const subagent = {
         if (!sawFinal && status === 'failed') throw new Error('wake ended without a final (session failed)')
         if (!sawFinal && status === 'cancelled') throw new Error('wake was cancelled')
       } catch (err) {
+        if (!wakeStarted) throw err // checkpoint failure leaves a retryable wake
         if (disposed) return
         const message = err instanceof Error ? err.message : String(err)
         if (isSessionBusyError(err)) {
@@ -214,10 +217,10 @@ export const subagent = {
         if (cur?.wakeToken === token) cur.wakeToken = undefined
         if (bg && !disposed && !stopping) {
           bg.wakeRunning = false
-          bg.wakePending = st.pending.length > 0
+          bg.wakePending = !wakeStarted || st.pending.length > 0
           await sessionsRef.checkpoint(id)
         }
-        if (!disposed) scheduleFlush(id) // drain injections that arrived during the wake
+        if (!disposed && wakeStarted) scheduleFlush(id) // avoid a disk-failure retry loop
       }
     }
 
@@ -383,8 +386,8 @@ export const subagent = {
         title: task.description.replace(/\s+/g, ' ').slice(0, 72),
         system: WORKER_SYSTEM_PROMPT,
         projectRoot: parent.projectRoot ?? ctx.workspace.root,
-        model: parent.model,
-        provider: parent.provider,
+        model: ctx.get('llm', false)?.resolveModel(task.model ?? parent.model) ?? task.model ?? parent.model,
+        provider: parent.provider ?? 'default',
         kind: 'subagent',
         parentSessionId: parentSid,
         ...(background && { jobId: jobIds[i] }),
@@ -413,7 +416,11 @@ export const subagent = {
       })
       try {
         await Promise.all(children.map(child => sessionsRef.checkpoint(child.id)))
-        for (let i = 0; i < tasks.length; i++) await persistJob(jobs.get(jobIds[i])!, tasks[i])
+        const state = parent.background ??= { version: 1, jobs: [] }
+        state.jobs.push(...tasks.map((task, i) => ({ ...jobs.get(jobIds[i])!, task: { ...task, model: children[i].model, maxSteps: task.maxSteps ?? resolved.maxSteps } })))
+        // Publish the complete batch in one atomic parent snapshot. A rejected
+        // batch must never leave a recoverable queued prefix on disk.
+        await sessionsRef.checkpoint(parent.id)
       } catch (e) {
         for (const id of jobIds) {
           const job = jobs.get(id)!

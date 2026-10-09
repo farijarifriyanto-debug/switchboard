@@ -118,6 +118,9 @@ try {
   await wait(()=>calls===3)
   const saved=JSON.parse(await readFile(path.join(liveDir,spawn.parentId+'.json')))
   assert.deepEqual(saved.background.jobs.map(j=>j.status),['running','queued'],'actual dispatch checkpoint distinguishes started and queued work')
+  const savedChild=JSON.parse(await readFile(path.join(liveDir,saved.background.jobs[1].sessionId+'.json')))
+  assert.equal(savedChild.model,'stub','queued worker snapshots the resolved default model')
+  assert.equal(savedChild.provider,'default','queued worker snapshots its provider route')
   await live.kill(); hold=false
   const restoredLive=await launch(config(liveDir,{subagent:{autoResume:false,maxParallel:1}}))
   await wait(async()=> (await restoredLive.view()).jobs.some(j=>j.status==='done'))

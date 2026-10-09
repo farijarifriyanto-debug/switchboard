@@ -316,7 +316,9 @@ export class SessionService extends Service {
     loaded.sort((a, b) => b.updatedAt - a.updatedAt)
     const active = loaded.filter(s => s.background?.jobs.some(j => j.status === 'queued' || j.status === 'running' || !j.delivered))
     const childIds = new Set(active.flatMap(s => s.background!.jobs.map(j => j.sessionId)))
-    for (const data of [...loaded.slice(0, this.max), ...active, ...loaded.filter(s => childIds.has(s.id))]) {
+    const parentIds = new Set(active.map(s => s.id))
+    // Foreground workers also spent the active parent's lifetime budget.
+    for (const data of [...loaded.slice(0, this.max), ...active, ...loaded.filter(s => childIds.has(s.id) || s.kind === 'subagent' && parentIds.has(s.parentSessionId ?? ''))]) {
       if (!this.sessions.has(data.id)) this.sessions.set(data.id, data)
     }
     return this.sessions.size

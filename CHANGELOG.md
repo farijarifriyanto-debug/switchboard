@@ -18,6 +18,12 @@
 - Serialize strict session checkpoints and refuse dispatch on persistence errors.
   An exclusive recovery owner prevents competing hosts from dispatching jobs.
 - Workers use their saved project workspace for filesystem/shell tools.
+- Snapshot queued workers' effective model/provider and step budget; route worker
+  approval requests to their parent Telegram/Discord chat after restart.
+- Publish background batches atomically, release failed wake initialization,
+  reclaim dead recovery guards, and include older foreground workers in budgets.
+  Wait for channel chat maps before recovery; restricted presets receive no
+  notebook prompt projection.
 - Process-tree tests distinguish killed Linux zombies from executing processes
   in containers whose PID 1 does not reap orphaned grandchildren.
 
