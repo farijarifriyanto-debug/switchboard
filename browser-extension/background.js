@@ -28,6 +28,8 @@ async function capture(tab) {
   return injection.result;
 }
 chrome.action.onClicked.addListener(async tab => {
+  // Open synchronously in the user-gesture callback; Chrome may reject delayed opens.
+  const opening = tab.windowId !== undefined ? chrome.sidePanel.open({ windowId: tab.windowId }) : Promise.resolve();
   try {
     if (!tab?.id || !SAFE_URL.test(tab.url || '')) throw new Error('Open a regular HTTP(S) page.');
     const data = await capture(tab);
@@ -35,7 +37,7 @@ chrome.action.onClicked.addListener(async tab => {
   } catch (error) {
     await chrome.storage.session.set({ captured: { error: errorMessage(error), at: Date.now() } });
   }
-  if (tab.windowId !== undefined) await chrome.sidePanel.open({ windowId: tab.windowId });
+  await opening.catch(() => {});
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id || typeof message?.type !== 'string') return false;
