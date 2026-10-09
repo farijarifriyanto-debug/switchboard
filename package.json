@@ -1,6 +1,6 @@
 {
   "name": "@botconnector/switchboard",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Switchboard - the plugin-native agent harness for BotConnector. Everything is a plugin.",
   "type": "module",
   "license": "MIT",

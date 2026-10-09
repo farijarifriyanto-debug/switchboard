@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2
+
+- Documentation only: README status no longer carries the hand-tested list; the package README says the install works.
+
 ## 0.3.1
 
 - Channel pairing (`channels.telegram|discord.pairing`): unknown senders get a one-time code, `sbx channels pairing|approve|revoke`.
