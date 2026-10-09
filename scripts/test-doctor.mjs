@@ -78,6 +78,32 @@ try {
   assert.equal(bad.code, 1, `broken setup should exit 1, got ${bad.code}\n${bad.out}${bad.err}`)
   assert.match(bad.out + bad.err, /✗/, 'unreachable endpoint should be an error')
   assert.match(bad.out + bad.err, /BOTCONNECTOR_API_KEY/, 'missing API key should be reported')
+
+  // --- a pasted placeholder is called out, and a 401 says the key was rejected.
+  const rejecting = createServer((req, res) => {
+    res.statusCode = 401
+    res.end('{}')
+  })
+  await new Promise((resolve) => rejecting.listen(0, '127.0.0.1', resolve))
+  try {
+    const rejectConfig = path.join(dir, 'reject.config.jsonc')
+    await writeFile(
+      rejectConfig,
+      JSON.stringify({
+        llm: { baseURL: `http://127.0.0.1:${rejecting.address().port}/v1`, defaultModel: 'stub-model' },
+        metrics: { persist: '', load: false },
+        sessions: { dir: path.join(dir, 'sessions3'), load: false },
+      }),
+      'utf8',
+    )
+    const rejected = await runDoctor(rejectConfig, { ...process.env, BOTCONNECTOR_API_KEY: '<kunci API Anda>' })
+    assert.equal(rejected.code, 1)
+    assert.match(rejected.out, /rejected the API key/, 'a 401 explains that the key was rejected')
+    assert.match(rejected.out, /looks like placeholder text/, 'a pasted placeholder is called out')
+    assert.ok(!rejected.out.includes('kunci API Anda'), 'the key value is never printed')
+  } finally {
+    await new Promise((resolve) => rejecting.close(resolve))
+  }
 } finally {
   if (server) await new Promise((resolve) => server.close(resolve))
   await rm(dir, { recursive: true, force: true })

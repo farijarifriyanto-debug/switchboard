@@ -442,8 +442,13 @@ async function main(): Promise<void> {
           errors += 1
           const message = error instanceof Error ? error.message : String(error)
           console.log(`  ${C.red('✗')} endpoint    ${ctx.llm.settings.baseURL} — ${message}`)
+          if (/HTTP 40[13]\b/.test(message)) console.log(`              ${C.dim('the endpoint rejected the API key: check the value of BOTCONNECTOR_API_KEY (no placeholder text, quotes or spaces)')}`)
         }
-        if (process.env.BOTCONNECTOR_API_KEY) {
+        const key = process.env.BOTCONNECTOR_API_KEY
+        if (key && /[<>\s]/.test(key)) {
+          warnings += 1
+          console.log(`  ${C.yellow('⚠')} api key     BOTCONNECTOR_API_KEY looks like placeholder text (it has spaces or < >), not a key`)
+        } else if (key) {
           console.log(`  ${C.green('✓')} api key     BOTCONNECTOR_API_KEY set`)
         } else {
           warnings += 1
