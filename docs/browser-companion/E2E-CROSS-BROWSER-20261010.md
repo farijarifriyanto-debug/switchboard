@@ -39,7 +39,7 @@ Data pengujian disimpan tanpa API key, token bridge, atau kode pairing. Screensh
 
 ## Full regression suite
 
-Sebelum perubahan kecil pada startup `sbx web`, seluruh test suite repository (`npm run typecheck && npm run build && npm test`) **PASS** dengan exit code 0 dalam sekitar 207,8 detik pada VPS. Ini mencakup keamanan, Web UI, MCP, sesi, dan Browser Companion. Tes startup tambahan setelah perubahan juga **PASS**. Status regresi penuh setelah patch startup dicatat terpisah sesuai hasil terbaru; jangan mencampurkan hasil dari versi commit yang berbeda.
+**Pada commit kode `976dd55` setelah patch startup**, pipeline `npm run typecheck && npm run build && npm test`, dilanjutkan `npm run package:extension` dan validasi `unzip -t` untuk kedua paket, **PASS** dengan exit code 0. Durasi keseluruhan sekitar **216,1 detik** pada VPS. Tes meliputi approval, keamanan, Web UI, MCP, sesi, CLI, 13 browser tools, reconnect WebSocket, dan tes baru `sbx web` dengan pairing sekali pakai. Paket Chrome dan Edge masing-masing 22.107 byte, SHA-256 sama (`108cb393a1e377554b00755902f3432831acbdda58e24ee96ef25680a15038a9`).
 
 ## Belum termasuk
 
@@ -47,6 +47,7 @@ Sebelum perubahan kecil pada startup `sbx web`, seluruh test suite repository (`
 - Pemasangan dari Chrome Web Store / Microsoft Edge Add-ons dan review marketplace.
 - Pengujian beban multi-user berkepanjangan, browser suspend lama, dan VPS→laptop lintas jaringan.
 - Validasi screenshot tanpa user gesture: Chrome membutuhkan `activeTab` yang diberikan pengguna.
+- **P1 transparansi approval:** modal Web UI saat ini menamai aksi browser dengan teks generik seperti `Tool · Working with project`, bukan memperlihatkan nama `browser_click` dan selector `#increment` secara jelas. Permintaan persetujuan tetap bekerja dan menahan aksi, tetapi keterbacaan tindakan harus diperbaiki sebelum publikasi luas.
 - Deploy production atau merge ke `master` (tidak dilakukan).
 
 **Release gate:** jalur E2E pada profil test Windows PASS; publikasi umum masih perlu uji tambahan dan persetujuan rilis.
