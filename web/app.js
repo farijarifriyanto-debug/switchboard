@@ -1447,6 +1447,8 @@ const COMMANDS = {
     void loadState().catch(() => {})
   },
   '/workspace': () => activateTab('workspace'),
+  '/changes': () => void showChanges(),
+  '/undo': () => void undoChanges(),
   '/plugins': () => activateTab('plugins'),
   '/trace': () => activateTab('trace'),
   '/metrics': () => {
@@ -1459,6 +1461,8 @@ const COMMAND_HELP = {
   '/new': 'Start a new session',
   '/sessions': 'Browse past sessions',
   '/workspace': 'Project files and search',
+  '/changes': 'Files the agent changed in this session',
+  '/undo': 'Undo the last file change',
   '/plugins': 'Installed plugins',
   '/trace': 'Run trace and approvals',
   '/metrics': 'Model latency metrics',
@@ -1492,6 +1496,23 @@ ui.commands?.addEventListener('mousedown', (event) => {
   ui.commands.hidden = true
   ui.prompt.focus()
 })
+
+/** `/changes` and `/undo` in the composer: the agent's file edits in this session. */
+async function showChanges() {
+  const box = entry('notice', 'Changes').querySelector('.body')
+  if (!state.sessionId) return void (box.textContent = 'No file changes yet: start a conversation first.')
+  const res = await fetch(`/api/sessions/${encodeURIComponent(state.sessionId)}/changes`)
+  const body = await res.json().catch(() => ({}))
+  box.textContent = !res.ok ? body.error || `changes ${res.status}` : body.changes.length ? body.changes.map((c) => `#${c.seq} ${c.created ? 'created' : 'changed'} ${c.file}`).join('\n') : 'No file changes recorded in this session.'
+}
+async function undoChanges() {
+  const box = entry('notice', 'Undo').querySelector('.body')
+  if (!state.sessionId) return void (box.textContent = 'Nothing to undo yet.')
+  const res = await fetch(`/api/sessions/${encodeURIComponent(state.sessionId)}/undo`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+  const body = await res.json().catch(() => ({}))
+  box.textContent = !res.ok ? body.error || `undo ${res.status}` : [...body.restored.map((f) => `restored ${f}`), ...body.skipped.map((s) => `skipped ${s.file}: ${s.reason}`)].join('\n') || 'Nothing to undo.'
+  void loadFiles(state.filesDir || '.')
+}
 
 /** `/compact [focus]` in the composer: fold old history into a summary. */
 async function compactSession(focus) {

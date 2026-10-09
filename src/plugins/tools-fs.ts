@@ -59,7 +59,10 @@ export const toolsFs = {
         async execute(args: { path: string; content: string }, tctx: ToolContext) {
           const file = await boundary(args.path, tctx.workspace)
           await fs.mkdir(path.dirname(file), { recursive: true })
-          await fs.writeFile(file, args.content, 'utf8')
+          const write = () => fs.writeFile(file, args.content, 'utf8')
+          const undo = ctx.get('undo', false)
+          if (undo) await undo.track(tctx.sessionId, file, 'write_file', args.content, write)
+          else await write()
           return `Wrote ${Buffer.byteLength(args.content)} bytes to ${args.path}`
         },
       },
