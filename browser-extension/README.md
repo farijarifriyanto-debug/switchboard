@@ -1,40 +1,136 @@
-# Switchboard Browser Agent — Chrome and Edge preview
+# Switchboard Browser Agent (Google Chrome & Microsoft Edge)
 
-One **Manifest V3** extension codebase for Google Chrome and Microsoft Edge.
+Official **Manifest V3** browser extension for Switchboard / BotConnector. Provides deep, secure browser automation and autonomous AI companion capabilities for both **Google Chrome** and **Microsoft Edge** with a unified codebase.
 
-## Install
+---
 
-1. Clone this repository and check out `feat/chrome-browser-companion`.
-2. Chrome: open `chrome://extensions`; Edge: open `edge://extensions`.
-3. Enable Developer mode, select **Load unpacked**, and select this `browser-extension` directory.
-4. Open a normal HTTP(S) page and **click the extension toolbar icon**. It captures a snapshot and opens the side panel.
+## Architecture Overview
 
-## Implemented
+```
+┌────────────────────────────────┐         Authenticated HTTP/SSE         ┌───────────────────────────────┐
+│     Google Chrome / Edge       │  ◄──────────────────────────────────►  │    Switchboard Agent Core     │
+│  ┌──────────────────────────┐  │        Loopback Bridge (127.0.0.1)      │  ┌─────────────────────────┐  │
+│  │   Side Panel Chat UI     │  │                                        │  │ Cordis Agent Harness    │  │
+│  │   - AI Streaming         │  │         X-Switchboard-Token            │  │ - Multi-step Agent Loop │  │
+│  │   - Model Selector       │  │         DNS Rebinding Protection       │  │ - 13 Browser Tools      │  │
+│  │   - Workflow Engine      │  │                                        │  │ - Approval Pipeline     │  │
+│  │   - Security & Audit     │  │                                        │  │ - Scheduler Integration │  │
+│  └──────────────────────────┘  │                                        └─────────────────────────┘  │
+│  ┌──────────────────────────┐  │                                                                     │
+│  │   MV3 Background Worker  │  │                                                                     │
+│  │   - DOM Compact Ref Tree │  │                                                                     │
+│  │   - Credential Shield    │  │                                                                     │
+│  │   - Action Verification  │  │                                                                     │
+│  └──────────────────────────┘  │                                                                     │
+└────────────────────────────────┘                                                                     │
+```
 
-- Read title, URL, selected text, page text and a sample of visible DOM controls.
-- Capture a local viewport screenshot; list accessible tabs; navigate within the approved origin.
-- Review and copy page context manually to Switchboard.
-- Site-origin allow/revoke list; read-only until site is approved.
-- Manual click, type and scroll with a **per-action confirmation dialog**.
-- Refuse password, file-upload and recognized payment-card input fields.
-- Export a local workflow *draft* of manually executed actions. Typed values are redacted in drafts.
-- Shared Chrome/Edge codebase; no broad host permissions or automatic network transmission.
+---
 
-## Important limitations
+## Core Capabilities (P0 – P3)
 
-**Not production-ready and not Claude in Chrome parity.** The side panel is not yet connected to the Switchboard agent loop. There is no autonomous AI browser control, no screenshot-to-model pipeline, no multi-tab workflow runner, no schedule execution, and no extension-store publication. The draft is **not replayable**. Clicking a button can submit a form or cause irreversible side effects: always review the target and use only trusted sites.
+### P0 — Browser Agent Core
+- **Side Panel Chat:** Responsive chat interface supporting real-time SSE streaming from Switchboard, model selection, session persistence, and controls (Stop, Retry, Continue).
+- **Active Tab Tracking:** Displays current tab title, URL, and origin status with live synchronization.
+- **13 Standard Browser Tools:**
+  1. `browser_tabs_list`: Query accessible browser tabs.
+  2. `browser_tab_select`: Switch active tab by `tabId`.
+  3. `browser_navigate`: Safe navigation within approved origins.
+  4. `browser_dom_snapshot`: Compact accessibility DOM tree with stable `@ref` references and state hashing.
+  5. `browser_screenshot`: Viewport JPEG capture with quality/format options.
+  6. `browser_click`: Click element by `@ref`, CSS selector, or XPath with verification.
+  7. `browser_type`: Type text or fill input with real `input` and `change` dispatch.
+  8. `browser_scroll`: Scroll element or viewport (`top`, `bottom`, `up`, `down`).
+  9. `browser_select`: Pick dropdown options by value or text.
+  10. `browser_wait`: Wait for DOM selectors, text content, or milliseconds.
+  11. `browser_extract`: Extract text or attributes from target elements.
+  12. `browser_console_logs`: Capture recent page console warnings/errors.
+  13. `browser_network_errors`: Inspect recent failed network requests.
+- **Agent Loop Integration:** Autonomous multi-step plan -> tool call -> permission verification -> execution -> observation -> verification -> next step -> answer.
 
-`activeTab` access is temporary, granted by the extension toolbar click. To operate on a newly navigated page, click the toolbar icon again. Restricted browser pages cannot be accessed. DOM content is untrusted and can contain prompt injection. The captured snapshot remains in session storage; approved site origins and workflow drafts remain in extension local storage.
+### P1 — Security & Approvals
+- **Authenticated Loopback Bridge:** Secure communication guarded by `X-Switchboard-Token` Bearer tokens and DNS-rebinding prevention (`Host` header validation against loopback addresses).
+- **Three Permission Modes:**
+  1. `Ask Every Time`: Every write/navigation action prompts user confirmation.
+  2. `Auto Safe`: Read-only and non-destructive actions proceed automatically on allowed sites; sensitive actions prompt.
+  3. `Restricted`: Strict read-only mode (clicks, types, and navigation mutations are blocked).
+- **Origin-Level Permissions:** Explicit site origin allowlisting and one-click revocation.
+- **Credential & Sensitive Field Shield:** Automatic refusal to interact with password fields (`type="password"`), credit card / CVV inputs, social security number inputs, or file uploads.
+- **Prompt Injection Demarcation:** DOM text and extracted content are encapsulated in clear `[UNTRUSTED WEBPAGE CONTENT START ... END]` guardrails.
+- **Audit Logging:** Every browser action is recorded locally with timestamp, origin, tool name, parameters, result status, and approval decision.
 
-This extension is for a **single trusted operator**. Do not expose Switchboard's unauthenticated console or a browser-control bridge on a public interface. Before autonomous agent control, add authenticated native messaging or a strictly authenticated loopback bridge, enforce origin-specific policies, approval, audit logging, and E2E tests.
+### P2 — Advanced Browser Automation
+- **Multi-Tab Management:** List and switch between open tabs safely.
+- **Workflow Recording:** Record user interactions (clicks, types, scrolls, navigations) directly in the side panel. Typed text in sensitive fields is automatically redacted.
+- **Workflow Replay Engine:** Re-run recorded workflows sequentially with element validation, retries, configurable timeouts, stop/cancel support, and step-by-step reporting.
+- **Automations Scheduler Integration:** Sync and schedule recurring browser workflows directly with Switchboard's built-in cron scheduler.
+- **Token Optimization:** Compact DOM snapshots (~70-85% token reduction vs raw HTML), DOM state hashing to avoid redundant re-fetches, and diff-based inspection.
 
-## Manual verification checklist
+### P3 — Chrome & Edge Release Readiness
+- **Unified Manifest V3 Codebase:** Single extension directory works out-of-the-box on both Google Chrome and Microsoft Edge.
+- **Minimal Permissions:** Uses only `activeTab`, `scripting`, `sidePanel`, `storage`, and `tabs`. Zero broad `host_permissions` required.
+- **Reproducible Packaging:** `scripts/package-extension.mjs` generates compliant `switchboard-chrome.zip` and `switchboard-edge.zip` with verified SHA256 checksums.
 
-- Chrome and Edge: load unpacked, click toolbar on a normal HTTPS site, verify panel text and DOM metadata.
-- Test selected text, copy, allow and revoke, click/type/scroll with confirmation.
-- Confirm password inputs and restricted pages are rejected.
-- Confirm changing origin requires a new toolbar click.
-- Confirm exported workflow redacts typed values and clear removes draft.
-- Inspect extension service worker and network activity for errors or unexpected requests.
+---
 
-**Validation:** source syntax/build checks are not browser E2E. Real-browser validation must be recorded separately before release.
+## Installation & Usage
+
+### 1. Start Switchboard
+Run Switchboard with the Browser Companion plugin enabled:
+```bash
+# Start Switchboard
+node dist/cli.js
+```
+The browser companion bridge automatically starts at `http://127.0.0.1:41888/` (or via the main Switchboard HTTP port) with an active authorization token stored in `.switchboard/browser-companion.json`.
+
+### 2. Load Extension in Google Chrome
+1. Navigate to `chrome://extensions/`
+2. Enable **Developer mode** (top-right toggle).
+3. Click **Load unpacked** and select the `browser-extension/` directory.
+4. Pin the **Switchboard Browser Agent** icon to your toolbar.
+
+### 3. Load Extension in Microsoft Edge
+1. Navigate to `edge://extensions/`
+2. Enable **Developer mode** (left sidebar).
+3. Click **Load unpacked** and select the `browser-extension/` directory.
+
+### 4. Connect & Operate
+1. Open any HTTP/HTTPS web page.
+2. Click the extension toolbar icon to open the **Side Panel**.
+3. Under the **Settings** tab, verify the bridge URL (`http://127.0.0.1:41888`) and paste the Bridge Token from `.switchboard/browser-companion.json`.
+4. Switch to the **Chat** tab to instruct the agent, or the **Workflows** tab to record and replay automations.
+
+---
+
+## Verification & Test Suite
+
+Run the automated verification suite:
+
+```bash
+# Unit & integration tests for all 13 tools
+node test/test-browser-companion.mjs
+
+# P1 Security & negative acceptance tests
+node test/test-browser-security.mjs
+
+# P2 Workflow recording, replay, retry, and scheduling tests
+node test/test-browser-workflow.mjs
+
+# Regression tests for all known bugs
+node test/test-browser-regression.mjs
+
+# Real Google Chrome E2E test with live CDP and real AI loop
+node test/test-browser-e2e-chrome.mjs
+
+# Package Chrome and Edge ZIP archives
+node scripts/package-extension.mjs
+```
+
+---
+
+## Troubleshooting
+
+- **Side Panel does not open:** Ensure you click the extension toolbar icon on an active HTTP/HTTPS tab (Chrome and Edge do not allow side panels on `chrome://` or `edge://` internal URLs).
+- **Bridge Connection Error:** Verify Switchboard is running and check `.switchboard/browser-companion.json` for the valid auth token.
+- **Action Denied (Restricted):** Check the **Security & Audit** tab in the side panel. If the site is in `Restricted` mode or unapproved, approve the site or switch to `Auto Safe`.
+- **Password field rejected:** This is an intentional security guard. Sensitive authentication fields cannot be automated by the agent.

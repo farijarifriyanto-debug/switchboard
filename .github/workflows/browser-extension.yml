@@ -6,6 +6,7 @@ on:
     paths:
       - 'browser-extension/**'
       - '.github/workflows/browser-extension.yml'
+      - 'scripts/package-extension.mjs'
 jobs:
   package:
     runs-on: ubuntu-latest
@@ -16,21 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate manifest and scripts
+      - name: Validate and build Chrome and Edge extension packages
         run: |
-          node --check browser-extension/background.js
-          node --check browser-extension/panel.js
-          node - <<'NODE'
-          const m = require('./browser-extension/manifest.json');
-          if (m.manifest_version !== 3 || !m.permissions.includes('activeTab') || m.host_permissions?.length) throw Error('unsafe or invalid manifest');
-          if (!m.side_panel?.default_path) throw Error('missing side panel');
-          console.log('Browser extension static validation PASS');
-          NODE
-      - name: Build Chrome and Edge packages
-        run: |
-          cd browser-extension
-          zip -q -r ../switchboard-chrome.zip manifest.json background.js panel.html panel.js
-          cp ../switchboard-chrome.zip ../switchboard-edge.zip
+          node scripts/package-extension.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: switchboard-browser-chrome-edge

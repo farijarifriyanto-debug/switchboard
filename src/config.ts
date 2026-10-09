@@ -138,6 +138,8 @@ export interface SwitchboardConfig {
    * with `load_skill` or run with `/name`. On unless `enabled: false`.
    */
   skills?: { enabled?: boolean; globalDir?: string; projectDir?: string; draftsDir?: string }
+  /** Switchboard Browser Companion (Chrome & Edge) bridge settings. */
+  browser?: import('./plugins/browser-companion.js').BrowserCompanionConfig
   /** Extra plugins: npm package names or local paths. */
   plugins?: PluginSpec[]
 }

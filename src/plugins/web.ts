@@ -235,6 +235,9 @@ export const webUi = {
       const route = url.pathname
 
       try {
+        if (route.startsWith('/api/browser-companion/') && ctx.browserCompanion) {
+          return await ctx.browserCompanion.handleHttpRequest(req, res, route)
+        }
         if (tokenDigest && !authorized(req)) {
           // First visit: `/?token=...` trades the token for an HttpOnly cookie, then drops it from the URL.
           if (req.method === 'GET' && tokenMatches(url.searchParams.get('token'))) {

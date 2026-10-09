@@ -19,6 +19,7 @@ const { CredentialStoreService } = await import('../dist/services/credentials.js
 
 const SECRET = 'sk-test-DO-NOT-LEAK-123456'
 const savedEnv = { ...process.env }
+delete process.env.BOTCONNECTOR_API_KEY
 const dirs = []
 
 async function makeHost(legacy = {}) {
