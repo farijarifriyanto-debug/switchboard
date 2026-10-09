@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Switchboard Browser Companion",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Autonomous and user-controlled browser automation companion for Switchboard (Chrome & Edge)",
   "permissions": [
     "activeTab",
+    "alarms",
     "scripting",
     "sidePanel",
     "storage",

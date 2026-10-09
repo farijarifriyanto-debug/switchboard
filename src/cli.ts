@@ -852,6 +852,9 @@ async function main(): Promise<void> {
 
         const seed = args.positional.join(' ').trim()
         let prompt: string | null = seed
+        if (ctx.browserCompanion?.pairingCode) {
+          console.log(C.dim('Browser Companion pairing code (valid 15 minutes, one use): ') + C.bold(ctx.browserCompanion.pairingCode))
+        }
         console.log(C.bold('Switchboard') + C.dim(` — ${ctx.llm.settings.defaultModel} · session ${session.id}${session.resumed ? ' (resumed)' : ''}`))
         console.log(C.dim('type /exit to quit, /new for a new session, /sessions to list, /compact to summarize history, /usage for tokens and cost, /changes and /undo [n|force] for file edits, /metrics for latency'))
         if (!prompt) prompt = await ask(C.cyan('you › '))

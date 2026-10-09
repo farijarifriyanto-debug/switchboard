@@ -1,6 +1,9 @@
 import type { Context } from 'cordis'
 import http from 'node:http'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
+import type { Duplex } from 'node:stream'
+import type { Socket } from 'node:net'
+import WebSocket, { WebSocketServer } from 'ws'
 import type { ToolSpec, ToolContext, ToolResult } from '../services/tools.js'
 
 export type PermissionMode = 'ask_every_time' | 'auto_safe' | 'restricted'
@@ -85,6 +88,11 @@ export class BrowserCompanionService {
   private eventListeners = new Set<http.ServerResponse>()
   private pendingCommands = new Map<string, PendingCommand>()
   private standaloneServer: http.Server | null = null
+  private socketServer: WebSocketServer | null = null
+  private activeSocket: WebSocket | null = null
+  private pairCode = randomBytes(6).toString('base64url').toUpperCase()
+  private pairCodeExpiry = Date.now() + 15 * 60_000
+  private pairCodeFailures = 0
   private seq = 0
 
   constructor(private ctx: Context, config: BrowserCompanionConfig = {}) {
@@ -102,6 +110,11 @@ export class BrowserCompanionService {
 
   get currentToken(): string {
     return this.token
+  }
+
+  /** Short-lived, single-use code displayed only in the local interactive CLI. */
+  get pairingCode(): string | null {
+    return this.pairCodeExpiry > Date.now() && this.pairCodeFailures < 5 ? this.pairCode : null
   }
 
   get currentMode(): PermissionMode {
@@ -150,7 +163,7 @@ export class BrowserCompanionService {
   }
 
   isClientConnected(): boolean {
-    return this.eventListeners.size > 0
+    return this.activeSocket?.readyState === WebSocket.OPEN || this.eventListeners.size > 0
   }
 
   /**
@@ -177,9 +190,9 @@ export class BrowserCompanionService {
     args: Record<string, unknown>,
     toolCtx: ToolContext = {},
   ): Promise<unknown> {
-    if (this.eventListeners.size === 0) {
+    if (!this.isClientConnected()) {
       throw new Error(
-        'Switchboard Browser Companion extension is not connected. Open the extension side panel in Chrome or Microsoft Edge and connect to this Switchboard instance.',
+        'Switchboard Browser Companion extension is not connected. Open the extension once to pair it with the local Switchboard CLI; the connection will then run in the background.',
       )
     }
 
@@ -282,6 +295,15 @@ export class BrowserCompanionService {
 
   private broadcastEvent(eventType: string, data: unknown): void {
     const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`
+    const socket = this.activeSocket
+    if (socket?.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ type: eventType, data }))
+        return
+      } catch {
+        // Keep legacy SSE fallback for older companion clients.
+      }
+    }
     for (const res of this.eventListeners) {
       try {
         res.write(payload)
@@ -289,6 +311,67 @@ export class BrowserCompanionService {
         this.eventListeners.delete(res)
       }
     }
+  }
+
+  private secretsMatch(a: string, b: string): boolean {
+    const left = Buffer.from(a)
+    const right = Buffer.from(b)
+    return left.length === right.length && timingSafeEqual(left, right)
+  }
+
+  /** WebSocket bridge keeps the Chrome MV3 worker alive independently of the side panel. */
+  private handleSocketUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): void {
+    const deny = (status: number) => {
+      socket.write('HTTP/1.1 ' + status + ' ' + (status === 401 ? 'Unauthorized' : 'Forbidden') + '\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+      socket.destroy()
+    }
+    let host = ''
+    let route = ''
+    try {
+      host = new URL('http://' + String(req.headers.host || '')).hostname.toLowerCase()
+      route = new URL(req.url || '/', 'http://localhost').pathname
+    } catch {
+      deny(403)
+      return
+    }
+    const origin = String(req.headers.origin || '')
+    const protocols = String(req.headers['sec-websocket-protocol'] || '').split(',').map(v => v.trim())
+    const bearer = protocols.find(v => v.startsWith('sb-auth-'))?.slice('sb-auth-'.length) || ''
+    const address = String((socket as Socket).remoteAddress || '')
+    if (route !== '/api/browser-companion/socket'
+      || !LOOPBACK_HOSTS.has(host)
+      || !(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/.test(address))
+      || !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) {
+      deny(403)
+      return
+    }
+    if (!protocols.includes('switchboard-bridge-v1') || !bearer || !this.secretsMatch(bearer, this.token)) {
+      deny(401)
+      return
+    }
+    if (!this.socketServer) {
+      deny(403)
+      return
+    }
+    this.socketServer.handleUpgrade(req, socket, head, ws => {
+      if (this.activeSocket && this.activeSocket.readyState === WebSocket.OPEN) {
+        this.activeSocket.close(1000, 'Replaced by new session')
+      }
+      this.activeSocket = ws
+      ws.on('error', () => { /* No token or message logging */ })
+      ws.on('close', () => {
+        if (this.activeSocket === ws) {
+          this.activeSocket = null
+          for (const [id, pending] of this.pendingCommands) {
+            this.pendingCommands.delete(id)
+            pending.reject(new Error('Browser Companion connection lost; retry this action.'))
+          }
+        }
+      })
+      // Heartbeat payloads are constrained by maxPayload; messages are not executable commands.
+      ws.on('message', () => {})
+      ws.send(JSON.stringify({ type: 'connected', data: { mode: this.mode } }))
+    })
   }
 
   /**
@@ -353,11 +436,19 @@ export class BrowserCompanionService {
       try {
         const body = await readJson()
         const providedToken = String(body.token || '').trim()
-        if (!providedToken || providedToken !== this.token) {
-          res.writeHead(401, { 'content-type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Invalid pairing token' }))
+        const providedCode = String(body.code || '').trim().toUpperCase().replace(/\s|-/g, '')
+        const codeAttempt = providedCode.length > 0
+        let valid = providedToken.length > 0 && this.secretsMatch(providedToken, this.token)
+        if (!valid && codeAttempt && this.pairCodeExpiry > Date.now() && this.pairCodeFailures < 5) {
+          valid = this.secretsMatch(providedCode, this.pairCode)
+          if (!valid) this.pairCodeFailures += 1
+        }
+        if (!valid) {
+          res.writeHead(codeAttempt && this.pairCodeFailures >= 5 ? 429 : 401, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: codeAttempt ? 'Invalid or expired pairing code' : 'Invalid pairing token' }))
           return
         }
+        if (codeAttempt) this.pairCodeExpiry = 0
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(
           JSON.stringify({
@@ -454,7 +545,7 @@ export class BrowserCompanionService {
       res.end(
         JSON.stringify({
           connected: this.isClientConnected(),
-          clientCount: this.eventListeners.size,
+          clientCount: (this.activeSocket?.readyState === WebSocket.OPEN ? 1 : 0) + this.eventListeners.size,
           activeTab: this.activeTab,
           mode: this.mode,
           approvedOrigins: Array.from(this.approvedOrigins),
@@ -523,6 +614,12 @@ export class BrowserCompanionService {
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
       void this.handleHttpRequest(req, res, url.pathname)
     })
+    this.socketServer = new WebSocketServer({
+      noServer: true,
+      maxPayload: 1024,
+      handleProtocols: protocols => protocols.has('switchboard-bridge-v1') ? 'switchboard-bridge-v1' : false,
+    })
+    this.standaloneServer.on('upgrade', (req, socket, head) => this.handleSocketUpgrade(req, socket, head))
     await new Promise<void>((resolve, reject) => {
       this.standaloneServer?.listen(this.config.port, this.config.host, () => {
         this.ctx.logger('browser-companion').info('companion bridge listening on %s:%d', this.config.host, this.config.port)
@@ -533,6 +630,14 @@ export class BrowserCompanionService {
   }
 
   async stopServer(): Promise<void> {
+    if (this.activeSocket) {
+      this.activeSocket.terminate()
+      this.activeSocket = null
+    }
+    if (this.socketServer) {
+      this.socketServer.close()
+      this.socketServer = null
+    }
     if (this.standaloneServer) {
       await new Promise<void>((resolve) => this.standaloneServer?.close(() => resolve()))
       this.standaloneServer = null

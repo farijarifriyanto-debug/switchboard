@@ -388,15 +388,15 @@
   </div>
 
   <!-- Connection settings -->
-  <div id="tab-settings" class="tab-pane"><div class="panel-hint">Pair this Chrome companion with Switchboard running on the same computer. No AI provider key is stored in the extension.</div>
+  <div id="tab-settings" class="tab-pane"><div class="panel-hint">Start Switchboard CLI and enter the short pairing code shown in the terminal. You only need to pair once on this device.</div>
     <label for="bridge-url-input">Switchboard Host URL</label>
     <input id="bridge-url-input" value="http://127.0.0.1:7778">
 
-    <label for="bridge-token-input">Companion Pairing Token</label>
-    <input id="bridge-token-input" type="password" placeholder="Paste pairing token...">
+    <label for="bridge-token-input">Pairing code</label>
+    <input id="bridge-token-input" type="password" placeholder="8-character code from Switchboard CLI" autocomplete="off" spellcheck="false">
 
     <div class="row" style="margin-top:10px">
-      <button id="connect-bridge-btn">Connect & Pair</button>
+      <button id="connect-bridge-btn">Connect browser</button>
       <button id="disconnect-bridge-btn" class="danger">Disconnect</button>
     </div>
 

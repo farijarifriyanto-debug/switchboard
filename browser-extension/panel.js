@@ -73,139 +73,63 @@ async function loadStoredConfig() {
     renderWorkflowSteps();
   }
   $('bridge-url-input').value = bridgeUrl;
-  $('bridge-token-input').value = companionToken;
+  $('bridge-token-input').value = '';
 }
 
-let bridgeCommandAbort = null;
-
-function startBridgeCommandListener() {
-  if (bridgeCommandAbort) bridgeCommandAbort.abort();
-  const controller = new AbortController();
-  bridgeCommandAbort = controller;
-  const endpoint = bridgeUrl;
-  const token = companionToken;
-  (async () => {
-    while (!controller.signal.aborted) {
-      try {
-        const response = await fetch(endpoint + '/api/browser-companion/events', {
-          headers: { authorization: 'Bearer ' + token },
-          signal: controller.signal,
-        });
-        if (!response.ok || !response.body) throw new Error('Bridge events HTTP ' + response.status);
-        setBadge('connected', 'Connected');
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (!controller.signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const frames = buffer.split('\n\n');
-          buffer = frames.pop() || '';
-          for (const frame of frames) {
-            const kind = frame.match(/(?:^|\n)event: ([^\n]+)/)?.[1];
-            const raw = frame.match(/(?:^|\n)data: ([^\n]+)/)?.[1];
-            if (kind !== 'command' || !raw) continue;
-            const command = JSON.parse(raw);
-            let result, ok = true, error;
-            try {
-              const reply = await chrome.runtime.sendMessage({
-                type: 'SWITCHBOARD_EXECUTE_TOOL', tool: command.tool, args: command.args || {},
-              });
-              if (!reply?.ok) throw new Error(reply?.error || 'Browser tool rejected');
-              result = reply;
-            } catch (e) { ok = false; error = String(e?.message || e); }
-            await fetch(endpoint + '/api/browser-companion/response', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
-              body: JSON.stringify({ id: command.id, ok, ...(ok ? { result } : { error }) }),
-              signal: controller.signal,
-            });
-          }
-        }
-      } catch (error) {
-        if (controller.signal.aborted) break;
-        setBadge('disconnected', 'Reconnecting');
-        $('bridge-diagnostics').textContent = 'Bridge reconnecting: ' + String(error?.message || error);
-      }
-      if (!controller.signal.aborted) {
-        setBadge('disconnected', 'Reconnecting');
-        await new Promise(r => setTimeout(r, 1200));
-      }
+// Pairing is performed by the background worker. The panel is not the transport.
+async function refreshBridgeStatus() {
+  try {
+    const status = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' });
+    setBadge(status?.connected ? 'connected' : 'disconnected', status?.connected ? 'Connected' : 'Offline');
+    if (!status?.connected && status?.error) {
+      $('bridge-diagnostics').textContent = status.error;
     }
-  })();
+  } catch (_) {
+    setBadge('disconnected', 'Offline');
+  }
 }
 
 async function connectToSwitchboard() {
   bridgeUrl = $('bridge-url-input').value.trim().replace(/\/+$/, '') || 'http://127.0.0.1:7778';
-  companionToken = $('bridge-token-input').value.trim();
-  $('bridge-diagnostics').textContent = `Connecting to ${bridgeUrl}...`;
-
+  const code = $('bridge-token-input').value.trim();
+  $('bridge-diagnostics').textContent = 'Connecting to the local Switchboard CLI…';
+  $('connect-bridge-btn').disabled = true;
   try {
-    // 1. Handshake / Pairing with Switchboard
-    const pairRes = await fetch(`${bridgeUrl}/api/browser-companion/pair`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: companionToken }),
+    const reply = await chrome.runtime.sendMessage({
+      type: 'SWITCHBOARD_BRIDGE_CONNECT', url: bridgeUrl, code,
     });
-
-    if (!pairRes.ok) {
-      const err = await pairRes.json().catch(() => ({ error: pairRes.statusText }));
-      throw new Error(`Pairing failed (${pairRes.status}): ${err.error || 'Check host URL and token'}`);
-    }
-
-    const pairData = await pairRes.json();
-    companionToken = pairData.token;
-    await chrome.storage.local.set({ bridgeUrl, companionToken, bridgeConnected: true });
-
-    startBridgeCommandListener();
+    if (!reply?.ok) throw new Error(reply?.error || 'Pairing failed');
+    const saved = await chrome.storage.local.get('companionToken');
+    companionToken = saved.companionToken || '';
+    $('bridge-token-input').value = '';
     setBadge('connected', 'Connected');
-    $('bridge-diagnostics').textContent = `Successfully paired with Switchboard!\nMode: ${pairData.mode}\nApproved origins: ${pairData.approvedOrigins.length}`;
-
-    await updateOverviewStatus();
-  } catch (err) {
-    setBadge('disconnected', 'Disconnected');
-    $('bridge-diagnostics').textContent = `Connection error:\n${err.message}\n\nTroubleshooting:\n- Make sure Switchboard is running (e.g. "sbx web" or host active)\n- Verify port matches (default 7778)\n- Check that loopback host 127.0.0.1 is accessible`;
+    $('bridge-diagnostics').textContent = 'Paired successfully. This companion remains connected when its panel is closed.';
+    await syncCurrentTabToBridge();
+  } catch (error) {
+    setBadge('disconnected', 'Offline');
+    $('bridge-diagnostics').textContent = String(error?.message || error);
+  } finally {
+    $('connect-bridge-btn').disabled = false;
+    await refreshBridgeStatus();
   }
 }
 
-$('connect-bridge-btn').addEventListener('click', () => connectToSwitchboard());
+$('connect-bridge-btn').addEventListener('click', connectToSwitchboard);
 $('disconnect-bridge-btn').addEventListener('click', async () => {
-  if (bridgeCommandAbort) bridgeCommandAbort.abort();
-  bridgeCommandAbort = null;
-  await chrome.storage.local.set({ bridgeConnected: false });
-  setBadge('disconnected', 'Disconnected');
-  $('bridge-diagnostics').textContent = 'Disconnected from Switchboard.';
-  await updateOverviewStatus();
+  await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_DISCONNECT' });
+  setBadge('disconnected', 'Offline');
+  $('bridge-diagnostics').textContent = 'Disconnected. Start Switchboard and pair again to resume browser control.';
 });
+setInterval(() => void refreshBridgeStatus(), 5_000);
 
 // Browser prompts belong in Switchboard CLI or Web UI, not in the companion.
 
 async function syncCurrentTabToBridge() {
-  if (!currentTab) return;
   try {
-    const { approvedOrigins = [], permissionMode = 'ask_every_time' } = await chrome.storage.local.get([
-      'approvedOrigins',
-      'permissionMode',
-    ]);
-    await fetch(`${bridgeUrl}/api/browser-companion/status`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(companionToken ? { authorization: `Bearer ${companionToken}` } : {}),
-      },
-      body: JSON.stringify({
-        activeTab: {
-          id: currentTab.id,
-          title: currentTab.title,
-          url: currentTab.url,
-          auditedOrigin: currentTab.origin,
-        },
-        approvedOrigins,
-        mode: permissionMode,
-      }),
-    });
-  } catch (_) {}
+    await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_SYNC_STATUS' });
+  } catch (_) {
+    // The background worker retries when the local CLI becomes available.
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -585,10 +509,6 @@ $('overview-revoke-btn').addEventListener('click', () => $('revoke-current-origi
   await refreshActiveTab();
   await refreshAuditLog();
   await updateOverviewStatus();
-  // Auto connect if token stored
-  if (companionToken) {
-    await connectToSwitchboard();
-  } else {
-    setBadge('disconnected', 'Disconnected');
-  }
+  // The background worker automatically resumes an existing pairing.
+  await refreshBridgeStatus();
 })();

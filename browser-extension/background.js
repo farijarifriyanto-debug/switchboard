@@ -11,6 +11,215 @@ function errorMessage(error) {
   return String(error?.message || error);
 }
 
+// The Browser Companion socket lives in the MV3 service worker, not the panel.
+// Chrome 116+ keeps a WebSocket-backed worker alive when frames are exchanged.
+// An alarm re-establishes it after browser/worker restarts or an outage.
+const BRIDGE_ALARM = 'switchboard-bridge-reconnect';
+const BRIDGE_PROTOCOL = 'switchboard-bridge-v1';
+let bridgeSocket = null;
+let bridgeSocketGeneration = 0;
+let bridgeSocketTimer = null;
+let bridgeConnectPromise = null;
+let bridgeLastError = '';
+let statusSyncTimer = null;
+
+function validBridgeUrl(input) {
+  const url = new URL(String(input || 'http://127.0.0.1:7778'));
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)
+      || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('Browser Companion only connects to an HTTP loopback address.');
+  }
+  return url.origin;
+}
+
+async function bridgeConfig() {
+  const data = await chrome.storage.local.get(['bridgeUrl', 'companionToken', 'bridgeConnected']);
+  return { url: validBridgeUrl(data.bridgeUrl || 'http://127.0.0.1:7778'),
+    token: data.companionToken || '', desired: Boolean(data.bridgeConnected) };
+}
+
+function socketIsOpen() {
+  return bridgeSocket?.readyState === WebSocket.OPEN;
+}
+
+function stopSocket() {
+  bridgeSocketGeneration++;
+  if (bridgeSocketTimer) clearInterval(bridgeSocketTimer);
+  bridgeSocketTimer = null;
+  if (bridgeSocket) {
+    bridgeSocket.close();
+    bridgeSocket = null;
+  }
+}
+
+async function syncBrowserState() {
+  const config = await bridgeConfig();
+  if (!config.desired || !config.token || !socketIsOpen()) return;
+  let activeTab = null;
+  try {
+    const tab = await getActiveTab();
+    activeTab = { id: tab.id, title: tab.title || '', url: tab.url, auditedOrigin: new URL(tab.url).origin };
+  } catch (_) {
+    // Restricted/non-HTTP pages never receive browser actions.
+  }
+  const { approvedOrigins = [], permissionMode = 'ask_every_time' } =
+    await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
+  const response = await fetch(config.url + '/api/browser-companion/status', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.token },
+    body: JSON.stringify({ activeTab, approvedOrigins, mode: permissionMode }),
+  });
+  if (!response.ok) throw new Error('Bridge status synchronization HTTP ' + response.status);
+}
+
+function scheduleStatusSync() {
+  if (statusSyncTimer) clearTimeout(statusSyncTimer);
+  statusSyncTimer = setTimeout(() => {
+    statusSyncTimer = null;
+    void syncBrowserState().catch(error => { bridgeLastError = errorMessage(error); });
+  }, 250);
+}
+
+async function sendBridgeResult(command, endpoint, token) {
+  let ok = true;
+  let result;
+  let error;
+  try {
+    if (!command || typeof command.id !== 'string' || typeof command.tool !== 'string') {
+      throw new Error('Invalid browser command');
+    }
+    result = await handleToolExecution(command.tool, command.args || {});
+    if (!result?.ok) throw new Error(result?.error || 'Browser tool rejected');
+  } catch (failure) {
+    ok = false;
+    error = errorMessage(failure);
+  }
+  const response = await fetch(endpoint + '/api/browser-companion/response', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+    body: JSON.stringify({ id: command?.id, ok, ...(ok ? { result } : { error }) }),
+  });
+  if (!response.ok) throw new Error('Failed to acknowledge browser command (HTTP ' + response.status + ')');
+}
+
+async function ensureBridgeSocket() {
+  if (socketIsOpen()) return true;
+  if (bridgeConnectPromise) return bridgeConnectPromise;
+  bridgeConnectPromise = (async () => {
+    const { url, token, desired } = await bridgeConfig();
+    if (!desired || !token) return false;
+    stopSocket();
+    const generation = bridgeSocketGeneration;
+    const ws = new WebSocket(url.replace(/^http:/, 'ws:') + '/api/browser-companion/socket',
+      [BRIDGE_PROTOCOL, 'sb-auth-' + token]);
+    bridgeSocket = ws;
+    const opened = await new Promise(resolve => {
+      ws.addEventListener('open', () => resolve(true), { once: true });
+      ws.addEventListener('error', () => resolve(false), { once: true });
+      ws.addEventListener('close', () => resolve(false), { once: true });
+    });
+    if (generation !== bridgeSocketGeneration || !opened) {
+      if (!opened) bridgeLastError = 'Local Switchboard browser socket unavailable';
+      if (ws === bridgeSocket) bridgeSocket = null;
+      try { ws.close(); } catch (_) {}
+      return false;
+    }
+    bridgeLastError = '';
+    bridgeSocketTimer = setInterval(() => {
+      if (socketIsOpen()) ws.send(JSON.stringify({ type: 'heartbeat' }));
+    }, 20_000);
+    ws.addEventListener('message', event => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'command' && msg.data && generation === bridgeSocketGeneration) {
+          void sendBridgeResult(msg.data, url, token).catch(err => {
+            bridgeLastError = errorMessage(err);
+          });
+        }
+      } catch (error) {
+        bridgeLastError = errorMessage(error);
+      }
+    });
+    ws.addEventListener('close', () => {
+      if (generation !== bridgeSocketGeneration || ws !== bridgeSocket) return;
+      bridgeSocket = null;
+      if (bridgeSocketTimer) clearInterval(bridgeSocketTimer);
+      bridgeSocketTimer = null;
+      bridgeLastError = 'Connection interrupted; reconnecting automatically';
+      // Alarm is the durable fallback if the worker is suspended.
+      setTimeout(() => void ensureBridgeSocket().catch(() => {}), 1800);
+    });
+    scheduleStatusSync();
+    return true;
+  })();
+  try { return await bridgeConnectPromise; }
+  finally { bridgeConnectPromise = null; }
+}
+
+async function pairBridge(message) {
+  const url = validBridgeUrl(message.url);
+  const raw = String(message.code || '').trim();
+  const previous = await chrome.storage.local.get('companionToken');
+  const code = raw && !/^[a-f0-9]{48}$/i.test(raw) ? raw.toUpperCase().replace(/[\s-]/g, '') : '';
+  const token = !code ? (raw || previous.companionToken || '') : '';
+  if (!code && !token) throw new Error('Enter the pairing code shown in Switchboard CLI.');
+  const response = await fetch(url + '/api/browser-companion/pair', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(code ? { code } : { token }),
+  });
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 429) {
+      throw new Error('Pairing code was rejected or expired. Restart Switchboard CLI to receive a new code.');
+    }
+    throw new Error('Pairing request failed (HTTP ' + response.status + ').');
+  }
+  const data = await response.json();
+  if (!data.ok || !data.token) throw new Error('Invalid pairing response.');
+  await chrome.storage.local.set({ bridgeUrl: url, companionToken: data.token, bridgeConnected: true });
+  stopSocket();
+  const connected = await ensureBridgeSocket();
+  return { ok: connected, paired: true, connected, mode: data.mode,
+    error: connected ? undefined : (bridgeLastError || 'Waiting to reconnect') };
+}
+
+async function disconnectBridge() {
+  await chrome.storage.local.set({ bridgeConnected: false });
+  stopSocket();
+  bridgeLastError = '';
+  return { ok: true, connected: false };
+}
+
+function bridgeStatus() {
+  return {
+    ok: true,
+    connected: socketIsOpen(),
+    status: socketIsOpen() ? 'connected' : 'disconnected',
+    error: bridgeLastError,
+  };
+}
+
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === BRIDGE_ALARM) void ensureBridgeSocket().catch(() => {});
+});
+chrome.runtime.onStartup.addListener(() => {
+  void ensureBridgeSocket().catch(() => {});
+});
+chrome.runtime.onInstalled.addListener(() => {
+  void ensureBridgeSocket().catch(() => {});
+});
+chrome.tabs.onActivated.addListener(() => scheduleStatusSync());
+chrome.tabs.onUpdated.addListener((_tabId, change) => {
+  if (change.url || change.status === 'complete') scheduleStatusSync();
+});
+chrome.windows.onFocusChanged.addListener(() => scheduleStatusSync());
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.approvedOrigins || changes.permissionMode) scheduleStatusSync();
+});
+
+void chrome.alarms.create(BRIDGE_ALARM, { periodInMinutes: 1 });
+void ensureBridgeSocket().catch(() => {});
+
 // Bounded Audit Log storage (latest 300 entries in storage.local)
 async function recordAudit(entry) {
   try {
@@ -471,11 +680,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return await replayWorkflow(steps);
     }
 
-    // 10. SWITCHBOARD_BRIDGE_STATUS
+    if (message.type === 'SWITCHBOARD_BRIDGE_CONNECT') {
+      return await pairBridge(message);
+    }
+    if (message.type === 'SWITCHBOARD_BRIDGE_DISCONNECT') {
+      return await disconnectBridge();
+    }
+    if (message.type === 'SWITCHBOARD_BRIDGE_SYNC_STATUS') {
+      await syncBrowserState();
+      return { ok: true };
+    }
+
+    // 10. SWITCHBOARD_BRIDGE_STATUS (live socket health, not a stale stored boolean)
     if (message.type === 'SWITCHBOARD_BRIDGE_STATUS') {
-      const { bridgeConnected = false, bridgeUrl = 'http://127.0.0.1:7777', permissionMode = 'ask_every_time' } =
-        await chrome.storage.local.get(['bridgeConnected', 'bridgeUrl', 'permissionMode']);
-      return { ok: true, bridgeConnected, bridgeUrl, permissionMode };
+      return bridgeStatus();
     }
 
     throw new Error(`Unknown message type: "${message.type}"`);
