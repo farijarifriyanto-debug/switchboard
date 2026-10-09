@@ -49,7 +49,7 @@ ever holds the answer and the conversation history never leaks chain-of-thought.
 ## Install
 
 ```sh
-npm install -g @botconnector/switchboard   # once published; provides the `sbx` command
+npm install -g @botconnector/switchboard   # provides the `sbx` command
 ```
 
 From source:
