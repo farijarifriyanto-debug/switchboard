@@ -38,7 +38,8 @@ The extension never requires a separate AI-provider API key. The pairing code is
 - The bridge is bound to loopback. WebSocket upgrade checks peer address, HTTP Host, exact extension Origin, and a persistent authentication token carried in the WebSocket subprotocol. Local HTTP routes require bearer authentication; invalid origin/host requests are rejected.
 - Pairing is limited to five failed guesses per CLI launch and the short code expires after 15 minutes. Using the code consumes it; already paired clients reconnect with their existing token.
 - Extension permissions: `activeTab`, `scripting`, `sidePanel`, `storage`, `tabs`, and `alarms`. Host permissions are limited to HTTP loopback.
-- Mutating actions require an explicitly approved site. Restricted mode blocks mutations. Passwords and payment details are protected. DOM content is untrusted and is not agent instruction.
+- Mutating actions require an explicitly approved site. CLI tool approvals are controlled separately by Switchboard (default risky-tool approval; `--yes` explicitly disables CLI prompts). Restricted browser mode blocks page mutations regardless of CLI mode. Passwords and payment details are protected. DOM content is untrusted and is not agent instruction.
+- Screenshots requested through either the UI or agent tools require approval of the active site origin.
 - Browser activity and site approvals are visible and revocable in the extension.
 
 ## Verification

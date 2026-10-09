@@ -743,10 +743,19 @@ async function handleToolExecution(toolName, args = {}) {
     }
 
     case 'browser_screenshot': {
+      const siteOrigin = new URL(tab.url).origin;
+      const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
+      if (!approvedOrigins.includes(siteOrigin)) {
+        await recordAudit({ tool: 'browser_screenshot', action: 'screenshot', url: tab.url,
+          origin: siteOrigin, decision: 'rejected', status: 'error', error: 'Unapproved site' });
+        throw new Error('Screenshot denied: approve this site origin in Browser Companion first.');
+      }
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: 'jpeg',
         quality: Number(args.quality) || 65
       });
+      await recordAudit({ tool: 'browser_screenshot', action: 'screenshot', url: tab.url,
+        origin: siteOrigin, decision: 'approved', status: 'success' });
       return { ok: true, dataUrl, url: tab.url, title: tab.title };
     }
 
