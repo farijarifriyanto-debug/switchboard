@@ -50,7 +50,16 @@
       <form id="ws-form" class="pill-form">
         <input id="ws-input" type="text" spellcheck="false" placeholder="Switch root (path or ~)…" aria-label="Workspace root">
         <button type="submit" class="ghost-btn">Use</button>
+        <button type="button" id="ws-browse" class="ghost-btn" aria-expanded="false">Browse</button>
       </form>
+      <div id="ws-browser" class="ws-browser" hidden>
+        <div class="ws-browser-bar">
+          <button type="button" id="ws-browser-up" class="icon-btn ghost-btn" title="Up one folder" aria-label="Up one folder">↑</button>
+          <span id="ws-browser-path" class="mono ws-current"></span>
+          <button type="button" id="ws-browser-pick" class="ghost-btn">Use this folder</button>
+        </div>
+        <ol id="ws-browser-list" class="recent-list"></ol>
+      </div>
       <div class="pane-head"><span class="pane-title">Recents</span></div>
       <ol id="ws-recents" class="recent-list"></ol>
       <div class="pane-head">

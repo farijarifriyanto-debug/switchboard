@@ -909,6 +909,45 @@ ui.heroWs.addEventListener('click', () => {
   }
 })
 
+// Folder picker: lists subfolders via /api/dirs; "Use this folder" reuses useWorkspace().
+const browser = { path: '', parent: null }
+async function browseDirs(target) {
+  const res = await fetch(`/api/dirs?path=${encodeURIComponent(target || '')}`)
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    $('ws-browser-list').innerHTML = `<li class="muted pad">${esc(body.error || `folders ${res.status}`)}</li>`
+    return
+  }
+  browser.path = body.path
+  browser.parent = body.parent
+  $('ws-browser-path').textContent = body.path
+  $('ws-browser-path').title = body.path
+  $('ws-browser-up').disabled = !body.parent
+  const sep = body.path.includes('\\') ? '\\' : '/'
+  const join = (name) => (body.path.endsWith(sep) ? body.path + name : body.path + sep + name)
+  const items = [
+    ...(body.parent ? [] : (body.drives || []).map((d) => ({ label: d, path: d }))),
+    ...body.dirs.map((d) => ({ label: d, path: join(d) })),
+  ]
+  $('ws-browser-list').innerHTML = items.length
+    ? items.map((i) => `<li class="mono ws-dir" data-path="${esc(i.path)}" title="${esc(i.path)}">${esc(i.label)}</li>`).join('')
+    : '<li class="muted pad">no subfolders</li>'
+}
+$('ws-browse').addEventListener('click', () => {
+  const box = $('ws-browser')
+  box.hidden = !box.hidden
+  $('ws-browse').setAttribute('aria-expanded', String(!box.hidden))
+  if (!box.hidden) void browseDirs(wsInput().value.trim() || state.workspace?.root || '')
+})
+$('ws-browser-up').addEventListener('click', () => browser.parent && void browseDirs(browser.parent))
+$('ws-browser-pick').addEventListener('click', () => {
+  if (browser.path) void useWorkspace(browser.path).then(() => { $('ws-browser').hidden = true; $('ws-browse').setAttribute('aria-expanded', 'false') })
+})
+$('ws-browser-list').addEventListener('click', (event) => {
+  const li = event.target.closest('.ws-dir')
+  if (li) void browseDirs(li.dataset.path)
+})
+
 ui.wsRecents.addEventListener('click', (event) => {
   const li = event.target.closest('.ws-recent')
   if (li) void useWorkspace(li.title)
