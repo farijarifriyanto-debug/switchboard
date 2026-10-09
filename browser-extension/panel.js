@@ -60,3 +60,15 @@ refresh().catch(e => setStatus(String(e))); showWorkflow().catch(e => setStatus(
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && changes.captured) refresh().catch(e => setStatus(String(e)));
 });
+
+$('screenshot').addEventListener('click', async () => {
+  const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_CAPTURE_SCREENSHOT' });
+  if (!result?.ok) return setStatus(result?.error || 'Screenshot failed');
+  $('preview').src = result.dataUrl; $('preview').style.display = 'block';
+  setStatus('Screenshot captured locally; not uploaded.');
+});
+$('tabs').addEventListener('click', async () => {
+  const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_LIST_TABS' });
+  if (!result?.ok) return setStatus(result?.error || 'Tab listing failed');
+  $('tablist').textContent = result.tabs.map(t => t.title + ' — ' + t.url).join('\n') || 'No accessible tabs';
+});
