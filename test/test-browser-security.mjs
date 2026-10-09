@@ -56,6 +56,18 @@ try {
     console.log('✓ Invalid pairing token rejected with 401')
   }
 
+  // 2b. Empty pairing token must never disclose the bridge secret.
+  {
+    const res = await fetch('http://127.0.0.1:7791/api/browser-companion/pair', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    assert.equal(res.status, 401, 'empty pairing token rejected')
+    const body = await res.text()
+    assert.ok(!body.includes(token), 'secret must not leak on failed pairing')
+    console.log('✓ Empty pairing request rejected without secret disclosure')
+  }
+
   // 3. Fake Origin rejection (Cross-site attacker defense)
   {
     const res = await fetch('http://127.0.0.1:7791/api/browser-companion/state', {
