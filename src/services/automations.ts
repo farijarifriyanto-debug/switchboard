@@ -13,7 +13,7 @@ export interface AutomationsConfig {
   runTimeoutMs?: number
 }
 
-export type Delivery = { type: 'console' } | { type: 'telegram'; chatId: number }
+export type Delivery = { type: 'console' } | { type: 'telegram'; chatId: number } | { type: 'discord'; userId: string }
 
 export interface RunRecord {
   id: string
@@ -85,7 +85,11 @@ export function validateAutomation(input: unknown, id?: string, now = new Date()
     const chatId = Number(d.chatId)
     if (!Number.isSafeInteger(chatId)) throw new SettingsError('deliver.chatId must be your Telegram user id.')
     deliver = { type: 'telegram', chatId }
-  } else if (d && d.type !== 'console') throw new SettingsError('deliver.type must be "console" or "telegram".')
+  } else if (d && d.type === 'discord') {
+    const userId = String(d.userId ?? '').trim()
+    if (!/^\d{5,25}$/.test(userId)) throw new SettingsError('deliver.userId must be your Discord user id (digits, as a string).')
+    deliver = { type: 'discord', userId }
+  } else if (d && d.type !== 'console') throw new SettingsError('deliver.type must be "console", "telegram" or "discord".')
   return { id: wanted, name, schedule, prompt, preset, deliver, enabled: raw.enabled !== false }
 }
 
@@ -295,14 +299,16 @@ export class AutomationService extends Service {
   }
 
   private async deliver(item: Automation, run: RunRecord): Promise<void> {
-    if (item.deliver.type !== 'telegram') return
-    const telegram = this.ctx.get('telegram', false)
+    const where = item.deliver
+    if (where.type === 'console') return
     const text = run.status === 'success' ? `⏰ ${item.name}\n\n${run.output || '(no output)'}` : `⏰ ${item.name} failed: ${run.error ?? 'unknown error'}`
-    if (!telegram) {
-      this.ctx.logger('automations').warn('"%s": Telegram delivery is set but the Telegram channel is not running', item.id)
+    const channel = where.type === 'telegram' ? this.ctx.get('telegram', false) : this.ctx.get('discord', false)
+    if (!channel) {
+      this.ctx.logger('automations').warn('"%s": %s delivery is set but that channel is not running', item.id, where.type)
       return
     }
-    await telegram.send(item.deliver.chatId, text).catch((error: unknown) => this.ctx.logger('automations').warn('delivery failed: %s', String(error)))
+    const sent = where.type === 'telegram' ? (channel as { send(to: number, t: string): Promise<void> }).send(where.chatId, text) : (channel as { send(to: string, t: string): Promise<void> }).send(where.userId, text)
+    await sent.catch((error: unknown) => this.ctx.logger('automations').warn('delivery failed: %s', String(error)))
   }
 }
 

@@ -124,7 +124,7 @@ export interface SwitchboardConfig {
   /** A small notebook (MEMORY.md) read into every prompt; notes are added only with approval. On unless `enabled: false`. */
   memory?: { enabled?: boolean; globalFile?: string; projectFile?: string }
   /** Chat channels that drive the agent (Telegram). Off unless `enabled` and fully configured. */
-  channels?: { telegram?: import('./channels/telegram.js').TelegramConfig }
+  channels?: { telegram?: import('./channels/telegram.js').TelegramConfig; discord?: import('./channels/discord.js').DiscordConfig }
   /** Context compaction: summarize old history instead of dropping it. On unless `enabled: false`. */
   compaction?: { enabled?: boolean; triggerRatio?: number; keepRecent?: number; summaryTokens?: number }
   /**

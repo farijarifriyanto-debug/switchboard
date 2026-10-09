@@ -31,6 +31,7 @@ tested against recording stub model endpoints and, where noted, real tools.
 - **Memory**: `MEMORY.md` notes (project + global) read into every prompt as background facts; written only through the gated `remember` tool.
 - **Skills from others**: Agent Skills format; `sbx skills install <folder|https git URL>` with a full preview and confirmation; `allowed-tools` is ignored.
 - **Skill drafts**: `propose_skill` writes an inert draft; `sbx skills drafts|accept|reject` is the review.
+- **Discord channel**: DMs from allow-listed user ids, approvals as buttons, resumes after a dropped connection; shares a new core with Telegram (Node 22+).
 - Provider settings with write-only credentials, multi-provider chat, hot-apply (from 0.1.x work).
 
 ### Packaging

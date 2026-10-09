@@ -45,6 +45,7 @@ Options:
       --no-session      Do not persist the session to disk
       --name <text>     Name for 'sbx automations add'
       --telegram <id>   Deliver an automation's result to this Telegram user id
+      --discord <id>    Deliver an automation's result to this Discord user id (a string of digits)
       --preset <id>     Run with an agent preset (system prompt, model, step budget, tool access)
       --sandbox <mode>  Run run_command in a sandbox: bwrap (Linux) or docker
       --approval <m>    Tool approval: risky (default), all, or off
@@ -66,6 +67,7 @@ export interface Args {
   preset?: string
   name?: string
   telegram?: number
+  discord?: string
   open: boolean
   approval?: 'off' | 'risky' | 'all'
   sandbox?: 'bwrap' | 'docker'
@@ -87,6 +89,7 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--preset') out.preset = argv[++i]
     else if (arg === '--name') out.name = argv[++i]
     else if (arg === '--telegram') out.telegram = Number(argv[++i])
+    else if (arg === '--discord') out.discord = argv[++i]
     else if (arg === '--no-open') out.open = false
     else if (arg === '-y' || arg === '--yes') out.approval = 'off'
     else if (arg === '--sandbox') {
@@ -523,7 +526,7 @@ async function main(): Promise<void> {
           const prompt = words.join(' ')
           const name = args.name ?? prompt.slice(0, 40)
           const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'automation'
-          const made = await ctx.automations.create({ id, name, schedule, prompt, preset: args.preset ?? 'reviewer', deliver: args.telegram ? { type: 'telegram', chatId: args.telegram } : { type: 'console' } })
+          const made = await ctx.automations.create({ id, name, schedule, prompt, preset: args.preset ?? 'reviewer', deliver: args.telegram ? { type: 'telegram', chatId: args.telegram } : args.discord ? { type: 'discord', userId: args.discord } : { type: 'console' } })
           console.log(`added ${C.bold(made.id)} — next run ${made.nextRun ? new Date(made.nextRun).toISOString().slice(0, 16).replace('T', ' ') : 'never'} (UTC)`)
         } else if (cmd === 'run') {
           const record = await ctx.automations.runNow(rest[0] ?? '')
@@ -539,12 +542,15 @@ async function main(): Promise<void> {
         break
       }
       case 'channels': {
-        if (!config.channels?.telegram?.enabled) {
-          console.error(C.red('sbx channels: nothing enabled. Set "channels": { "telegram": { "enabled": true, "allowFrom": [<your Telegram user id>] } } and export TELEGRAM_BOT_TOKEN (see the README).'))
+        const tg = config.channels?.telegram?.enabled ? config.channels.telegram : undefined
+        const dc = config.channels?.discord?.enabled ? config.channels.discord : undefined
+        if (!tg && !dc) {
+          console.error(C.red('sbx channels: nothing enabled. Set "channels": { "telegram": { "enabled": true, "allowFrom": [<your Telegram user id>] } } and export TELEGRAM_BOT_TOKEN, or the same with "discord" (user ids as strings) and DISCORD_BOT_TOKEN (see the README).'))
           process.exitCode = 1
           break
         }
-        console.log(C.bold('Switchboard channels') + C.dim(` — telegram (${config.channels.telegram.allowFrom?.length ?? 0} allowed user(s)) · approval ${ctx.approvals.mode}`))
+        const running = [tg && `telegram (${tg.allowFrom?.length ?? 0} allowed)`, dc && `discord (${dc.allowFrom?.length ?? 0} allowed)`].filter(Boolean).join(', ')
+        console.log(C.bold('Switchboard channels') + C.dim(` — ${running} · approval ${ctx.approvals.mode}`))
         console.log(C.dim('press Ctrl+C to stop'))
         ctx.automations.start()
         await new Promise<void>((resolve) => {

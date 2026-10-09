@@ -1,8 +1,6 @@
-import { formatUsage } from '../services/usage.js'
 import type { Context } from 'cordis'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { describeToolCall } from '../services/approval.js'
+import { createChatCore, type ChatTransport } from './core.js'
 import { expandHome } from '../services/session.js'
 
 export interface TelegramConfig {
@@ -113,67 +111,24 @@ export const telegramChannel = {
       return last
     }
 
-    // --------------------------------------------------- chat -> session
-    const sessionOf = new Map<number, string>()
-    const chatOfSession = new Map<string, number>()
-    let writing: Promise<void> = Promise.resolve()
-    const persist = (): void => {
-      const data = JSON.stringify({ version: 1, telegram: Object.fromEntries(sessionOf) }, null, 2)
-      writing = writing
-        .then(async () => {
-          await mkdir(path.dirname(mapFile), { recursive: true })
-          await writeFile(`${mapFile}.tmp`, data, { encoding: 'utf8', mode: 0o600 })
-          await rename(`${mapFile}.tmp`, mapFile)
+    // ------------------------------------------------- transport
+    const transport: ChatTransport = {
+      name: 'telegram',
+      say: async (chat, text) => String((await say(Number(chat), text)) ?? '') || undefined,
+      edit: async (chat, ref, text) => void (await api('editMessageText', { chat_id: Number(chat), message_id: Number(ref), text })),
+      remove: async (chat, ref) => void (await api('deleteMessage', { chat_id: Number(chat), message_id: Number(ref) })),
+      typing: async (chat) => void (await api('sendChatAction', { chat_id: Number(chat), action: 'typing' })),
+      askApproval: async (chat, id, text) => {
+        const sent = await say(Number(chat), text, {
+          reply_markup: { inline_keyboard: [[{ text: '✅ Allow', callback_data: `ap|${id}|y` }, { text: '❌ Deny', callback_data: `ap|${id}|n` }, { text: '♾ Always (this chat)', callback_data: `ap|${id}|a` }]] },
         })
-        .catch(() => {})
+        return sent === undefined ? undefined : String(sent)
+      },
     }
-    const bind = (chatId: number, sessionId: string): void => {
-      const old = sessionOf.get(chatId)
-      if (old) chatOfSession.delete(old)
-      sessionOf.set(chatId, sessionId)
-      chatOfSession.set(sessionId, chatId)
-      persist()
-    }
-    const newSession = (chatId: number): string => {
-      const session = ctx.sessions.create({ title: `Telegram ${chatId}`, ...(config.preset ? { preset: config.preset } : {}), projectRoot: ctx.workspace?.root })
-      bind(chatId, session.id)
-      return session.id
-    }
-    const sessionFor = (chatId: number): string => {
-      const id = sessionOf.get(chatId)
-      return id && ctx.sessions.get(id) ? id : newSession(chatId)
-    }
-
-    // ------------------------------------------------------- state
-    const running = new Map<number, AbortController>()
-    /** approval id -> where its buttons live, so a late tap can be answered/edited. */
-    const prompts = new Map<string, { chatId: number; messageId?: number }>()
+    const core = createChatCore(ctx, transport, { mapFile, ...(config.preset ? { preset: config.preset } : {}), title: 'Telegram' })
     const root = new AbortController()
 
     const authorized = (user: TgUser | undefined, chat: TgChat | undefined): boolean => Boolean(user && chat && chat.type === 'private' && allow.has(String(user.id)))
-
-    // ----------------------------------------------------- approvals
-    const onRequest = ({ id, tool, args, sessionId }: { id: string; tool: string; args: unknown; sessionId?: string }): void => {
-      const chatId = sessionId ? chatOfSession.get(sessionId) : undefined
-      if (chatId === undefined) return // not a Telegram session: the console/CLI handles it
-      prompts.set(id, { chatId })
-      void (async () => {
-        const messageId = await say(chatId, `Approve ${tool}?\n${describeToolCall(tool, args)}`, {
-          reply_markup: { inline_keyboard: [[{ text: '✅ Allow', callback_data: `ap|${id}|y` }, { text: '❌ Deny', callback_data: `ap|${id}|n` }, { text: '♾ Always (this chat)', callback_data: `ap|${id}|a` }]] },
-        })
-        const entry = prompts.get(id)
-        if (entry) entry.messageId = messageId
-      })()
-    }
-    const onSettled = ({ id, decision }: { id: string; decision: string }): void => {
-      const entry = prompts.get(id)
-      if (!entry) return
-      prompts.delete(id)
-      const label = decision === 'approved' ? '✅ Allowed' : decision === 'approved_session' ? '♾ Allowed for this chat' : decision === 'rejected' ? '❌ Denied' : decision === 'timeout' ? '⌛ Expired (no answer)' : '⏹ Cancelled'
-      if (entry.messageId) void quiet(api('editMessageText', { chat_id: entry.chatId, message_id: entry.messageId, text: label }))
-    }
-    ctx.on('approval/request', onRequest)
-    ctx.on('approval/settled', onSettled)
 
     const handleCallback = async (cb: TgCallback): Promise<void> => {
       const match = /^ap\|([^|]+)\|([yna])$/.exec(cb.data ?? '')
@@ -182,58 +137,8 @@ export const telegramChannel = {
         await quiet(api('answerCallbackQuery', { callback_query_id: cb.id }))
         return
       }
-      const entry = prompts.get(match[1])
-      if (!entry || entry.chatId !== chat?.id) {
-        await quiet(api('answerCallbackQuery', { callback_query_id: cb.id, text: 'This request is no longer pending.' }))
-        return
-      }
-      const decided = ctx.approvals.decide(match[1], match[2] === 'y' ? 'approved' : match[2] === 'a' ? 'approved_session' : 'rejected')
-      await quiet(api('answerCallbackQuery', { callback_query_id: cb.id, text: decided ? 'Done' : 'Too late' }))
-    }
-
-    // --------------------------------------------------- messages
-    const help = [
-      'Switchboard agent. Send a message to start.',
-      '/new — fresh conversation',
-      '/stop — cancel the current run',
-      '/compact [focus] — summarize older history',
-      '/preset [id] — show or set the agent preset',
-      '/status — session, preset, approval mode',
-    ].join('\n')
-
-    const run = async (chatId: number, text: string): Promise<void> => {
-      const ac = new AbortController()
-      running.set(chatId, ac)
-      const typing = setInterval(() => void quiet(api('sendChatAction', { chat_id: chatId, action: 'typing' })), 4_000)
-      void quiet(api('sendChatAction', { chat_id: chatId, action: 'typing' }))
-      let statusId: number | undefined
-      let lastEdit = 0
-      const status = async (line: string): Promise<void> => {
-        if (statusId === undefined) statusId = await say(chatId, line)
-        else if (Date.now() - lastEdit > 1_500) {
-          lastEdit = Date.now()
-          await quiet(api('editMessageText', { chat_id: chatId, message_id: statusId, text: line }))
-        }
-      }
-      let answer = ''
-      let failure = ''
-      try {
-        for await (const event of ctx.agent.stream(text, sessionFor(chatId), { signal: ac.signal })) {
-          if (event.type === 'tool_call') await status(`⚙ ${event.name} ${describeToolCall(event.name, event.args).slice(0, 120)}`)
-          else if (event.type === 'notice') await status(`ℹ ${event.notice}`)
-          else if (event.type === 'final') answer = event.content
-          else if (event.type === 'error') failure = event.error
-        }
-      } catch (error) {
-        failure = error instanceof Error ? error.message : String(error)
-      } finally {
-        clearInterval(typing)
-        running.delete(chatId)
-      }
-      if (statusId !== undefined) await quiet(api('deleteMessage', { chat_id: chatId, message_id: statusId }))
-      if (ac.signal.aborted) await say(chatId, '⏹ Stopped.')
-      else if (failure) await say(chatId, `⚠ ${failure}`)
-      else await say(chatId, answer || '(no answer)')
+      const outcome = core.decide(match[1], String(chat?.id), match[2] as 'y' | 'n' | 'a')
+      await quiet(api('answerCallbackQuery', { callback_query_id: cb.id, text: outcome === 'unknown' ? 'This request is no longer pending.' : outcome === 'done' ? 'Done' : 'Too late' }))
     }
 
     const handleMessage = async (message: TgMessage): Promise<void> => {
@@ -241,44 +146,7 @@ export const telegramChannel = {
         log.warn('ignored a message from an unauthorized sender')
         return
       }
-      const chatId = message.chat.id
-      const text = (message.text ?? '').trim()
-      if (!text) return
-      const command = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(text)
-      const name = command?.[1].toLowerCase()
-      const arg = (command?.[2] ?? '').trim()
-      if (name === 'start' || name === 'help') return void (await say(chatId, help))
-      if (name === 'new') {
-        running.get(chatId)?.abort()
-        newSession(chatId)
-        return void (await say(chatId, 'Started a new conversation.'))
-      }
-      if (name === 'stop') {
-        const ac = running.get(chatId)
-        if (!ac) return void (await say(chatId, 'Nothing is running.'))
-        ac.abort()
-        return
-      }
-      if (name === 'status') {
-        const id = sessionFor(chatId)
-        const session = ctx.sessions.get(id)
-        return void (await say(chatId, [`session ${id}`, `preset ${session?.preset ?? 'none'}`, `approval ${ctx.approvals.mode}`, `usage ${ctx.get('usage', false) ? formatUsage(ctx.get('usage', false)!.summary(id)) : 'n/a'}`, running.has(chatId) ? 'running' : 'idle'].join('\n')))
-      }
-      if (name === 'preset') {
-        const id = sessionFor(chatId)
-        if (!arg) return void (await say(chatId, `Preset: ${ctx.sessions.get(id)?.preset ?? 'none'}\nAvailable: ${ctx.presets.list().map((p) => p.id).join(', ')}`))
-        if (arg !== 'default' && !ctx.presets.get(arg)) return void (await say(chatId, `No preset "${arg}".`))
-        ctx.sessions.setPreset(id, arg === 'default' ? undefined : arg)
-        return void (await say(chatId, `Preset set to ${arg}.`))
-      }
-      if (name === 'compact') {
-        if (running.has(chatId)) return void (await say(chatId, 'A run is in progress; try again when it ends.'))
-        const outcome = await ctx.compaction.compact(sessionFor(chatId), { focus: arg || undefined })
-        return void (await say(chatId, outcome.ok ? `Summarized ${outcome.summarized} message(s): ~${outcome.before} → ~${outcome.after} tokens.` : `Not compacted: ${outcome.reason}`))
-      }
-      // `/skill-name …` and plain text both go to the agent (skills expand there).
-      if (running.has(chatId)) return void (await say(chatId, 'Still working on the previous message. Send /stop to cancel it.'))
-      void run(chatId, text)
+      await core.handleText(String(message.chat.id), message.text ?? '')
     }
 
     // ------------------------------------------------------ polling
@@ -317,14 +185,7 @@ export const telegramChannel = {
       (error) => log.warn('getMe failed: %s', String(error)),
     )
     // restore the chat -> session map, then start polling
-    const ready = readFile(mapFile, 'utf8')
-      .then((text) => {
-        const map = (JSON.parse(text) as { telegram?: Record<string, string> }).telegram ?? {}
-        for (const [chat, session] of Object.entries(map)) if (ctx.sessions.get(session)) bind(Number(chat), session)
-      })
-      .catch(() => {})
-      .then(() => poll())
-    void ready
+    void core.restore().then(() => poll())
 
     // Used by automations to deliver results; only allow-listed private chats can receive.
     ctx.reflect.provide('telegram', {
@@ -336,7 +197,7 @@ export const telegramChannel = {
 
     ctx.effect(() => () => {
       root.abort()
-      for (const ac of running.values()) ac.abort()
+      core.dispose()
     })
   },
 }
