@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "hidden": false,
+  "state": "Not detected",
+  "desc": "Browser store listing is pending. The preview installation requires manual setup.",
+  "open": false,
+  "preview": true,
+  "backendConnected": false
+}

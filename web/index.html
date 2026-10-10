@@ -155,6 +155,23 @@
         <div id="model-info" class="model-info" hidden></div>
       </header>
 
+      <section id="companion-onboarding" class="companion-onboarding" aria-live="polite" hidden>
+        <div class="companion-onboarding-copy">
+          <div class="companion-onboarding-title">
+            <strong>Browser Companion</strong>
+            <span id="companion-onboarding-state">Checking</span>
+          </div>
+          <p id="companion-onboarding-description">Checking for the browser extension…</p>
+        </div>
+        <div class="companion-onboarding-actions">
+          <a id="companion-onboarding-install" class="companion-action-primary" target="_blank" rel="noopener noreferrer" hidden>Install extension</a>
+          <button id="companion-onboarding-open" type="button" hidden>Open Companion</button>
+          <button id="companion-onboarding-code" type="button" hidden>Copy pairing code</button>
+          <span id="companion-onboarding-code-status" class="companion-code-status" role="status" hidden></span>
+          <a id="companion-onboarding-preview" href="https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.0" target="_blank" rel="noopener noreferrer" hidden>Preview setup (manual)</a>
+        </div>
+      </section>
+
       <div class="scroll-body" id="scroll-body">
         <ol id="timeline" class="timeline" aria-live="polite"></ol>
 
@@ -296,5 +313,6 @@
 <script src="/badge.js"></script>
 <script src="/settings.js"></script>
 <script src="/app.js"></script>
+<script src="/companion-onboarding.js"></script>
 </body>
 </html>

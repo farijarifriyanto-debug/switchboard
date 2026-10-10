@@ -62,6 +62,7 @@ try {
   ws = createSocket(TOKEN)
   await new Promise((resolve,reject)=>{ws.once('open',resolve);ws.once('error',reject)})
   assert.equal(service.isClientConnected(),true)
+  assert.equal(service.connectedExtensionOrigin, EXTENSION_ORIGIN, 'Only a fully authenticated socket identifies its extension origin')
   const seen=[]
   ws.on('message',async raw=>{
     const frame = JSON.parse(raw.toString())
@@ -103,6 +104,7 @@ try {
   await new Promise(resolve=>ws.once('close',resolve))
   await new Promise(resolve=>setTimeout(resolve,80))
   assert.equal(service.isClientConnected(),false)
+  assert.equal(service.connectedExtensionOrigin, null, 'Disconnected extension identity must be cleared')
   console.log('PASS disconnected state updates when background socket closes')
 } finally {
   ws?.terminate()
