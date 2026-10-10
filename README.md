@@ -1,5 +1,13 @@
 # Switchboard
 
+**Browser Companion (Chrome/Edge):** The free, open-source extension connects
+approved browser tabs to the Switchboard agent running on your computer.
+[Browser Companion privacy policy](browser-extension/PRIVACY.md) ?
+[Installation and controls](browser-extension/README.md) ?
+[Security issues and support](https://github.com/farijarifriyanto-debug/switchboard/issues).
+Browser content requested by the agent may be sent by Switchboard to the AI
+model provider you configure; see the policy before enabling browser tools.
+
 An agent harness for **BotConnector**, where **everything is a plugin**.
 
 Switchboard is an independent, MIT-licensed implementation of the "everything is a
