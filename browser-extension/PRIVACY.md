@@ -14,7 +14,7 @@ Depending on the user's actions and site approval settings, browser tools may ac
 
 Browser Companion stores locally: a pairing credential used to authenticate to Switchboard on the same computer, connection preferences, website-origin approvals, and a bounded browser activity/audit history. Its local browser audit is bounded to the latest 300 entries. The credential is not an API key for an AI provider.
 
-The loopback-only installation-detection content script exchanges only a public installed/opened signal and a short ephemeral UI request identifier with the local Switchboard Web UI. It does not send page content, pairing secrets or provider API keys through that detection channel.
+The loopback-only installation-detection content script exchanges only a public installed/opened signal, public extension ID and a short ephemeral UI request identifier with the local Switchboard Web UI. It does not send page content, pairing secrets or provider API keys through that detection channel.
 
 ## How data is transmitted
 

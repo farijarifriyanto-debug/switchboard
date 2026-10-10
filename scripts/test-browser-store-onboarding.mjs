@@ -43,6 +43,7 @@ try {
   const state = await stateRes.json()
   assert.equal(state.browserCompanion.bridgeReady, true)
   assert.equal(state.browserCompanion.connected, false)
+  assert.equal(state.browserCompanion.connectedExtensionOrigin, null)
   assert.equal(state.browserCompanion.storeUrls.chrome, null, 'unverified Chrome URL not shown')
   assert.equal(state.browserCompanion.storeUrls.edge, process.env.SWITCHBOARD_EDGE_ADDONS_URL)
   assert.ok(!JSON.stringify(state.browserCompanion).includes(bridgeToken))
@@ -75,7 +76,7 @@ const browserContext = {
     addEventListener: (type, fn) => { if (type === 'message') handler = fn },
     postMessage: (data, origin) => posts.push({ data, origin }),
   },
-  chrome: { runtime: { sendMessage: async (msg) => {
+  chrome: { runtime: { id: 'a'.repeat(32), sendMessage: async (msg) => {
     allowedOpenMessages.push(msg)
     return { ok: true }
   } } },
@@ -90,6 +91,7 @@ const message = (action, origin = loc.origin) =>
 await message('ping')
 assert.equal(posts.length, 1)
 assert.equal(posts[0].data.status, 'installed')
+assert.equal(posts[0].data.extensionId, 'a'.repeat(32))
 assert.equal(posts[0].origin, loc.origin)
 await message('execute_browser_tool')
 await message('pair')

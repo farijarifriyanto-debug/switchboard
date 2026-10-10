@@ -24,7 +24,7 @@ The Switchboard Web UI now displays a compact Browser Companion status row when 
 
 - **Not detected** — shows a verified Chrome Web Store or Microsoft Edge Add-ons link if and only if the publisher has supplied the actual approved listing URL. Otherwise it shows the existing GitHub preview installer, correctly marked manual.
 - **Installed, pairing needed** — offers to open the extension's own connection page and copy a local single-use pairing code after the user clicks. The code is not included in automatic polling responses.
-- **Connected** — shows a healthy authenticated local bridge status. Browser actions still require site approval and agent approval where configured.
+- **Connected** — only when this browser extension ID matches the authenticated local bridge socket. Otherwise, the UI shows **Connected elsewhere** (including when another Chrome/Edge profile controls Switchboard). Browser actions still require site approval and agent approval where configured.
 
 The local Web UI detects installation through a content script restricted to HTTP localhost/127.0.0.1 pages. The page may need to be refreshed after first extension installation. This is presentation-only: neither the web page nor its detection script can execute browser tools or read pairing tokens.
 

@@ -35,6 +35,8 @@ Until official store URLs have been approved/configured, the UI shows **Preview 
 
 **No marketplace ID or listing URL is known yet. Never guess one.**
 
+When more than one browser has Browser Companion installed, the Web UI compares its public browser extension ID to the authenticated live bridge ID. Only the controlling browser displays **Connected**; others show **Connected elsewhere** and can pair intentionally to switch sessions.
+
 Once published, set these nonsecret environment variables when launching the **local** Switchboard process and restart the Web UI:
 
 - **SWITCHBOARD_CHROME_WEB_STORE_URL** = https://chromewebstore.google.com/detail/(actual-approved-path-or-id)
