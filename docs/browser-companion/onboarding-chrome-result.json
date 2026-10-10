@@ -1,0 +1,13 @@
+{
+  "browser": "Isolated Chrome for Testing",
+  "web": "http://127.0.0.1:7896",
+  "extensionInstalled": true,
+  "panelOpened": true,
+  "codeCopied": true,
+  "paired": true,
+  "panelClosed": true,
+  "backgroundConnected": true,
+  "webUiShowsConnected": true,
+  "passed": true,
+  "errors": []
+}
