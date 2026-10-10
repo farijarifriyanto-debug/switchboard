@@ -1,45 +1,55 @@
 # Switchboard Browser Companion — Privacy Policy
 
 **Effective date:** 10 October 2026
-**Publisher:** BotConnector / Switchboard (publisher support email must be supplied before marketplace submission)
-**Project:** https://github.com/farijarifriyanto-debug/switchboard
+**Product:** Switchboard Browser Companion (Chrome and Microsoft Edge extension)
+**Publisher:** BotConnector
+**Open-source project:** https://github.com/farijarifriyanto-debug/switchboard
+**Support and privacy requests:** https://github.com/farijarifriyanto-debug/switchboard/issues
 
-## Purpose
+## Overview and purpose
 
-Switchboard Browser Companion lets the user direct the locally running Switchboard AI agent to inspect or interact with Chrome and Edge tabs. Browser actions originate from the user's Switchboard CLI or Web UI, not from an independent AI chat inside the extension. Only websites the user has explicitly approved are eligible for mutating browser operations. Switchboard's separate tool approval policy can require another confirmation before an action executes.
+Switchboard Browser Companion is a free, open-source browser extension that connects Chrome or Edge on the user's computer to the Switchboard agent running on that same computer. Users enter instructions in Switchboard CLI or Web UI; the companion performs permitted browser operations and returns the results. It is not a separate AI chat application and does not require a paid BotConnector subscription. Users may choose their own supported AI provider or local AI model.
 
-## Data accessed
+This policy covers **the browser extension** and its interaction with the local Switchboard application. Separate third-party AI providers, optional plugins, and external websites have their own privacy terms.
 
-Depending on the user's actions and site approval settings, browser tools may access the active tab's URL and title, page text, HTML structure and DOM attributes, selected page elements, and a screenshot when browser permissions allow it. The user can also direct clicking, form input, scrolling, navigation, and other permitted actions. The extension attempts to protect password and payment fields from unsafe automation.
+## Categories of information handled
 
-Browser Companion stores locally: a pairing credential used to authenticate to Switchboard on the same computer, connection preferences, website-origin approvals, and a bounded browser activity/audit history. Its local browser audit is bounded to the latest 300 entries. The credential is not an API key for an AI provider.
+When a user activates browser tools, Browser Companion may access:
 
-The loopback-only installation-detection content script exchanges only a public installed/opened signal, public extension ID and a short ephemeral UI request identifier with the local Switchboard Web UI. It does not send page content, pairing secrets or provider API keys through that detection channel.
+- **Website content:** the page's visible text, DOM/HTML-derived content, links, headings, form elements and selected text; when specifically requested and allowed by the browser, screenshots. Website content may incidentally contain personal identifiers, communications, location, financial or health information.
+- **Browsing information:** active tab and selected tab IDs, website URLs, origins, page titles and changes to the selected browser tabs. This information can also appear in local activity/audit records.
+- **User interactions:** requested clicks, scrolling, navigation, text entry, selected elements and resulting tool status. User-supplied form text may be transmitted for the requested action and may be recorded in Switchboard sessions or model inputs.
+- **Local authentication and settings:** a randomly issued Browser Companion pairing credential (not an AI provider API key), the loopback service address, connection state, permitted site origins, permission mode, optional saved workflow steps and a bounded activity log.
+- **Installation detection metadata:** a public extension identifier and a short transient request nonce exchanged with the local Switchboard page only, without page content or pairing credentials.
 
-## How data is transmitted
+The extension attempts to block actions targeting password, payment-card and file-upload fields and masks those fields in its DOM catalog. These safeguards do **not** guarantee that sensitive information elsewhere on a webpage will be hidden. Users should avoid authorizing sensitive pages unless they accept the associated risks.
 
-The extension communicates with the authenticated Switchboard process on the user's own computer using HTTP/WebSocket loopback connections. Browser content or browser tool results requested by the user are returned to Switchboard. **Switchboard may send parts of that information to the AI model provider configured by the user** in order to interpret page contents and decide the next tool action. These providers have their own privacy policies, retention rules and processing locations. The extension does not independently select or contact external AI providers.
+## Collection, use and disclosure
 
-No browser data is sent by this extension to a BotConnector analytics or advertising endpoint as part of the Browser Companion transport itself. This does not override any separately configured Switchboard provider integrations or optional third-party plugins.
+Information is accessed only to provide the user-requested browser automation, permission controls, connection operation, troubleshooting/status and local activity history. Browser Companion does not collect browsing information for advertising, user profiling, sale or unrelated analytics.
 
-## User controls and retention
+The extension communicates directly with the authenticated Switchboard process over loopback HTTP/WebSocket connections (`127.0.0.1` or `localhost`) on the **same computer**. It does not itself send browsing data to a separate BotConnector analytics or advertising endpoint.
 
-Users can approve or revoke website origins in the extension, disconnect the Browser Companion bridge, view or clear local audit entries, and remove the extension. Disconnecting stops the active browser bridge but may retain the pairing credential for reconnection. Removing the extension's local browser storage/uninstalling it clears its browser-stored settings and pairing secret. The local Switchboard process also stores its own pairing secret, sessions and tool records according to that installation's settings; uninstalling the browser extension alone does not erase those local Switchboard files.
+**Important: data can leave the device through Switchboard.** The local Switchboard agent may include selected webpage content, URLs, screenshots or browser results in its requests to the AI model provider the user has chosen, including BotConnector if selected. Such information may be processed or retained by that provider under its own terms, account settings and data policies. When the user configures external plugins or integrations, those tools may process information under their own terms. The user decides which providers and plugins to enable.
 
-Information already sent to an external model provider may be retained under that provider's terms, outside the extension's control.
+The publisher does not sell or transfer extension user data to data brokers or advertising platforms. User data is transferred to a chosen provider only where needed for the user-facing agent workflow, or as required by law or to protect security and prevent abuse. No employee or other human is authorized to read user data except with the user's explicit consent for specific support, where necessary for security, to comply with applicable law, or where data is aggregated/anonymized for internal operations as allowed by law.
 
-## Data sharing, sale and advertising
+## Storage, retention and user controls
 
-The extension does not sell browser content, credentials, or user browsing data, and it does not use browser content for behavioral advertising. Content is transmitted to the user's configured Switchboard/AI provider only when required for a user-directed browser action or the resulting agent workflow.
+Browser Companion uses Chrome/Edge local extension storage for the connection address, authentication credential, approved sites, preferences, saved workflows and a browser activity/audit log of up to **300** recent entries. It also uses ephemeral session storage for selected-tab state. No fixed time-based deletion interval is promised for those local records: users can clear activity history, revoke a website, disconnect the bridge, or remove the extension.
 
-## Security
+Disconnecting does not necessarily remove the saved pairing credential; it can remain to permit reconnection. Uninstalling the extension or clearing its extension storage removes browser-stored settings and credentials. The separate local Switchboard application can retain its own sessions, pairing credentials and tool results according to that installation's settings and must be managed separately. Data already sent to a third-party provider is governed by that provider's retention and deletion process.
 
-The local bridge validates its credentials and restricts connections to loopback. Website-origin approvals and action restrictions apply to browser tools; a detected extension is not automatically authorized for browser control. The content script exposed to local Switchboard Web UI pages has presentation-only abilities (status ping and opening the extension's own settings page).
+The local connection is restricted to the loopback network interface and authenticated using a pairing credential; it is not exposed as an internet-facing browser-data service by default. Transport/security between Switchboard and an external AI provider depends on the selected provider endpoint and the user's configuration. Users should select trusted providers and secure endpoints.
 
-No software can guarantee complete security. Do not authorize sensitive financial, password, or personal-data actions unless you understand the destination website and the provider that will process any page content.
+## Chrome Web Store Limited Use disclosure
 
-## Contact and updates
+**The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.**
 
-Issues and security concerns: https://github.com/farijarifriyanto-debug/switchboard/issues
+We use information from browser permissions and APIs only for the prominently disclosed purpose of allowing the user to control and inspect approved browser tabs through Switchboard, including directly related security and reliability functions. We do not use or transfer this information for personalized, interest-based or retargeted advertising, for creditworthiness or lending decisions, or for unrelated purposes. Transfers are limited to those necessary for the function the user requested and the other exceptions permitted by the Chrome Web Store User Data Policy.
 
-Before Chrome Web Store or Edge Add-ons publication, the publisher must add a functioning developer contact email to the actual store listing and review this policy against the final submitted implementation. Changes to material browser data-handling behavior will be documented in this policy.
+## Changes and contact
+
+We may update this policy when material extension behavior changes; the current text will be published at this URL. To raise privacy concerns, request assistance with local-data removal or report a security issue, use the [Switchboard issue tracker](https://github.com/farijarifriyanto-debug/switchboard/issues). The publisher contact email shown in the Chrome Web Store listing is an additional public contact channel.
+
+**Related project documentation:** [Browser Companion README](./README.md).

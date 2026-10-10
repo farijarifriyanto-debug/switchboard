@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import { readFileSync, statSync, copyFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
@@ -41,7 +41,8 @@ console.log('✓ Service worker and panel script syntax checks passed')
 const chromeZip = path.join(ROOT, 'switchboard-chrome.zip')
 const edgeZip = path.join(ROOT, 'switchboard-edge.zip')
 
-execSync(`cd "${EXT_DIR}" && zip -q -r "${chromeZip}" manifest.json background.js panel.html panel.js onboarding-bridge.js icons`, { stdio: 'inherit' })
+const python = process.platform === 'win32' ? 'python' : 'python3'
+execFileSync(python, [path.join(ROOT, 'scripts', 'build-browser-extension-zip.py'), EXT_DIR, chromeZip], { stdio: 'inherit' })
 copyFileSync(chromeZip, edgeZip)
 
 function sha256(file) {
