@@ -112,7 +112,7 @@ console.log('PASS installation detection restricted to loopback hosts and icon m
 
 // Browser UI uses null store links until the operator supplies verified store listing URLs.
 const script = await readFile(new URL('../web/companion-onboarding.js', import.meta.url), 'utf8')
-for (const value of ['copy pairing code', 'Not detected', 'Pairing needed', 'Connected']) {
+for (const value of ['copy pairing code', 'Not detected', 'Pairing needed', 'Connected', 'Connected elsewhere']) {
   assert.ok(script.toLowerCase().includes(value.toLowerCase()), value)
 }
 assert.ok(script.includes("'/api/browser-companion-setup/code'"))

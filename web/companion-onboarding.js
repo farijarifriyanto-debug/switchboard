@@ -44,13 +44,13 @@
       /^https:\/\/(?:chromewebstore\.google\.com\/detail\/|microsoftedge\.microsoft\.com\/addons\/detail\/)/.test(store);
     if (hasStore) install.href = store;
 
-    setVisible(install, !installed && !connected && hasStore);
+    setVisible(install, !installed && hasStore);
     install.textContent = /Edg\//.test(navigator.userAgent) ? 'Install from Edge Add-ons' : 'Install from Chrome Web Store';
-    setVisible(preview, !installed && !connected && !hasStore);
+    setVisible(preview, !installed && !hasStore);
     setVisible(open, installed);
     setVisible(code, installed && !connected && available);
 
-    if (connected) {
+    if (connected && installed) {
       stateLabel.textContent = 'Connected';
       description.textContent = 'Ready for browser actions from Switchboard. Website approvals still apply.';
     } else if (installed) {
@@ -58,6 +58,9 @@
       description.textContent = available
         ? 'Open Companion, enter the one-time code, and connect once. It will reconnect automatically.'
         : 'The extension is installed. Start sbx web on this computer to enable pairing.';
+    } else if (connected) {
+      stateLabel.textContent = 'Connected elsewhere';
+      description.textContent = 'A Companion is connected to Switchboard, but is not detected in this browser.';
     } else {
       stateLabel.textContent = 'Not detected';
       description.textContent = hasStore
