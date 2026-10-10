@@ -339,6 +339,7 @@ export const webUi = {
         return json(res, 200, {
           bridgeReady: Boolean(browserService),
           connected: Boolean(browserService?.isClientConnected()),
+          connectedExtensionOrigin: browserService?.connectedExtensionOrigin ?? null,
           storeUrls: browserStoreUrls,
         })
       }
@@ -621,6 +622,7 @@ export const webUi = {
           browserCompanion: {
             bridgeReady: Boolean(browserService),
             connected: Boolean(browserService?.isClientConnected()),
+            connectedExtensionOrigin: browserService?.connectedExtensionOrigin ?? null,
             storeUrls: browserStoreUrls,
           },
           approval: {

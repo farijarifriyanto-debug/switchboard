@@ -19,6 +19,7 @@
   const reqType = 'switchboard:companion:request';
   const replyType = 'switchboard:companion:reply';
   let installed = false;
+  let installedExtensionId = null;
   let server = null;
   let nonce = null;
   let lastResponseAt = 0;
@@ -37,6 +38,8 @@
     if (frame.hidden) return;
 
     const connected = server?.connected === true;
+    const connectedHere = connected && installed &&
+      server?.connectedExtensionOrigin === 'chrome-extension://' + installedExtensionId;
     const available = server?.bridgeReady === true;
     const store = /Edg\//.test(navigator.userAgent) ? server?.storeUrls?.edge : server?.storeUrls?.chrome;
     install.removeAttribute('href');
@@ -48,16 +51,18 @@
     install.textContent = /Edg\//.test(navigator.userAgent) ? 'Install from Edge Add-ons' : 'Install from Chrome Web Store';
     setVisible(preview, !installed && !hasStore);
     setVisible(open, installed);
-    setVisible(code, installed && !connected && available);
+    setVisible(code, installed && !connectedHere && available);
 
-    if (connected && installed) {
+    if (connectedHere) {
       stateLabel.textContent = 'Connected';
       description.textContent = 'Ready for browser actions from Switchboard. Website approvals still apply.';
     } else if (installed) {
-      stateLabel.textContent = 'Pairing needed';
-      description.textContent = available
-        ? 'Open Companion, enter the one-time code, and connect once. It will reconnect automatically.'
-        : 'The extension is installed. Start sbx web on this computer to enable pairing.';
+      stateLabel.textContent = connected ? 'Connected elsewhere' : 'Pairing needed';
+      description.textContent = !available
+        ? 'The extension is installed. Start sbx web on this computer to enable pairing.'
+        : connected
+          ? 'Switchboard is connected to another browser. Pair this Companion to switch the connection.'
+          : 'Open Companion, enter the one-time code, and connect once. It will reconnect automatically.';
     } else if (connected) {
       stateLabel.textContent = 'Connected elsewhere';
       description.textContent = 'A Companion is connected to Switchboard, but is not detected in this browser.';
@@ -74,7 +79,10 @@
     const data = event.data;
     if (!data || data.type !== replyType) return;
     if (data.action === 'ping' && data.nonce === nonce && data.status === 'installed') {
-      installed = true; lastResponseAt = Date.now(); render();
+      installed = true;
+      installedExtensionId = /^[a-p]{32}$/.test(String(data.extensionId || ''))
+        ? data.extensionId : null;
+      lastResponseAt = Date.now(); render();
     }
     if (data.action === 'open' && data.nonce === openNonce) {
       openNonce = null;
@@ -89,7 +97,10 @@
     if (!visible()) return;
     // After an extension reload, stale visual detection must expire. The
     // backend's connected state is independent of this UI-only hint.
-    if (lastResponseAt && Date.now() - lastResponseAt > 11000) installed = false;
+    if (lastResponseAt && Date.now() - lastResponseAt > 11000) {
+      installed = false;
+      installedExtensionId = null;
+    }
     nonce = freshNonce();
     window.postMessage({ type: reqType, nonce, action: 'ping' }, location.origin);
     render();

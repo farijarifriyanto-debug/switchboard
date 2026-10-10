@@ -90,6 +90,7 @@ export class BrowserCompanionService {
   private standaloneServer: http.Server | null = null
   private socketServer: WebSocketServer | null = null
   private activeSocket: WebSocket | null = null
+  private activeSocketOrigin: string | null = null
   private pairCode = [...randomBytes(8)].map(byte => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[byte % 32]).join('')
   private pairCodeExpiry = Date.now() + 15 * 60_000
   private pairCodeFailures = 0
@@ -110,6 +111,11 @@ export class BrowserCompanionService {
 
   get currentToken(): string {
     return this.token
+  }
+
+  /** Public extension origin for UI display matching; never an auth credential. */
+  get connectedExtensionOrigin(): string | null {
+    return this.activeSocket?.readyState === WebSocket.OPEN ? this.activeSocketOrigin : null
   }
 
   /** Short-lived, single-use code displayed only in the local interactive CLI. */
@@ -358,10 +364,12 @@ export class BrowserCompanionService {
         this.activeSocket.close(4001, 'Another browser companion connected')
       }
       this.activeSocket = ws
+      this.activeSocketOrigin = origin
       ws.on('error', () => { /* No token or message logging */ })
       ws.on('close', () => {
         if (this.activeSocket === ws) {
           this.activeSocket = null
+          this.activeSocketOrigin = null
           for (const [id, pending] of this.pendingCommands) {
             this.pendingCommands.delete(id)
             pending.reject(new Error('Browser Companion connection lost; retry this action.'))
@@ -633,6 +641,7 @@ export class BrowserCompanionService {
     if (this.activeSocket) {
       this.activeSocket.terminate()
       this.activeSocket = null
+      this.activeSocketOrigin = null
     }
     if (this.socketServer) {
       this.socketServer.close()

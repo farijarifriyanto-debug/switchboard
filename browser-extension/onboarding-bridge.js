@@ -34,6 +34,7 @@
       nonce: message.nonce,
       action: message.action,
       status,
+      extensionId: chrome.runtime.id,
     }, location.origin);
   });
 })();
