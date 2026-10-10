@@ -75,6 +75,23 @@ async function readBody(req: http.IncomingMessage, limit = 1_000_000): Promise<a
 
 /** Hostnames the settings fence accepts (DNS-rebinding defense, spec §6). */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
+/**
+ * Store links are absent until each marketplace has approved an actual listing.
+ * Never link to a guessed ID, redirecting URL, or an arbitrary operator domain.
+ */
+function verifiedBrowserStoreUrl(kind: 'chrome' | 'edge', input: string | undefined): string | null {
+  if (!input || input.length > 2048) return null
+  try {
+    const url = new URL(input)
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null
+    if (kind === 'chrome' && url.hostname === 'chromewebstore.google.com'
+        && /^\/detail\/[a-z0-9-]+(?:\/[a-p]{32})?$/.test(url.pathname)) return url.href
+    if (kind === 'edge' && url.hostname === 'microsoftedge.microsoft.com'
+        && /^\/addons\/detail\/[a-z0-9-]+(?:\/[a-p]{32})?$/.test(url.pathname)) return url.href
+  } catch { /* Listing not configured or malformed. */ }
+  return null
+}
+
 
 /**
  * Guard for every `/api/settings/*` request (spec §6), in order:
@@ -195,6 +212,10 @@ export const webUi = {
       return false
     }
     const browserService = ctx.get('browserCompanion', false) as BrowserCompanionService | null | undefined
+    const browserStoreUrls = {
+      chrome: verifiedBrowserStoreUrl('chrome', process.env.SWITCHBOARD_CHROME_WEB_STORE_URL),
+      edge: verifiedBrowserStoreUrl('edge', process.env.SWITCHBOARD_EDGE_ADDONS_URL),
+    }
     const port = config.port ?? 7777
     const root = config.dir ?? fileURLToPath(new URL('../../web/', import.meta.url))
     const ciEnabled = config.ci?.enabled === true
@@ -313,6 +334,24 @@ export const webUi = {
       if (isCompanionChat && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
         // A paired browser extension may access only these three endpoints.
       } else if (fenced) return json(res, fenced.status, { error: fenced.error, hint: fenced.hint })
+      if (route === '/api/browser-companion-setup/status' && req.method === 'GET') {
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, {
+          bridgeReady: Boolean(browserService),
+          connected: Boolean(browserService?.isClientConnected()),
+          storeUrls: browserStoreUrls,
+        })
+      }
+
+      // One-use onboarding code is shown only after an explicit click in the
+      // authenticated local console, never in the state polling response.
+      if (route === '/api/browser-companion-setup/code' && req.method === 'GET') {
+        res.setHeader('Cache-Control', 'no-store')
+        return browserService
+          ? json(res, 200, { code: browserService.pairingCode ?? null, validForUpToSeconds: browserService.pairingCode ? 900 : 0 })
+          : json(res, 503, { error: 'Local browser bridge is not running' })
+      }
+
       // ------------------------------------------------------------ workspace
       if (route === '/api/workspace' && req.method === 'GET') {
         return json(res, 200, {
@@ -578,6 +617,11 @@ export const webUi = {
             root: ctx.workspace.root,
             name: await projectName(ctx.workspace.root),
             recents: ctx.workspace.recents,
+          },
+          browserCompanion: {
+            bridgeReady: Boolean(browserService),
+            connected: Boolean(browserService?.isClientConnected()),
+            storeUrls: browserStoreUrls,
           },
           approval: {
             mode: ctx.approvals.mode,

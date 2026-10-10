@@ -18,6 +18,18 @@ Switchboard CLI (sbx chat --preset browser) -> 13 browser_* tools
 
 The connection survives closing the extension side panel. Chrome 116+ WebSocket activity keeps the worker alive; a 30-second alarm retries the connection after a browser/worker restart or network outage. If the CLI shuts down, the extension reconnects when it starts again. The initial pairing uses an ephemeral, single-use short code; the persistent token stays in the browser's local storage and the user's private `~/.switchboard/browser-companion-token` file.
 
+## Store installation and local onboarding (candidate, not published yet)
+
+The Switchboard Web UI now displays a compact Browser Companion status row when the **Browser** preset is selected:
+
+- **Not detected** — shows a verified Chrome Web Store or Microsoft Edge Add-ons link if and only if the publisher has supplied the actual approved listing URL. Otherwise it shows the existing GitHub preview installer, correctly marked manual.
+- **Installed, pairing needed** — offers to open the extension's own connection page and copy a local single-use pairing code after the user clicks. The code is not included in automatic polling responses.
+- **Connected** — shows a healthy authenticated local bridge status. Browser actions still require site approval and agent approval where configured.
+
+The local Web UI detects installation through a content script restricted to HTTP localhost/127.0.0.1 pages. The page may need to be refreshed after first extension installation. This is presentation-only: neither the web page nor its detection script can execute browser tools or read pairing tokens.
+
+See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard steps and validated store-URL environment variables. See [PRIVACY.md](./PRIVACY.md) for the required privacy disclosures. **The extension has not yet been published to either browser marketplace.**
+
 ## Development installation (Chrome / Edge)
 
 1. Install Switchboard locally and run `sbx chat --preset browser` (or `node dist/cli.js chat --preset browser` from the repository). CLI exposes the bridge only on `http://127.0.0.1:7778`.

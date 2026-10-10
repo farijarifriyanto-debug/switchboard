@@ -2942,3 +2942,55 @@ body[data-theme] {
 .ws-browser-bar .ws-current { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-browser .recent-list { max-height: 220px; overflow-y: auto; }
 .ws-dir { cursor: pointer; }
+
+
+/* Browser Companion onboarding: neutral and compact, only in Browser preset. */
+.companion-onboarding {
+  border-bottom: 1px solid var(--sb-alias-border-default, #e4e7ec);
+  background: var(--sb-alias-surface-secondary, #f8f9fb);
+  padding: 12px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.companion-onboarding[hidden] { display: none; }
+.companion-onboarding-copy { min-width: 190px; flex: 1 1 230px; }
+.companion-onboarding-title { display: flex; align-items: center; gap: 12px; }
+.companion-onboarding-title strong { font-size: 12px; font-weight: 680; }
+#companion-onboarding-state { color: var(--sb-alias-label-caption, #717b88); font-size: 11px; }
+#companion-onboarding-description {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--sb-alias-label-caption, #717b88);
+  line-height: 1.5;
+}
+.companion-onboarding-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.companion-onboarding-actions button, .companion-onboarding-actions a {
+  border: 1px solid var(--sb-alias-border-default, #d8dce2);
+  border-radius: 7px;
+  background: var(--sb-alias-surface-base, #fff);
+  padding: 7px 10px;
+  min-height: 31px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.companion-onboarding-actions button:hover, .companion-onboarding-actions a:hover {
+  border-color: var(--sb-alias-label-caption, #718096);
+}
+.companion-onboarding-actions .companion-action-primary {
+  background: #3359ac; border-color: #3359ac; color: white;
+}
+.companion-onboarding-actions .companion-code-status {
+  max-width: 360px; font-size: 11px; color: var(--sb-alias-label-caption, #717b88);
+}
+@media (max-width: 560px) {
+  .companion-onboarding { padding: 10px 14px; align-items: flex-start; }
+}
