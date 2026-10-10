@@ -22,6 +22,8 @@ def check(source: Path, uploaded: Path):
         assert set(names) == set(FILES), f"Unexpected or missing entries: {set(names) ^ set(FILES)}"
         for name in FILES:
             source_bytes = (source / name).read_bytes()
+            if name.endswith((".json", ".html", ".js")):
+                source_bytes = source_bytes.replace(b"\r\n", b"\n")
             zip_bytes = z.read(name)
             assert source_bytes == zip_bytes, f"ZIP content mismatch: {name}"
             record = {"path": name, "sha256": digest(zip_bytes), "bytes": len(zip_bytes)}

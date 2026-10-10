@@ -29,7 +29,10 @@ def build(source: Path, dest: Path) -> None:
             info.compress_type = ZIP_DEFLATED
             info.create_system = 3
             info.external_attr = (0o100644 << 16)
-            archive.writestr(info, (source / relative).read_bytes(), compress_type=ZIP_DEFLATED, compresslevel=9)
+            payload = (source / relative).read_bytes()
+            if relative.endswith((".json", ".html", ".js")):
+                payload = payload.replace(b"\r\n", b"\n")
+            archive.writestr(info, payload, compress_type=ZIP_DEFLATED, compresslevel=9)
     print(f"BUILT {dest} manifest={manifest['version']} entries={len(FILES)}")
 
 if __name__ == "__main__":
