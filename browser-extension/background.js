@@ -103,7 +103,14 @@ async function sendBridgeResult(command, endpoint, token) {
     if (!command || typeof command.id !== 'string' || typeof command.tool !== 'string') {
       throw new Error('Invalid browser command');
     }
-    result = await handleToolExecution(command.tool, command.args || {});
+    // Commands from the CLI were already approved in Switchboard's chat (approval card).
+    // The Chrome side panel must not ask a second time.
+    bridgeCallDepth += 1;
+    try {
+      result = await handleToolExecution(command.tool, command.args || {});
+    } finally {
+      bridgeCallDepth -= 1;
+    }
     if (!result?.ok) throw new Error(result?.error || 'Browser tool rejected');
   } catch (failure) {
     ok = false;
@@ -524,6 +531,9 @@ const PROTECTED_TOOLS = new Set(['browser_type', 'browser_download']);
 // "Allow this action" grants host access only for one tool call; these origins lose it when the call ends.
 const oneTimeOrigins = new Set();
 const SITE_APPROVAL_WAIT_MS = 75_000;
+// Depth of tool calls that arrived from the CLI bridge (approved in Switchboard chat).
+let bridgeCallDepth = 0;
+
 function sitePattern(origin) {
   const url = new URL(origin);
   if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin) {
@@ -559,6 +569,7 @@ async function publishPendingSite() {
   }
 }
 async function waitForSiteAccess(origin, tool, force = false) {
+  if (bridgeCallDepth > 0) return;
   const hadGrant = await siteAccessGranted(origin);
   if (hadGrant && !force) return;
   if (!chrome.permissions?.contains) {
