@@ -35,9 +35,9 @@ document.querySelectorAll('nav button').forEach((btn) => {
 // -----------------------------------------------------------------------------
 async function refreshActiveTab() {
   try {
-    const res = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_GET_CAPTURE' });
-    if (res?.ok && res.data) {
-      currentTab = res.data;
+    const res = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_ACTIVE_TAB' });
+    if (res?.ok && res.tab) {
+      currentTab = res.tab;
       $('active-tab-title').textContent = currentTab.title || 'Untitled';
       $('active-tab-origin').textContent = currentTab.origin || currentTab.url || 'None';
 
@@ -45,10 +45,9 @@ async function refreshActiveTab() {
         'approvedOrigins',
         'permissionMode',
       ]);
-      const isAllowed = approvedOrigins.includes(currentTab.origin);
-      $('site-permission-status').textContent = isAllowed
-        ? `Approved (${permissionMode})`
-        : `Read-only / Unapproved (${permissionMode})`;
+      const chromeAllowed = await chrome.permissions.contains({ origins: [sitePattern(currentTab.origin)] });
+      $('site-permission-status').textContent = chromeAllowed && approvedOrigins.includes(currentTab.origin)
+        ? 'Ready (' + permissionMode + ')' : 'Permission needed';
       $('approved-origins-view').textContent = approvedOrigins.join('\n') || 'None';
     } else {
       $('active-tab-title').textContent = 'No active capture';
@@ -357,15 +356,33 @@ $('permission-mode-select').addEventListener('change', async (e) => {
   await refreshActiveTab();
 });
 
-$('allow-current-origin-btn').addEventListener('click', async () => {
-  if (!currentTab?.origin) return;
-  const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-  if (!approvedOrigins.includes(currentTab.origin)) {
-    approvedOrigins.push(currentTab.origin);
+function sitePattern(origin) {
+  const url = new URL(origin);
+  if (!['https:', 'http:'].includes(url.protocol) || url.origin !== origin) throw new Error('Invalid site origin');
+  return url.protocol + '//' + url.hostname + '/*';
+}
+// chrome.permissions.request MUST be invoked directly in a user gesture.
+// The agent itself cannot grant site access.
+function allowSiteFromClick(origin, button, feedback) {
+  let permission;
+  try { permission = chrome.permissions.request({ origins: [sitePattern(origin)] }); }
+  catch (e) { feedback.textContent = String(e.message || e); return; }
+  button.disabled = true;
+  void permission.then(async granted => {
+    if (!granted) { feedback.textContent = 'Chrome denied site permission.'; return; }
+    const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
+    if (!approvedOrigins.includes(origin)) approvedOrigins.push(origin);
     await chrome.storage.local.set({ approvedOrigins });
+    const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_GRANTED', origin });
     await syncCurrentTabToBridge();
     await refreshActiveTab();
-  }
+    await refreshPendingSite();
+    feedback.textContent = result?.ok ? 'Approved; the AI task is continuing.' : 'Approved for future browser tasks.';
+  }).catch(e => { feedback.textContent = 'Access error: ' + String(e.message || e); })
+    .finally(() => { button.disabled = false; });
+}
+$('allow-current-origin-btn').addEventListener('click', () => {
+  if (currentTab?.origin) allowSiteFromClick(currentTab.origin, $('allow-current-origin-btn'), $('site-request-feedback'));
 });
 
 $('revoke-current-origin-btn').addEventListener('click', async () => {
@@ -373,6 +390,7 @@ $('revoke-current-origin-btn').addEventListener('click', async () => {
   const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
   const updated = approvedOrigins.filter((o) => o !== currentTab.origin);
   await chrome.storage.local.set({ approvedOrigins: updated });
+  try { await chrome.permissions.remove({ origins: [sitePattern(currentTab.origin)] }); } catch (_) {}
   await syncCurrentTabToBridge();
   await refreshActiveTab();
 });
@@ -407,20 +425,43 @@ $('clear-audit-btn').addEventListener('click', async () => {
   await refreshAuditLog();
 });
 
+// Agent action requests the *target* site, not necessarily the current tab.
+let pendingOrigin = null;
+async function refreshPendingSite() {
+  try {
+    const { pending } = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_PENDING_ACCESS' });
+    pendingOrigin = pending?.origin || null;
+    $('site-request').hidden = !pendingOrigin;
+    if (pendingOrigin) $('site-request-desc').textContent =
+      'Allow ' + pendingOrigin + ' for ' + (pending.tool || 'browser task') + '?';
+  } catch (_) {}
+}
+$('site-request-allow').addEventListener('click', () => {
+  if (pendingOrigin) allowSiteFromClick(pendingOrigin, $('site-request-allow'), $('site-request-feedback'));
+});
+$('site-request-deny').addEventListener('click', async () => {
+  if (!pendingOrigin) return;
+  await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_DENIED', origin: pendingOrigin });
+  $('site-request-feedback').textContent = 'Denied. The pending task was stopped.';
+  await refreshPendingSite();
+});
+setInterval(() => void refreshPendingSite(), 1000);
+
 // -----------------------------------------------------------------------------
 // Connection, permission and recent activity overview
 // -----------------------------------------------------------------------------
 async function updateOverviewStatus() {
   const { approvedOrigins = [] } =
     await chrome.storage.local.get('approvedOrigins');
-  const isApproved = Boolean(currentTab?.origin && approvedOrigins.includes(currentTab.origin));
+  const chromeApproved = Boolean(currentTab?.origin && await chrome.permissions.contains({ origins: [sitePattern(currentTab.origin)] }));
+  const isApproved = Boolean(chromeApproved && approvedOrigins.includes(currentTab.origin));
   const hasCapture = Boolean(currentTab?.url);
   $('overview-site-origin').textContent = currentTab?.origin || 'No site selected';
   $('overview-site-status').textContent = isApproved ? 'Approved' : 'Not approved';
   $('overview-site-status').className = 'status-pill ' + (isApproved ? 'is-live' : 'is-offline');
   $('overview-site-desc').textContent = isApproved
     ? 'Switchboard may work on this site within your permission settings.'
-    : 'This site is not available for browser actions until you allow it.';
+    : 'Approve this site with Chrome and Switchboard before the AI can read its contents.';
   $('overview-allow-btn').disabled = !hasCapture || isApproved;
   $('overview-revoke-btn').disabled = !hasCapture || !isApproved;
   $('site-permission-status').textContent = isApproved ? 'Approved' : 'Not approved';
@@ -498,6 +539,83 @@ $('overview-activity-btn').addEventListener('click', () => {
 $('overview-allow-btn').addEventListener('click', () => $('allow-current-origin-btn').click());
 $('overview-revoke-btn').addEventListener('click', () => $('revoke-current-origin-btn').click());
 
+// Ask Switchboard directly from the extension, using the already authenticated
+// local Web API. This is the same agent runtime as the full chat page.
+let activeTask = null;
+let activeTaskSession = null;
+function taskStatus(text) { $('task-status').textContent = text; }
+$('task-open-web').addEventListener('click', () => {
+  void chrome.tabs.create({ url: 'http://127.0.0.1:7777/' });
+});
+$('task-stop').addEventListener('click', async () => {
+  if (activeTaskSession && companionToken) {
+    await fetch('http://127.0.0.1:7777/api/runs/' + encodeURIComponent(activeTaskSession) + '/cancel', {
+      method: 'POST', headers: { authorization: 'Bearer ' + companionToken }
+    }).catch(() => {});
+  }
+  activeTask?.abort();
+  taskStatus('Stopped.');
+});
+$('task-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (activeTask) return;
+  const question = $('task-prompt').value.trim();
+  if (!question) { taskStatus('Enter a browser task first.'); return; }
+  if (!companionToken) { taskStatus('Connect Switchboard first.'); return; }
+  activeTask = new AbortController();
+  activeTaskSession = null;
+  $('task-send').disabled = true;
+  $('task-stop').disabled = false;
+  $('task-output').hidden = false;
+  $('task-output').textContent = '';
+  taskStatus('Running with your configured AI model...');
+  try {
+    // The model must select the correct tab explicitly. Never silently grant
+    // site access or pass webpage text as higher-trust instructions.
+    const context = currentTab?.origin
+      ? 'The current website origin is ' + currentTab.origin +
+        '. Use browser_tabs_list and browser_tab_select to target the right tab if needed. '
+      : '';
+    const response = await fetch('http://127.0.0.1:7777/api/chat', {
+      method: 'POST',
+      signal: activeTask.signal,
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + companionToken },
+      body: JSON.stringify({ preset: 'browser', prompt: context + question })
+    });
+    if (!response.ok || !response.body) throw Error('Local Switchboard HTTP ' + response.status);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let item;
+        try { item = JSON.parse(line.slice(6)); } catch (_) { continue; }
+        if (item.type === 'session') activeTaskSession = item.sessionId;
+        if (item.type === 'tool_call') taskStatus('Using ' + String(item.name || 'browser tool'));
+        if (item.type === 'final') {
+          $('task-output').textContent = String(item.content || 'Finished without a text answer.');
+          taskStatus(item.stopReason === 'error' ? 'Failed.' : 'Completed.');
+        }
+        if (item.type === 'error') taskStatus('Error: ' + String(item.message || item.error || 'Unknown'));
+      }
+    }
+  } catch (error) {
+    if (error?.name !== 'AbortError') taskStatus('Failed: ' + String(error?.message || error));
+  } finally {
+    activeTask = null;
+    $('task-send').disabled = false;
+    $('task-stop').disabled = true;
+    await refreshPendingSite();
+    await refreshAuditLog();
+  }
+});
+
 // -----------------------------------------------------------------------------
 // Initialization
 // -----------------------------------------------------------------------------
@@ -507,6 +625,7 @@ $('overview-revoke-btn').addEventListener('click', () => $('revoke-current-origi
   localStorage.removeItem('sb_theme');
   await loadStoredConfig();
   await refreshActiveTab();
+  await refreshPendingSite();
   await refreshAuditLog();
   await updateOverviewStatus();
   // The background worker automatically resumes an existing pairing.

@@ -1,6 +1,6 @@
 # Switchboard Browser Companion
 
-Chrome/Edge **Manifest V3** companion for the Switchboard CLI agent. The extension is a **browser tool**, not a second AI chat application. Enter prompts in Switchboard, and the agent uses approved Chrome/Edge tabs to read, click, type, navigate and capture screenshots.
+Chrome/Edge **Manifest V3** companion for the Switchboard CLI agent. The extension is a browser tool, not an independent AI provider. Enter prompts in Switchboard CLI, the local Web UI, or the companion side panel's **Ask Switchboard** field. The agent uses only user-approved Chrome/Edge origins to read, click, type, navigate and capture screenshots.
 
 ## How it works
 
@@ -18,7 +18,7 @@ Switchboard CLI (sbx chat --preset browser) -> 13 browser_* tools
 
 The connection survives closing the extension side panel. Chrome 116+ WebSocket activity keeps the worker alive; a 30-second alarm retries the connection after a browser/worker restart or network outage. If the CLI shuts down, the extension reconnects when it starts again. The initial pairing uses an ephemeral, single-use short code; the persistent token stays in the browser's local storage and the user's private `~/.switchboard/browser-companion-token` file.
 
-## Store installation and local onboarding (candidate, not published yet)
+## Store installation and local onboarding
 
 The Switchboard Web UI now displays a compact Browser Companion status row when the **Browser** preset is selected:
 
@@ -28,13 +28,19 @@ The Switchboard Web UI now displays a compact Browser Companion status row when 
 
 The local Web UI detects installation through a content script restricted to HTTP localhost/127.0.0.1 pages. The page may need to be refreshed after first extension installation. This is presentation-only: neither the web page nor its detection script can execute browser tools or read pairing tokens.
 
-See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard steps and validated store-URL environment variables. See [PRIVACY.md](./PRIVACY.md) for the required privacy disclosures. **The extension has not yet been published to either browser marketplace.**
+See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard steps and validated store-URL environment variables. See [PRIVACY.md](./PRIVACY.md) for the required privacy disclosures. The Chrome listing was observed in October 2026; version 0.4.2 remains an update candidate pending store review. The Microsoft Edge listing status was not verified.
+
+## Site access and AI tasks (0.4.2)
+
+Browser access uses two independent checks: Switchboard site approval and Chrome/Edge native host permission. When a task needs a new site, Switchboard waits and marks the extension icon with **!**. Open the companion panel, review the requested domain, then choose **Allow site & continue**. The browser shows its native permission dialog; choosing Deny stops the original action. No blanket permission to all sites is requested. Do not approve unfamiliar sites.
+
+Use **Ask Switchboard** in the Overview tab to submit browser instructions without switching to the Web UI. The field talks to the authenticated Switchboard agent on localhost, streams tool activity, and offers Stop. The connected AI model and browser security gates remain unchanged.
 
 ## Development installation (Chrome / Edge)
 
 1. Install Switchboard locally and run `sbx chat --preset browser` (or `node dist/cli.js chat --preset browser` from the repository). CLI exposes the bridge only on `http://127.0.0.1:7778`.
 2. The CLI prints a **pairing code** valid for 15 minutes. This code is single-use; restart the CLI if it expires.
-3. In Chrome, visit `chrome://extensions` (Edge: `edge://extensions`), enable Developer Mode, choose **Load unpacked**, and select this `browser-extension` folder. No Web Store release has been published yet.
+3. In Chrome, visit `chrome://extensions` (Edge: `edge://extensions`), enable Developer Mode, choose **Load unpacked**, and select this `browser-extension` folder. For local smoke tests; the Web Store version updates separately after publisher review.
 4. Open the extension **once**, switch to **Connection**, enter the pairing code, then select **Connect browser**.
 5. Visit a normal HTTP(S) webpage. Choose **Refresh tab** and **Allow this site** in the extension. Unapproved websites cannot be modified by the agent.
 6. The side panel may now be closed. Type instructions in Switchboard CLI. The WebSocket background worker handles browser tools without keeping the panel visible.
