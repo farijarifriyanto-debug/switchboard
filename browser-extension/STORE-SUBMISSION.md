@@ -2,7 +2,7 @@
 
 ## Status
 
-**Submission candidate. Not yet published in either store.**
+**Update candidate v0.4.2.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
 The Switchboard v0.4.0 GitHub Release includes manual installation ZIPs, not a real marketplace listing. This new candidate adds Bico icons and local Web UI installation detection and must be reviewed independently before marketplace submission.
 
@@ -12,7 +12,7 @@ The Switchboard v0.4.0 GitHub Release includes manual installation ZIPs, not a r
 2. Web UI checks whether Browser Companion is installed in the current browser and whether its authenticated local background connection is healthy.
 3. If not installed, a real **Install from Chrome Web Store** or **Install from Edge Add-ons** link opens the store. The user confirms installation in the browser. No website can silently install an extension.
 4. User refreshes Switchboard after installation, clicks **Open Companion**, then clicks **Copy pairing code**. The local API returns a single-use code only on explicit request from the authorized local UI. User enters it in Companion → Connection.
-5. After pairing, the extension reconnects in the background without requiring its panel to stay open. Users type prompts in Switchboard, not in a second AI chat.
+5. After pairing, the extension reconnects in the background without requiring its panel to stay open. Users can type tasks in Switchboard Web UI/CLI or the side panel; both use the same local agent and model configuration.
 
 Until official store URLs have been approved/configured, the UI shows **Preview setup (manual)** instead of a misleading one-click store button.
 
@@ -33,7 +33,7 @@ Until official store URLs have been approved/configured, the UI shows **Preview 
 - Upload **switchboard-edge.zip** and fill the listing, permissions, screenshots, privacy declarations, publisher contact and support information.
 - Submit for review and wait for its own confirmed listing URL.
 
-**No marketplace ID or listing URL is known yet. Never guess one.**
+**Chrome listing:** already observed in the owner’s Chrome Web Store. Verify its exact item ID and publisher ownership in the developer dashboard before uploading 0.4.2. **Edge listing:** not verified. Never invent a store link.
 
 When more than one browser has Browser Companion installed, the Web UI compares its public browser extension ID to the authenticated live bridge ID. Only the controlling browser displays **Connected**; others show **Connected elsewhere** and can pair intentionally to switch sessions.
 
@@ -65,6 +65,7 @@ The server rejects non-HTTPS and nonofficial listing URLs. An unavailable URL le
 | sidePanel | Companion connection, permissions, inspection and history |
 | alarms | Recover background connection after browser or service-worker suspension |
 | HTTP loopback host access | Communicate exclusively with the Switchboard service on this computer |
+| Optional HTTP/HTTPS site access | Request individual website permissions only after the user clicks Allow site; necessary to inspect and automate explicitly approved external pages. No grant is automatic or global. |
 
 The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles installation **ping** and **open-own-extension-page**, not browser commands or pairing credentials.
 
@@ -85,3 +86,11 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 - Chrome and Edge independently assign item IDs and control approval timelines and auto-updates.
 
 **Remaining human step:** Connect or create Chrome Web Store and Microsoft Edge Add-ons developer publisher accounts, enter real publisher details, and submit each extension for review. This cannot be completed merely by publishing Switchboard to npm or GitHub.
+
+## Update acceptance requirements for 0.4.2
+
+- Explain optional per-origin HTTP/HTTPS access in the Chrome Web Store permission disclosure and privacy policy.
+- Verify the actual Chrome native site permission dialog, not just Switchboard local allowlist state.
+- Verify denied permission prevents navigation, granted permission resumes the pending task, and revocation removes later access.
+- Verify the direct side-panel prompt returns a real AI answer through an authenticated local Switchboard backend.
+- Upload version 0.4.2 as an update to the existing Chrome listing only after its package and developer account are verified. Do not create a duplicate Chrome listing.

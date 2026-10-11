@@ -103,7 +103,7 @@ export class BrowserCompanionService {
       host: config.host ?? '127.0.0.1',
       token: config.token || randomBytes(16).toString('hex'),
       defaultMode: config.defaultMode ?? 'ask_every_time',
-      timeoutMs: config.timeoutMs ?? 30_000,
+      timeoutMs: config.timeoutMs ?? 90_000,
     }
     this.token = this.config.token!
     this.mode = this.config.defaultMode!

@@ -64,10 +64,14 @@ async function syncBrowserState() {
   }
   const { approvedOrigins = [], permissionMode = 'ask_every_time' } =
     await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
+  const grantedOrigins = [];
+  for (const origin of approvedOrigins) {
+    try { if (await siteAccessGranted(origin)) grantedOrigins.push(origin); } catch (_) {}
+  }
   const response = await fetch(config.url + '/api/browser-companion/status', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.token },
-    body: JSON.stringify({ activeTab, approvedOrigins, mode: permissionMode }),
+    body: JSON.stringify({ activeTab, approvedOrigins: grantedOrigins, mode: permissionMode }),
   });
   if (!response.ok) throw new Error('Bridge status synchronization HTTP ' + response.status);
 }
@@ -420,6 +424,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     if (!tab?.id || !SAFE_URL.test(tab.url || '')) {
       throw new Error('Open a regular HTTP(S) page.');
     }
+    await requireTabSite(tab, 'browser_dom_snapshot');
     await ensureTabMonitoring(tab.id);
     const data = await capturePage(tab);
     await chrome.storage.session.set({
@@ -432,6 +437,79 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
   await opening.catch(() => {});
 });
+
+// User-mediated per-site Chrome access. Browser commands may ask for access,
+// but only a click in the trusted side panel invokes Chrome's native dialog.
+const pendingSiteRequests = new Map();
+const SITE_APPROVAL_WAIT_MS = 75_000;
+function sitePattern(origin) {
+  const url = new URL(origin);
+  if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin) {
+    throw new Error('Invalid site origin');
+  }
+  return url.protocol + '//' + url.hostname + '/*';
+}
+async function siteAccessGranted(origin) {
+  const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
+  if (!approvedOrigins.includes(origin)) return false;
+  return Boolean(await chrome.permissions?.contains({ origins: [sitePattern(origin)] }));
+}
+async function publishPendingSite() {
+  const first = pendingSiteRequests.values().next().value;
+  await chrome.storage.session.set({ pendingSiteAccess: first ? {
+    origin: first.origin, tool: first.tool, requestedAt: first.requestedAt
+  } : null });
+  await chrome.action.setBadgeText({ text: first ? '!' : '' });
+  if (first) {
+    await chrome.action.setBadgeBackgroundColor({ color: '#ae691a' });
+    await chrome.action.setTitle({ title: 'Approval needed: ' + first.origin });
+  } else {
+    await chrome.action.setTitle({ title: 'Open Switchboard Companion' });
+  }
+}
+async function waitForSiteAccess(origin, tool) {
+  if (await siteAccessGranted(origin)) return;
+  if (!chrome.permissions?.contains) {
+    throw new Error('Chrome host permission unavailable. Update Browser Companion.');
+  }
+  let request = pendingSiteRequests.get(origin);
+  if (!request) {
+    request = { origin, tool, requestedAt: Date.now(), waiting: [] };
+    pendingSiteRequests.set(origin, request);
+    await publishPendingSite();
+  }
+  return new Promise((resolve, reject) => {
+    const waiter = { resolve, reject };
+    waiter.timer = setTimeout(() => {
+      request.waiting = request.waiting.filter(item => item !== waiter);
+      reject(new Error('Site access timed out: ' + origin +
+        '. Open Browser Companion and allow this site.'));
+      if (!request.waiting.length && pendingSiteRequests.get(origin) === request) {
+        pendingSiteRequests.delete(origin);
+        void publishPendingSite();
+      }
+    }, SITE_APPROVAL_WAIT_MS);
+    request.waiting.push(waiter);
+  });
+}
+async function settleSiteAccess(origin, allowed) {
+  const request = pendingSiteRequests.get(origin);
+  if (!request) return { ok: false, error: 'No pending site request' };
+  if (allowed && !(await siteAccessGranted(origin))) {
+    return { ok: false, error: 'Both Chrome host permission and Switchboard site approval are required.' };
+  }
+  pendingSiteRequests.delete(origin);
+  for (const waiter of request.waiting) {
+    clearTimeout(waiter.timer);
+    if (allowed) waiter.resolve();
+    else waiter.reject(new Error('User denied site access: ' + origin));
+  }
+  await publishPendingSite();
+  return { ok: true };
+}
+async function requireTabSite(tab, tool) {
+  await waitForSiteAccess(new URL(tab.url).origin, tool);
+}
 
 // -----------------------------------------------------------------------------
 // Core Browser Action Executor
@@ -448,10 +526,11 @@ async function executeBrowserAction(action, params = {}, options = {}) {
     throw new Error('Permission mode is Restricted (read-only): actions that modify the page are blocked.');
   }
 
-  // Origin check for mutations
+  // Navigating out of a tab never reads its source DOM. Authorize the target,
+  // not the starting page; other actions need explicit site consent.
   const isApprovedOrigin = approvedOrigins.includes(tabOrigin);
-  if (MUTATING_ACTIONS.has(action) && !isApprovedOrigin && !options.skipOriginCheck) {
-    throw new Error(`Site origin "${tabOrigin}" is not approved. Allow this site in the side panel first.`);
+  if (action !== 'navigate' && MUTATING_ACTIONS.has(action)) {
+    await requireTabSite(tab, 'browser_' + action);
   }
 
   // Handle navigate
@@ -460,10 +539,7 @@ async function executeBrowserAction(action, params = {}, options = {}) {
     if (!['http:', 'https:'].includes(targetUrl.protocol)) {
       throw new Error('Navigation restricted to HTTP/HTTPS URLs.');
     }
-    // Cross-origin navigation check (BUG FIX #5)
-    if (targetUrl.origin !== tabOrigin && !approvedOrigins.includes(targetUrl.origin) && !options.skipOriginCheck) {
-      throw new Error(`Cross-origin navigation to "${targetUrl.origin}" rejected. Approve target origin first.`);
-    }
+    await waitForSiteAccess(targetUrl.origin, 'browser_navigate');
     await chrome.tabs.update(tab.id, { url: targetUrl.href });
     await recordAudit({
       tool: 'browser_navigate',
@@ -613,6 +689,26 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return { ok: Boolean(captured?.data), ...captured };
     }
 
+    // Tab metadata does not require a DOM-injection or host grant.
+    if (message.type === 'SWITCHBOARD_ACTIVE_TAB') {
+      const tab = await getActiveTab();
+      return { ok: true, tab: {
+        id: tab.id, title: tab.title || 'Untitled', url: tab.url, origin: new URL(tab.url).origin
+      } };
+    }
+    if (message.type === 'SWITCHBOARD_PENDING_ACCESS') {
+      const request = pendingSiteRequests.values().next().value;
+      return { ok: true, pending: request ? {
+        origin: request.origin, tool: request.tool, requestedAt: request.requestedAt
+      } : null };
+    }
+    if (message.type === 'SWITCHBOARD_SITE_APPROVAL_GRANTED') {
+      return await settleSiteAccess(String(message.origin || ''), true);
+    }
+    if (message.type === 'SWITCHBOARD_SITE_APPROVAL_DENIED') {
+      return await settleSiteAccess(String(message.origin || ''), false);
+    }
+
     // 2. SWITCHBOARD_LIST_TABS (Independent handler)
     if (message.type === 'SWITCHBOARD_LIST_TABS') {
       const tabs = await chrome.tabs.query({ currentWindow: true });
@@ -651,6 +747,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     // 4. SWITCHBOARD_REFRESH_CAPTURE
     if (message.type === 'SWITCHBOARD_REFRESH_CAPTURE') {
       const tab = await getActiveTab();
+      await requireTabSite(tab, 'browser_dom_snapshot');
       await ensureTabMonitoring(tab.id);
       const data = await capturePage(tab, message.options);
       await chrome.storage.session.set({
@@ -733,8 +830,23 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 // Unified Agent Tool Execution Engine (All 13 Tools)
 // -----------------------------------------------------------------------------
 async function handleToolExecution(toolName, args = {}) {
-  const tab = await getActiveTab();
-  await ensureTabMonitoring(tab.id);
+  // Listing and switching tabs never inject content scripts.
+  if (toolName === 'browser_tabs_list') {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    return { ok: true, tabs: tabs.filter(t => SAFE_URL.test(t.url || ''))
+      .map(t => ({ id: t.id, title: t.title, url: t.url, active: Boolean(t.active) })) };
+  }
+  if (toolName === 'browser_tab_select') {
+    if (!args.tabId) throw new Error('tabId is required');
+    const updated = await chrome.tabs.update(Number(args.tabId), { active: true });
+    return { ok: true, tab: { id: updated.id, title: updated.title, url: updated.url } };
+  }
+  const tab = args.tabId ? await chrome.tabs.get(Number(args.tabId)) : await getActiveTab();
+  if (!tab?.id || !SAFE_URL.test(tab.url || '')) throw new Error('Valid HTTP(S) tab required');
+  if (toolName !== 'browser_navigate') {
+    await requireTabSite(tab, toolName);
+    await ensureTabMonitoring(tab.id);
+  }
 
   switch (toolName) {
     case 'browser_tabs_list': {

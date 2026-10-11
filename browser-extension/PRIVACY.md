@@ -1,6 +1,6 @@
 # Switchboard Browser Companion — Privacy Policy
 
-**Effective date:** 10 October 2026
+**Effective date:** 11 October 2026
 **Product:** Switchboard Browser Companion (Chrome and Microsoft Edge extension)
 **Publisher:** BotConnector
 **Open-source project:** https://github.com/farijarifriyanto-debug/switchboard
@@ -8,7 +8,7 @@
 
 ## Overview and purpose
 
-Switchboard Browser Companion is a free, open-source browser extension that connects Chrome or Edge on the user's computer to the Switchboard agent running on that same computer. Users enter instructions in Switchboard CLI or Web UI; the companion performs permitted browser operations and returns the results. It is not a separate AI chat application and does not require a paid BotConnector subscription. Users may choose their own supported AI provider or local AI model.
+Switchboard Browser Companion is a free, open-source browser extension that connects Chrome or Edge on the user's computer to the Switchboard agent running on that same computer. Users enter instructions in Switchboard CLI, Web UI, or the connected extension's "Ask Switchboard" field. The companion performs permitted browser operations and returns the results. The extension field forwards the request directly to the authenticated local Switchboard Web UI; it does not independently select or host an AI model. It is not a separate AI chat application and does not require a paid BotConnector subscription. Users may choose their own supported AI provider or local AI model.
 
 This policy covers **the browser extension** and its interaction with the local Switchboard application. Separate third-party AI providers, optional plugins, and external websites have their own privacy terms.
 
@@ -27,6 +27,8 @@ The extension attempts to block actions targeting password, payment-card and fil
 ## Collection, use and disclosure
 
 Information is accessed only to provide the user-requested browser automation, permission controls, connection operation, troubleshooting/status and local activity history. Browser Companion does not collect browsing information for advertising, user profiling, sale or unrelated analytics.
+
+Users grant each external site using both an explicit Switchboard "Allow site" action and Chrome/Edge's native per-site permission prompt. The extension declares optional HTTP/HTTPS site patterns solely to support requesting these per-site grants when needed. It does not silently enable access to all websites. Denying a requested origin prevents the browser action. Revoking a site removes Switchboard consent and attempts to remove the optional browser permission. The existing local loopback connection does not require granting remote website access.
 
 The extension communicates directly with the authenticated Switchboard process over loopback HTTP/WebSocket connections (`127.0.0.1` or `localhost`) on the **same computer**. It does not itself send browsing data to a separate BotConnector analytics or advertising endpoint.
 

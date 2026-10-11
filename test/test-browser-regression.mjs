@@ -88,11 +88,12 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
 // Regression Test 5: Cross-origin Navigation Guard
 // -----------------------------------------------------------------------------
 {
-  assert.match(
-    bgSource,
-    /targetUrl\.origin\s*!==\s*tabOrigin[\s\S]*?Cross-origin navigation[\s\S]*?rejected/i,
-    'Cross-origin navigation to unapproved origin is rejected',
-  )
+  assert.match(bgSource, /waitForSiteAccess\(targetUrl\.origin,\s*'browser_navigate'\)/,
+    'cross-origin navigation must await the explicit target-site grant')
+  assert.match(bgSource, /chrome\.permissions\?\.contains/,
+    'the Chrome native host permission is checked before access')
+  assert.match(bgSource, /SWITCHBOARD_SITE_APPROVAL_GRANTED/,
+    'explicit panel approval unlocks the pending browser action')
   console.log('✓ Regression Bug #5: Cross-origin navigation protection verified')
 }
 

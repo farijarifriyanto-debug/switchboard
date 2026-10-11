@@ -262,10 +262,16 @@ export const webUi = {
           return await browserService.handleHttpRequest(req, res, route)
         }
         const extensionOrigin = String(req.headers.origin ?? '');
-        const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route))
-          && /^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin)
+        const companionRoute = route === '/api/chat' || route === '/api/state'
+          || /^\/api\/runs\/[^/]+\/cancel$/.test(route);
+        const companionOrigin = companionRoute && /^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin);
+        // OPTIONS preflight does not carry Authorization. Allow only the known
+        // extension scheme to negotiate CORS, then require the bearer token
+        // for every actual request.
+        const isCompanionPreflight = companionOrigin && req.method === 'OPTIONS';
+        const isCompanionChat = companionOrigin
           && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '');
-        if (isCompanionChat) {
+        if (isCompanionChat || isCompanionPreflight) {
           res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
           res.setHeader('Vary', 'Origin')
           res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Switchboard Browser Companion",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Autonomous and user-controlled browser automation companion for Switchboard (Chrome & Edge)",
   "permissions": [
     "activeTab",
@@ -40,5 +40,9 @@
     "16": "icons/bico-16.png",
     "48": "icons/bico-48.png",
     "128": "icons/bico-128.png"
-  }
+  },
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
 }

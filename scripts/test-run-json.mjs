@@ -30,7 +30,7 @@ async function run(status) {
   await new Promise((r) => server.listen(0, '127.0.0.1', r))
   const home = await mkdtemp(path.join(tmpdir(), 'sb-runjson-'))
   const cfg = path.join(home, 'c.json')
-  await writeFile(cfg, JSON.stringify({ llm: { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 't', retries: 0 } }))
+  await writeFile(cfg, JSON.stringify({ llm: { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 't', retries: 0 }, browser: { enabled: false } }))
   const child = spawn(process.execPath, [cli, 'run', '--json', '--yes', '--no-session', '-c', cfg, 'say hi'], {
     cwd: home,
     env: { ...process.env, HOME: home, USERPROFILE: home, BOTCONNECTOR_API_KEY: '', OPENAI_API_KEY: '' },

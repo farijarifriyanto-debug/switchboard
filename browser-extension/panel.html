@@ -184,6 +184,18 @@
     #approval-banner.visible {display:block;}
     .approval-title {color:#785e32;font-size:12px;font-weight:700;margin-bottom:5px;}
     .approval-desc {font-size:11px;margin-bottom:9px;}
+    #site-request {border:1px solid #d9b578;background:#fffaf1;padding:15px;border-radius:10px;margin-bottom:15px;}
+    #site-request[hidden] {display:none;}
+    #site-request h2 {font-size:14px;margin:0 0 7px;}
+    #site-request p {font-size:12px;overflow-wrap:anywhere;}
+    #site-request-feedback {font-size:11px;color:var(--text-muted);}
+    #task-output[hidden] {display:none;}
+    #task-output {white-space:pre-wrap;max-height:260px;overflow:auto;}
+    #task-status {font-size:11px;color:var(--text-muted);margin-top:9px;}
+    .task-card {margin-bottom:14px;}
+    .task-card textarea {font-size:13px;min-height:86px;}
+    .task-card .row {margin-top:9px;}
+
     @media (max-width:680px) {
       .app-header {padding:0 15px;height:57px;}
       .app-shell {padding:0 15px 27px;}
@@ -243,6 +255,16 @@
       </div>
     </section>
 
+    <section id="site-request" role="region" aria-label="AI site permission request" hidden>
+      <h2>Site access requested by Switchboard</h2>
+      <p id="site-request-desc"></p>
+      <p>Chrome will ask for permission only for this site. No access is granted automatically.</p>
+      <div class="row">
+        <button id="site-request-allow">Allow site &amp; continue</button>
+        <button id="site-request-deny" class="secondary">Deny</button>
+      </div>
+      <p id="site-request-feedback" role="status"></p>
+    </section>
     <div id="approval-banner" role="alertdialog" aria-label="Browser action approval">
       <div class="approval-title">Approval required</div>
       <div id="approval-desc" class="approval-desc">Switchboard wants to perform a browser action.</div>
@@ -262,6 +284,20 @@
     </nav>
 
     <section id="tab-overview" class="tab-pane active">
+      <section class="ui-card task-card">
+        <div class="card-head"><h2>Ask Switchboard</h2><span class="status-pill">AI + Chrome</span></div>
+        <form id="task-form">
+          <label for="task-prompt" style="margin-top:0">What should the agent do in your browser?</label>
+          <textarea id="task-prompt" rows="3" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>
+          <div class="row">
+            <button id="task-send" type="submit">Run in Chrome</button>
+            <button id="task-stop" type="button" class="secondary" disabled>Stop</button>
+            <button id="task-open-web" type="button" class="secondary">Full chat</button>
+          </div>
+        </form>
+        <div id="task-status" role="status" aria-live="polite">Connected AI required to run browser tasks.</div>
+        <pre id="task-output" hidden></pre>
+      </section>
       <div class="overview-columns">
         <section class="ui-card" aria-label="Open Switchboard">
           <div class="card-head"><h2>Use Switchboard</h2></div>
