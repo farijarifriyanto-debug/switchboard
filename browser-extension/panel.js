@@ -630,3 +630,20 @@ $('task-form').addEventListener('submit', async event => {
   // The background worker automatically resumes an existing pairing.
   await refreshBridgeStatus();
 })();
+
+// Simpler layout (Claude in Chrome): Chat, Izin, Pengaturan. Inspector and Workflows stay available under Pengaturan > Lanjutan.
+(() => {
+  const settings = document.getElementById('tab-settings');
+  if (!settings) return;
+  const advanced = document.createElement('details');
+  advanced.className = 'advanced';
+  advanced.innerHTML = '<summary>Lanjutan: inspeksi halaman dan workflow</summary>';
+  for (const id of ['tab-tools', 'tab-workflows']) {
+    const pane = document.getElementById(id);
+    if (!pane) continue;
+    pane.classList.remove('tab-pane', 'active');
+    pane.style.display = 'block';
+    advanced.append(pane);
+  }
+  settings.append(advanced);
+})();
