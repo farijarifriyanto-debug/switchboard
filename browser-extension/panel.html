@@ -236,6 +236,15 @@
     body.chat-only #task-output { background: none; border: 0; padding: 4px 2px 0; margin: 0; max-height: none; font: 14px/1.6 system-ui, sans-serif; color: #15171b; white-space: pre-wrap; overflow: visible; }
     body.chat-only #task-output:empty, body.chat-only #task-output[hidden] { display: none !important; }
     body.chat-only #task-status:empty { display: none; }
+    /* Conversation: your message on the right, the reply as text on the left. */
+    body.chat-only .chat-log { flex: 1; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding: 4px 2px 12px; }
+    body.chat-only .chat-log:empty { display: none; }
+    body.chat-only .msg { max-width: 92%; font-size: 14px; line-height: 1.6; color: #15171b; white-space: pre-wrap; word-break: break-word; }
+    body.chat-only .msg-user { align-self: flex-end; background: #f1f2f5; border-radius: 16px; padding: 8px 12px; }
+    body.chat-only .msg-agent { align-self: flex-start; }
+    body.chat-only .msg-status { font-size: 12px; color: #6b7280; }
+    body.chat-only #task-output { display: none !important; }
+    body.chat-only #task-prompt::placeholder { color: #9aa0ab; }
     body.chat-only #task-settings { position: fixed; top: 10px; right: 10px; width: 30px; height: 30px; padding: 0; border: 0; background: transparent; color: #15171b; font-size: 0; }
     /* Chat-only: one quiet column, no cards, no status chrome (Claude in Chrome style). */
     body.chat-only .app-header, body.chat-only .page-intro, body.chat-only .context-bar, body.chat-only #companion-badge, body.chat-only #task-open-web, body.chat-only .task-card label, body.chat-only .task-card .card-head { display: none !important; }
@@ -310,6 +319,7 @@
     <section id="tab-overview" class="tab-pane active">
       <section class="ui-card task-card">
         <div class="card-head"><h2>Ask Switchboard</h2><span class="status-pill">AI + Chrome</span></div>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="task-form">
           <label for="task-prompt" style="margin-top:0">What should the agent do in your browser?</label>
           <textarea id="task-prompt" rows="3" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>

@@ -558,8 +558,16 @@ $('task-form').addEventListener('submit', async event => {
   activeTaskSession = null;
   $('task-send').disabled = true;
   $('task-stop').disabled = false;
-  $('task-output').hidden = false;
-  $('task-output').textContent = '';
+  const log = $('chat-log');
+  const userMsg = document.createElement('div');
+  userMsg.className = 'msg msg-user';
+  userMsg.textContent = question;
+  log.append(userMsg);
+  const reply = document.createElement('div');
+  reply.className = 'msg msg-agent';
+  log.append(reply);
+  $('task-prompt').value = '';
+  log.scrollTop = log.scrollHeight;
   taskStatus('Running with your configured AI model...');
   try {
     // The model must select the correct tab explicitly. Never silently grant
@@ -591,7 +599,8 @@ $('task-form').addEventListener('submit', async event => {
         if (item.type === 'session') activeTaskSession = item.sessionId;
         if (item.type === 'tool_call') taskStatus('Using ' + String(item.name || 'browser tool'));
         if (item.type === 'final') {
-          $('task-output').textContent = String(item.content || 'Finished without a text answer.');
+          reply.textContent = String(item.content || 'Finished without a text answer.');
+          log.scrollTop = log.scrollHeight;
           taskStatus(item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
         if (item.type === 'error') taskStatus('Error: ' + String(item.message || item.error || 'Unknown'));
