@@ -62,10 +62,21 @@ async function syncBrowserState() {
   } catch (_) {
     // Restricted/non-HTTP pages never receive browser actions.
   }
-  const { approvedOrigins = [], permissionMode = 'ask_every_time' } =
+  const { approvedOrigins: historicalSites = [], permissionMode = 'ask_every_time' } =
     await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
+  // Chrome's native grant is the ONLY site-authorization decision. The former
+  // allowlist is migration metadata, never a second gate.
+  const candidates = new Set(historicalSites);
+  if (activeTab?.auditedOrigin) candidates.add(activeTab.auditedOrigin);
+  if (chrome.permissions?.getAll) {
+    const { origins = [] } = await chrome.permissions.getAll();
+    for (const pattern of origins) {
+      if (!/^https?:\/\/[^*]+\/\*$/.test(pattern)) continue;
+      try { candidates.add(new URL(pattern.slice(0, -1)).origin); } catch (_) {}
+    }
+  }
   const grantedOrigins = [];
-  for (const origin of approvedOrigins) {
+  for (const origin of candidates) {
     try { if (await siteAccessGranted(origin)) grantedOrigins.push(origin); } catch (_) {}
   }
   const response = await fetch(config.url + '/api/browser-companion/status', {
@@ -428,12 +439,17 @@ chrome.action.onClicked.addListener(async (tab) => {
     if (!tab?.id || !SAFE_URL.test(tab.url || '')) {
       throw new Error('Open a regular HTTP(S) page.');
     }
-    await requireTabSite(tab, 'browser_dom_snapshot');
-    await ensureTabMonitoring(tab.id);
-    const data = await capturePage(tab);
-    await chrome.storage.session.set({
-      captured: { tabId: tab.id, data, at: Date.now() }
-    });
+    // Clicking the toolbar MUST open the panel immediately. Never queue an
+    // approval wait before the user can reach the permission button.
+    if (!(await siteAccessGranted(new URL(tab.url).origin))) {
+      await chrome.storage.session.set({ captured: null });
+    } else {
+      await ensureTabMonitoring(tab.id);
+      const data = await capturePage(tab);
+      await chrome.storage.session.set({
+        captured: { tabId: tab.id, data, at: Date.now() }
+      });
+    }
   } catch (error) {
     await chrome.storage.session.set({
       captured: { error: errorMessage(error), at: Date.now() }
@@ -442,8 +458,9 @@ chrome.action.onClicked.addListener(async (tab) => {
   await opening.catch(() => {});
 });
 
-// User-mediated per-site Chrome access. Browser commands may ask for access,
-// but only a click in the trusted side panel invokes Chrome's native dialog.
+// One site-permission authority: Chrome native host grants. Browser commands
+// can wait for a grant, but only a user gesture can invoke Chrome's prompt.
+// Switchboard does NOT maintain a second site-approval gate.
 const pendingSiteRequests = new Map();
 const SITE_APPROVAL_WAIT_MS = 75_000;
 function sitePattern(origin) {
@@ -454,8 +471,6 @@ function sitePattern(origin) {
   return url.protocol + '//' + url.hostname + '/*';
 }
 async function siteAccessGranted(origin) {
-  const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-  if (!approvedOrigins.includes(origin)) return false;
   return Boolean(await chrome.permissions?.contains({ origins: [sitePattern(origin)] }));
 }
 async function publishPendingSite() {
@@ -500,7 +515,7 @@ async function settleSiteAccess(origin, allowed) {
   const request = pendingSiteRequests.get(origin);
   if (!request) return { ok: false, error: 'No pending site request' };
   if (allowed && !(await siteAccessGranted(origin))) {
-    return { ok: false, error: 'Both Chrome host permission and Switchboard site approval are required.' };
+    return { ok: false, error: 'Chrome site permission has not been granted.' };
   }
   pendingSiteRequests.delete(origin);
   for (const waiter of request.waiting) {
@@ -523,7 +538,7 @@ async function executeBrowserAction(action, params = {}, options = {}) {
   if (!tab?.id || !SAFE_URL.test(tab.url || '')) throw new Error('Valid active HTTP(S) tab required');
 
   const tabOrigin = new URL(tab.url).origin;
-  const { approvedOrigins = [], permissionMode = 'ask_every_time' } = await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
+  const { permissionMode = 'ask_every_time' } = await chrome.storage.local.get('permissionMode');
 
   // Mode check
   if (permissionMode === 'restricted' && MUTATING_ACTIONS.has(action)) {
@@ -532,7 +547,7 @@ async function executeBrowserAction(action, params = {}, options = {}) {
 
   // Navigating out of a tab never reads its source DOM. Authorize the target,
   // not the starting page; other actions need explicit site consent.
-  const isApprovedOrigin = approvedOrigins.includes(tabOrigin);
+  const isApprovedOrigin = await siteAccessGranted(tabOrigin);
   if (action !== 'navigate' && MUTATING_ACTIONS.has(action)) {
     await requireTabSite(tab, 'browser_' + action);
   }
@@ -751,9 +766,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === 'SWITCHBOARD_CAPTURE_SCREENSHOT') {
       const tab = await getActiveTab();
       const tabOrigin = new URL(tab.url).origin;
-      const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-      if (!approvedOrigins.includes(tabOrigin)) {
-        throw new Error(`Site origin "${tabOrigin}" must be approved before screenshot capture.`);
+      if (!(await siteAccessGranted(tabOrigin))) {
+        throw new Error('Chrome site permission is required for screenshot capture: ' + tabOrigin);
       }
       const dataUrl = await screenshotWithUserGrant(tab, Number(message.quality) || 65);
       await recordAudit({
@@ -898,11 +912,10 @@ async function handleToolExecution(toolName, args = {}) {
 
     case 'browser_screenshot': {
       const siteOrigin = new URL(tab.url).origin;
-      const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-      if (!approvedOrigins.includes(siteOrigin)) {
+      if (!(await siteAccessGranted(siteOrigin))) {
         await recordAudit({ tool: 'browser_screenshot', action: 'screenshot', url: tab.url,
-          origin: siteOrigin, decision: 'rejected', status: 'error', error: 'Unapproved site' });
-        throw new Error('Screenshot denied: approve this site origin in Browser Companion first.');
+          origin: siteOrigin, decision: 'rejected', status: 'error', error: 'Chrome host permission missing' });
+        throw new Error('Screenshot denied: allow this site in Chrome Browser Companion first.');
       }
       const dataUrl = await screenshotWithUserGrant(tab, Number(args.quality) || 65);
       await recordAudit({ tool: 'browser_screenshot', action: 'screenshot', url: tab.url,

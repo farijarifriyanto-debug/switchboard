@@ -103,13 +103,13 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
 {
   assert.match(
     bgSource,
-    /approvedOrigins\.includes\(tabOrigin\)/i,
-    'Screenshot capture requires origin approval first',
+    /siteAccessGranted\(tabOrigin\)/i,
+    'Screenshot requires native Chrome host permission',
   )
   const agentScreenshot = bgSource.match(/case 'browser_screenshot':\s*\{([\s\S]*?)\n    \}/)?.[1]
   assert.ok(agentScreenshot, 'agent screenshot handler exists')
-  assert.match(agentScreenshot, /approvedOrigins\.includes\(siteOrigin\)/,
-    'agent-triggered screenshots reject unapproved site origins')
+  assert.match(agentScreenshot, /siteAccessGranted\(siteOrigin\)/,
+    'agent-triggered screenshots require native Chrome grant')
   assert.match(agentScreenshot, /screenshotWithUserGrant/,
     'agent screenshot uses activeTab permission guard')
   assert.match(agentScreenshot, /Screenshot denied/,

@@ -10,7 +10,7 @@ Status: **NO-GO**. Chrome Web Store published 0.4.2 while this audit was underwa
 
 1. **Real AI**: authenticated model accepts a new side-panel request and chooses appropriate tools; no mock, no cached replay. Model name and request/session ID logged without secrets.
 2. **Browser actual**: developer-mode unpacked build in normal visible Chrome, plus post-store-update test in installed Chrome. Never use headless-only results as final proof.
-3. **User-scoped consent**: first use of an unknown HTTPS origin prompts human to approve the *target origin* with native Chrome permissions and Switchboard site consent; allow resumes exactly one pending action; deny, timeout and revocation keep the tab unchanged; restricted mode blocks writes.
+3. **User-scoped consent**: first use of an unknown HTTPS origin prompts human to approve the *target origin* with native Chrome permissions (no duplicate Switchboard site consent); allow resumes exactly one pending action; deny, timeout and revocation keep the tab unchanged; restricted mode blocks writes.
 4. **Read / act / verify**: open botconnector.id, wait for load, confirm correct URL/title/h1 from DOM; click safe navigation; return and verify the new destination. Verify actual page changes, not just tool invocation or an `ok` marker.
 5. **Forms**: type and clear native input, textarea, and contenteditable; select options; use real site-like app events; press Enter where appropriate. Sensitive password, financial, and file inputs remain blocked, with a genuine error surfaced to AI.
 6. **Multi-tab**: list and select several tabs, preserve a stable target across panel open/close, do not accidentally act on internal extension tab, confirm each tab ID/URL before action.

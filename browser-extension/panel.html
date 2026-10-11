@@ -258,9 +258,9 @@
     <section id="site-request" role="region" aria-label="AI site permission request" hidden>
       <h2>Site access requested by Switchboard</h2>
       <p id="site-request-desc"></p>
-      <p>Chrome will ask for permission only for this site. No access is granted automatically.</p>
+      <p>Chrome asks once for access to this website. No extra site approval in Switchboard.</p>
       <div class="row">
-        <button id="site-request-allow">Allow site &amp; continue</button>
+        <button id="site-request-allow">Allow in Chrome &amp; continue</button>
         <button id="site-request-deny" class="secondary">Deny</button>
       </div>
       <p id="site-request-feedback" role="status"></p>
@@ -314,7 +314,7 @@
 
         <section class="ui-card" aria-label="Site permissions">
           <div class="card-head"><h2>Site permissions</h2><span id="overview-site-status" class="status-pill is-offline">Not approved</span></div>
-          <p id="overview-site-desc" class="card-note">Allow Switchboard to interact with the active webpage.</p>
+          <p id="overview-site-desc" class="card-note">One Chrome site permission is enough to let Switchboard work here.</p>
           <div class="site-url-row"><span>Origin</span><strong id="overview-site-origin">No site selected</strong></div>
           <div class="card-buttons">
             <button id="overview-allow-btn">Allow this site</button>
@@ -390,8 +390,8 @@
   <div id="tab-security" class="tab-pane"><div class="panel-hint">Site permissions and agent activity stay under your control. Review permissions before granting access.</div>
     <label for="permission-mode-select">Permission Mode</label>
     <select id="permission-mode-select">
-      <option value="ask_every_time">Use Switchboard tool approvals (recommended)</option>
-      <option value="auto_safe">Approved-site automation (actions audited)</option>
+      <option value="ask_every_time">Manual — confirm agent actions</option>
+      <option value="auto_safe">Auto — use existing action policy</option>
       <option value="restricted">Read-only (no page modifications)</option>
     </select>
     <p style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Sensitive credential and payment card fields are always strictly blocked in every mode.</p>
