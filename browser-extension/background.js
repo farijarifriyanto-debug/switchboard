@@ -1042,6 +1042,10 @@ async function runToolExecution(toolName, args = {}) {
     return { ok: true, tabs: tabs.filter(t => SAFE_URL.test(t.url || ''))
       .map(t => ({ id: t.id, title: t.title, url: t.url, active: Boolean(t.active) })) };
   }
+  // Opening a new tab does not depend on the current tab being an HTTP page.
+  if (toolName === 'browser_tab_create') {
+    return await createAgentTab(String(args.url || ''));
+  }
   if (toolName === 'browser_tab_select') {
     if (!args.tabId) throw new Error('tabId is required');
     const updated = await chrome.tabs.update(Number(args.tabId), { active: true });
