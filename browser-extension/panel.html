@@ -219,6 +219,8 @@
       .brand-title {font-size:13px;}
     }
 
+      /* Side panel shows only the chat, like Claude in Chrome. ?view=settings shows the full layout. */
+    body.chat-only nav, body.chat-only .tab-pane:not(#tab-overview), body.chat-only #tab-overview > :not(.task-card) { display: none !important; }
   </style>
 </head>
 <body>
@@ -292,6 +294,7 @@
             <button id="task-send" type="submit">Run in Chrome</button>
             <button id="task-stop" type="button" class="secondary" disabled>Stop</button>
             <button id="task-open-web" type="button" class="secondary">Full chat</button>
+            <button id="task-settings" type="button" class="secondary">Pengaturan</button>
           </div>
         </form>
         <div id="task-status" role="status" aria-live="polite">Connected AI required to run browser tasks.</div>

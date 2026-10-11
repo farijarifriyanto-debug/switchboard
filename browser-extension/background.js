@@ -923,7 +923,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     // never accept URLs, browser tool names or pairing tokens from a webpage.
     if (message.type === 'SWITCHBOARD_OPEN_COMPANION' && sender.tab &&
         /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(sender.tab.url || '')) {
-      const panelUrl = chrome.runtime.getURL('panel.html');
+      const panelUrl = chrome.runtime.getURL('panel.html?view=settings');
       const open = await chrome.tabs.query({ url: panelUrl });
       if (open.length) await chrome.tabs.update(open[0].id, { active: true });
       else await chrome.tabs.create({ url: panelUrl });

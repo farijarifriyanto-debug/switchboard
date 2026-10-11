@@ -647,3 +647,14 @@ $('task-form').addEventListener('submit', async event => {
   }
   settings.append(advanced);
 })();
+
+// Side panel = chat only. Settings open in a full tab (?view=settings).
+(() => {
+  if (new URLSearchParams(location.search).get('view') === 'settings') return;
+  document.body.classList.add('chat-only');
+  const tabTitle = document.getElementById('active-tab-title');
+  if (tabTitle) tabTitle.closest('section').hidden = true;
+  document.getElementById('task-settings')?.addEventListener('click', () => {
+    void chrome.tabs.create({ url: chrome.runtime.getURL('panel.html?view=settings') });
+  });
+})();
