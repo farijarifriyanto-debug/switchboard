@@ -242,6 +242,11 @@
     body.chat-only .msg { max-width: 92%; font-size: 14px; line-height: 1.6; color: #15171b; white-space: pre-wrap; word-break: break-word; }
     body.chat-only .msg-user { align-self: flex-end; background: #f1f2f5; border-radius: 16px; padding: 8px 12px; }
     body.chat-only .msg-agent { align-self: flex-start; }
+    body.chat-only .chat-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 6px; padding: 8px 4px 24px; }
+    body.chat-only .chat-empty-title { font-size: 20px; font-weight: 600; color: #15171b; letter-spacing: -0.01em; }
+    body.chat-only .chat-empty p { margin: 0; font-size: 13px; line-height: 1.6; color: #6b7280; max-width: 34ch; }
+    body.chat-only .chat-empty[hidden] { display: none !important; }
+    body.chat-only #task-form { border-radius: 16px; border-color: #d9dce3; }
     body.chat-only .msg-status { font-size: 12px; color: #6b7280; }
     body.chat-only #task-output { display: none !important; }
     body.chat-only #task-prompt::placeholder { color: #9aa0ab; }
@@ -319,6 +324,10 @@
     <section id="tab-overview" class="tab-pane active">
       <section class="ui-card task-card">
         <div class="card-head"><h2>Ask Switchboard</h2><span class="status-pill">AI + Chrome</span></div>
+        <div id="chat-empty" class="chat-empty">
+          <div class="chat-empty-title">Mau dikerjakan di browser?</div>
+          <p>Tulis instruksi. Switchboard membaca halaman dan bertindak hanya di situs yang sudah Anda izinkan.</p>
+        </div>
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="task-form">
           <label for="task-prompt" style="margin-top:0">What should the agent do in your browser?</label>

@@ -559,6 +559,7 @@ $('task-form').addEventListener('submit', async event => {
   $('task-send').disabled = true;
   $('task-stop').disabled = false;
   const log = $('chat-log');
+  $('chat-empty').hidden = true;
   const userMsg = document.createElement('div');
   userMsg.className = 'msg msg-user';
   userMsg.textContent = question;
