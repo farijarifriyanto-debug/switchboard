@@ -568,6 +568,28 @@ async function publishPendingSite() {
     await chrome.action.setTitle({ title: 'Open Switchboard Companion' });
   }
 }
+// Resolves once the tab reports "complete" on the target URL (or after a timeout).
+function waitForTabLoad(tabId, targetHref, timeoutMs = 15000) {
+  const targetOrigin = new URL(targetHref).origin;
+  const onTarget = (current) => current?.status === 'complete' && String(current.url || '').startsWith(targetOrigin);
+  return new Promise((resolve) => {
+    let timer = null;
+    const done = () => {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+    const onUpdated = (id, change, updated) => {
+      if (id === tabId && onTarget({ ...updated, status: change.status ?? updated?.status })) done();
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    timer = setTimeout(done, timeoutMs);
+    chrome.tabs.get(tabId).then((current) => {
+      if (onTarget(current)) done();
+    }, done);
+  });
+}
+
 async function waitForSiteAccess(origin, tool, force = false) {
   if (bridgeCallDepth > 0) return;
   const hadGrant = await siteAccessGranted(origin);
@@ -653,6 +675,8 @@ async function executeBrowserAction(action, params = {}, options = {}) {
     }
     await waitForSiteAccess(targetUrl.origin, 'browser_navigate');
     await chrome.tabs.update(tab.id, { url: targetUrl.href });
+    // Wait for the new page so the next read does not hit the previous document.
+    await waitForTabLoad(tab.id, targetUrl.href);
     await recordAudit({
       tool: 'browser_navigate',
       action: 'navigate',
