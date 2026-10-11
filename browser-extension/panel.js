@@ -652,6 +652,15 @@ $('task-form').addEventListener('submit', async event => {
 (() => {
   if (new URLSearchParams(location.search).get('view') === 'settings') return;
   document.body.classList.add('chat-only');
+  // Icon-only actions in the composer.
+  const send = document.getElementById('task-send');
+  const stop = document.getElementById('task-stop');
+  const settings = document.getElementById('task-settings');
+  if (send) { send.textContent = '↑'; send.setAttribute('aria-label', 'Kirim instruksi'); send.title = 'Kirim'; }
+  if (stop) { stop.textContent = '■'; stop.setAttribute('aria-label', 'Hentikan'); stop.title = 'Hentikan'; }
+  if (settings) { settings.setAttribute('aria-label', 'Pengaturan'); settings.title = 'Pengaturan'; settings.textContent = ''; }
+  const prompt = document.getElementById('task-prompt');
+  if (prompt) prompt.placeholder = 'Tulis instruksi untuk browser…';
   const tabTitle = document.getElementById('active-tab-title');
   if (tabTitle) tabTitle.closest('section').hidden = true;
   document.getElementById('task-settings')?.addEventListener('click', () => {
