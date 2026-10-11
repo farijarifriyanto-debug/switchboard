@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 
 const event = () => ({ addListener() {}, removeListener() {} });
-const local = { permissionMode: 'auto_safe' };
+const local = { permissionMode: 'auto_safe', approvedOrigins: ['http://127.0.0.1:7777'] };
 const temporary = {};
 const hostGrants = new Set(['http://127.0.0.1/*']);
 const tab = { id: 4, windowId: 1, url: 'http://127.0.0.1:7777/', title: 'Test', active: true, groupId: -1 };
@@ -141,7 +141,7 @@ const wait = () => new Promise(r => setTimeout(r, 35));
 
 // 5. Tab creation groups the new tab under "Switchboard".
 {
-  hostGrants.add('https://example.org/*');
+  local.approvedOrigins.push('https://example.org');
   log.groups.length = 0;
   const r = await run("handleToolExecution('browser_tab_create', { url: 'https://example.org/' })");
   assert.equal(r.ok, true);

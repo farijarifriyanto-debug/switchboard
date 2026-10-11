@@ -531,8 +531,12 @@ function sitePattern(origin) {
   }
   return url.protocol + '//' + url.hostname + '/*';
 }
+// Switchboard owns site approval. Chrome grants host access once at install (<all_urls>),
+// so the only per-site decision is the one the user makes in Switchboard.
 async function siteAccessGranted(origin) {
-  return Boolean(await chrome.permissions?.contains({ origins: [sitePattern(origin)] }));
+  if (oneTimeOrigins.has(origin)) return true;
+  const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
+  return approvedOrigins.includes(origin);
 }
 async function publishPendingSite() {
   const first = pendingSiteRequests.values().next().value;
@@ -583,10 +587,15 @@ async function waitForSiteAccess(origin, tool, force = false) {
 async function settleSiteAccess(origin, allowed, once = false) {
   const request = pendingSiteRequests.get(origin);
   if (!request) return { ok: false, error: 'No pending site request' };
-  if (allowed && !(await siteAccessGranted(origin))) {
-    return { ok: false, error: 'Chrome site permission has not been granted.' };
+  if (allowed) {
+    if (once) {
+      oneTimeOrigins.add(origin);
+    } else {
+      const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
+      if (!approvedOrigins.includes(origin)) approvedOrigins.push(origin);
+      await chrome.storage.local.set({ approvedOrigins });
+    }
   }
-  if (allowed && once && !request.hadGrant) oneTimeOrigins.add(origin);
   pendingSiteRequests.delete(origin);
   for (const waiter of request.waiting) {
     clearTimeout(waiter.timer);
@@ -602,10 +611,7 @@ async function requireTabSite(tab, tool, authorization = false) {
   await waitForSiteAccess(new URL(tab.url).origin, tool, force);
 }
 async function releaseOneTimeGrants() {
-  for (const origin of Array.from(oneTimeOrigins)) {
-    oneTimeOrigins.delete(origin);
-    try { await chrome.permissions.remove({ origins: [sitePattern(origin)] }); } catch (_) {}
-  }
+  oneTimeOrigins.clear();
 }
 
 // -----------------------------------------------------------------------------

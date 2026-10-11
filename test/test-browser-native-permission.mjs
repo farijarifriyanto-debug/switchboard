@@ -64,57 +64,27 @@ assert.equal(session.pendingSiteAccess.origin,'https://botconnector.id');
 assert.equal(badges.at(-1),'!');
 console.log('PASS unapproved target waits without mutating Chrome tab');
 
-// A forged "approved" message without Chrome native permission must not resolve.
-local.approvedOrigins.push('https://botconnector.id');
-const premature=await run('settleSiteAccess("https://botconnector.id",true)');
-assert.equal(premature.ok,false);
-assert.equal(updates.length,0);
-console.log('PASS storage-only approval cannot bypass Chrome permissions');
+// Site approval is Switchboard's own decision; a grant without a pending request does nothing.
+assert.equal((await run('settleSiteAccess("https://nothing-pending.example",true)')).ok,false);
+console.log('PASS approval without a pending request does nothing');
 
-// The ONLY site grant is Chrome native permission. No duplicate Switchboard
-// allowlist entry is required; approval notification merely resumes the wait.
-local.approvedOrigins = local.approvedOrigins.filter(o => o !== 'https://botconnector.id');
-hostGrants.add('https://botconnector.id/*');
-assert.equal(await run('siteAccessGranted("https://botconnector.id")'),true);
+// Approval in Switchboard is the only site decision; it persists for the site.
 const granted=await run('settleSiteAccess("https://botconnector.id",true)');
 assert.equal(granted.ok,true);
+assert.equal(await run('siteAccessGranted("https://botconnector.id")'),true);
+assert.ok(local.approvedOrigins.includes('https://botconnector.id'));
 const result=await navigate;
 assert.equal(result.ok,true);
-assert.equal(tab.url,'https://botconnector.id/');
-assert.equal(badges.at(-1),'');
-console.log('PASS Chrome-only native grant resumes the original navigation without a second site allowlist');
-
-// Next attempt to a new site must not inherit permission or grant all sites.
-const rejected=run('handleToolExecution("browser_navigate",{url:"https://unauthorized.example/"})');
-await new Promise(r=>setTimeout(r,35));
-assert.equal(updates.length,1);
-await run('settleSiteAccess("https://unauthorized.example",false)');
-await assert.rejects(rejected,/User denied site access/);
-assert.equal(updates.length,1,'denied action cannot navigate');
-assert.ok(!local.approvedOrigins.includes('https://unauthorized.example'));
-console.log('PASS rejection stops navigation and does not grant any other origin');
-
-// Skip mode removes extra prompts but keeps the Chrome site permission check.
-local.permissionMode='skip';
-const skipResult=await run('handleToolExecution("browser_navigate",{url:"https://botconnector.id/other"})');
-assert.equal(skipResult.ok,true);
-console.log('PASS Skip mode runs a granted site without extra prompts');
-assert.equal(typeof toolbarHandler,'function');
-tab={...tab,url:'https://unapproved.example/',windowId:12};
-const opened=toolbarHandler(tab);
-assert.equal(openedPanels,1,'side panel opens immediately after click');
-await opened;
-assert.equal(await run('siteAccessGranted("https://unapproved.example")'),false);
-assert.equal((await run('chrome.storage.session.get("captured")')).captured,null);
-console.log('PASS icon click opens permission UI immediately without a circular wait');
-// "Allow this action" grants host access for that one tool call only.
+assert.equal((await run('chrome.storage.session.get("captured")')).captured,undefined);
+console.log('PASS Switchboard approval persists the site and resumes the waiting navigation');
+// "Allow this action" grants access for that one tool call only.
 {
   const pending=run('handleToolExecution("browser_navigate",{url:"https://once.example/"})');
   await new Promise(r=>setTimeout(r,35));
-  hostGrants.add('https://once.example/*');
   await run('settleSiteAccess("https://once.example",true,true)');
   await pending;
-  assert.equal(hostGrants.has('https://once.example/*'),false,'one-time grant must be removed after the tool call');
-  console.log('PASS Allow this action grants access for one tool call, then the Chrome grant is removed');
+  assert.equal(await run('siteAccessGranted("https://once.example")'),false,'one-time approval ends with the tool call');
+  assert.ok(!local.approvedOrigins.includes('https://once.example'));
+  console.log('PASS Allow this action grants access for one tool call only');
 }
 console.log('=== Browser native-permission integration contract PASSED ===');

@@ -42,10 +42,9 @@ async function refreshActiveTab() {
       $('active-tab-origin').textContent = currentTab.origin || currentTab.url || 'None';
 
       const { permissionMode = 'ask_every_time' } = await chrome.storage.local.get('permissionMode');
-      const chromeAllowed = await chrome.permissions.contains({ origins: [sitePattern(currentTab.origin)] });
-      $('site-permission-status').textContent = chromeAllowed ? 'Ready (' + permissionMode + ')' : 'Permission needed';
-      const granted = await chrome.permissions.getAll();
-      $('approved-origins-view').textContent = (granted.origins || []).join('\n') || 'None';
+      const { approvedOrigins: approved = [] } = await chrome.storage.local.get('approvedOrigins');
+      $('site-permission-status').textContent = approved.includes(currentTab.origin) ? 'Ready (' + permissionMode + ')' : 'Permission needed';
+      $('approved-origins-view').textContent = approved.join('\n') || 'None';
     } else {
       $('active-tab-title').textContent = 'No active capture';
       $('active-tab-origin').textContent = 'Select an HTTP(S) webpage, then refresh the tab.';
@@ -361,12 +360,8 @@ function sitePattern(origin) {
 // chrome.permissions.request MUST be invoked directly in a user gesture.
 // The agent itself cannot grant site access.
 function allowSiteFromClick(origin, button, feedback, once = false) {
-  let permission;
-  try { permission = chrome.permissions.request({ origins: [sitePattern(origin)] }); }
-  catch (e) { feedback.textContent = String(e.message || e); return; }
   button.disabled = true;
-  void permission.then(async granted => {
-    if (!granted) { feedback.textContent = 'Chrome denied site permission.'; return; }
+  void Promise.resolve().then(async () => {
     // The Chrome dialog was the one and only site grant.
     const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_GRANTED', origin, once });
     await syncCurrentTabToBridge();
@@ -382,7 +377,6 @@ $('allow-current-origin-btn').addEventListener('click', () => {
 
 $('revoke-current-origin-btn').addEventListener('click', async () => {
   if (!currentTab?.origin) return;
-  try { await chrome.permissions.remove({ origins: [sitePattern(currentTab.origin)] }); } catch (_) {}
   // Clean obsolete metadata from versions before the single-grant migration.
   const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
   await chrome.storage.local.set({
@@ -451,9 +445,8 @@ setInterval(() => void refreshPendingSite(), 1000);
 // Connection, permission and recent activity overview
 // -----------------------------------------------------------------------------
 async function updateOverviewStatus() {
-  const isApproved = Boolean(currentTab?.origin && await chrome.permissions.contains({
-    origins: [sitePattern(currentTab.origin)]
-  }));
+  const { approvedOrigins: approved = [] } = await chrome.storage.local.get('approvedOrigins');
+  const isApproved = Boolean(currentTab?.origin && approved.includes(currentTab.origin));
   const hasCapture = Boolean(currentTab?.url);
   $('overview-site-origin').textContent = currentTab?.origin || 'No site selected';
   $('overview-site-status').textContent = isApproved ? 'Approved' : 'Not approved';
