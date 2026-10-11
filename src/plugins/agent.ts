@@ -321,15 +321,18 @@ export const agentLoop = {
               }
 
               if (!calls.length) {
-                ctx.sessions.append(session.id, assistant)
+                // Some models stop after a tool result without writing a summary. Say so
+                // instead of ending the run with an empty answer.
+                const answer = turn.content.trim() || 'Selesai. Model tidak menulis ringkasan; hasil tiap langkah ada di detail tool di atas.'
+                ctx.sessions.append(session.id, { ...assistant, content: answer })
                 setStatus(session.id, 'completed')
                 ctx.trace?.runEvent(runEvent(session.id, 'turn_completed', {
                   status: 'completed',
                   label: 'Finished',
                 }))
-                ctx.emit('agent/done', { sessionId: session.id, steps, content: turn.content })
+                ctx.emit('agent/done', { sessionId: session.id, steps, content: answer })
                 endEmitted = true
-                yield { type: 'final', content: turn.content, steps, stopReason: 'answer' }
+                yield { type: 'final', content: answer, steps, stopReason: 'answer' }
                 return
               }
 

@@ -64,8 +64,9 @@
           ? 'Switchboard is connected to another browser. Pair this Companion to switch the connection.'
           : 'Open Companion, enter the one-time code, and connect once. It will reconnect automatically.';
     } else if (connected) {
-      stateLabel.textContent = 'Connected elsewhere';
-      description.textContent = 'A Companion is connected to Switchboard, but is not detected in this browser.';
+      // This page may have loaded before the extension was (re)loaded, so detection has not run yet.
+      stateLabel.textContent = 'Connected';
+      description.textContent = 'A Companion is connected to Switchboard. Refresh this page to confirm it is this browser.';
     } else {
       stateLabel.textContent = 'Not detected';
       description.textContent = hasStore
