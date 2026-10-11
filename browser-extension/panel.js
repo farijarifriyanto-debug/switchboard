@@ -658,7 +658,7 @@ $('task-form').addEventListener('submit', async event => {
   const settings = document.getElementById('task-settings');
   if (send) { send.textContent = '↑'; send.setAttribute('aria-label', 'Kirim instruksi'); send.title = 'Kirim'; }
   if (stop) { stop.textContent = '■'; stop.setAttribute('aria-label', 'Hentikan'); stop.title = 'Hentikan'; }
-  if (settings) { settings.setAttribute('aria-label', 'Pengaturan'); settings.title = 'Pengaturan'; settings.textContent = ''; }
+  if (settings) { settings.setAttribute('aria-label', 'Pengaturan'); settings.title = 'Pengaturan'; settings.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'; }
   const prompt = document.getElementById('task-prompt');
   if (prompt) prompt.placeholder = 'Tulis instruksi untuk browser…';
   const tabTitle = document.getElementById('active-tab-title');
