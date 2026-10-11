@@ -138,11 +138,11 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
 // Regression Test 8: Mode Enforcement
 // -----------------------------------------------------------------------------
 {
-  assert.match(
-    bgSource,
-    /permissionMode\s*===\s*'restricted'[\s\S]*?Blocked/i,
-    'Restricted mode blocks mutating actions',
-  )
+  assert.doesNotMatch(bgSource, /'restricted'/, 'restricted mode is removed (Claude in Chrome has Manual, Auto, Skip)')
+  assert.match(bgSource, /PROTECTED_TOOLS\.has\(tool\)/,
+    'protected actions ask for approval every time, even for an allowed site')
+  assert.match(bgSource, /releaseOneTimeGrants\(\)/,
+    'Allow this action ends with the tool call')
   console.log('✓ Regression Bug #8: Permission mode enforcement verified')
 }
 

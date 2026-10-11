@@ -92,7 +92,9 @@
     "test:browser-native-permission": "node test/test-browser-native-permission.mjs",
     "test:browser-panel-chat-auth": "node test/test-browser-panel-chat-auth.mjs",
     "test:browser-panel-chat-stream": "node test/test-browser-panel-chat-stream.mjs",
-    "test:browser-action-fail-closed": "node test/test-browser-action-fail-closed.mjs"
+    "test:browser-action-fail-closed": "node test/test-browser-action-fail-closed.mjs",
+    "test:browser-cdp": "node test/test-browser-cdp.mjs",
+    "test:browser-native-pair": "node test/test-browser-native-pair.mjs"
   },
   "engines": {
     "node": ">=20.11"

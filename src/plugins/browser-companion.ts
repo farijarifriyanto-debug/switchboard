@@ -6,7 +6,7 @@ import type { Socket } from 'node:net'
 import WebSocket, { WebSocketServer } from 'ws'
 import type { ToolSpec, ToolContext, ToolResult } from '../services/tools.js'
 
-export type PermissionMode = 'ask_every_time' | 'auto_safe' | 'restricted'
+export type PermissionMode = 'ask_every_time' | 'auto_safe' | 'skip'
 
 export interface BrowserCompanionConfig {
   /** Whether the companion plugin is enabled. Defaults to true. */
@@ -39,7 +39,7 @@ export interface BrowserAuditEntry {
   selector?: string
   url?: string
   origin?: string
-  decision: 'auto_safe' | 'approved' | 'rejected' | 'restricted_denied'
+  decision: 'auto_safe' | 'approved' | 'rejected'
   status: 'success' | 'error' | 'pending'
   error?: string
 }
@@ -128,7 +128,7 @@ export class BrowserCompanionService {
   }
 
   setMode(mode: PermissionMode): void {
-    if (!['ask_every_time', 'auto_safe', 'restricted'].includes(mode)) {
+    if (!['ask_every_time', 'auto_safe', 'skip'].includes(mode)) {
       throw new Error(`Invalid permission mode: ${mode}`)
     }
     this.mode = mode
@@ -202,20 +202,6 @@ export class BrowserCompanionService {
       )
     }
 
-    // Permission mode enforcement for mutating operations
-    const isMutation = ['browser_click', 'browser_type', 'browser_navigate', 'browser_select'].includes(tool)
-    if (isMutation && this.mode === 'restricted') {
-      this.logAudit({
-        tool,
-        action: String(args.selector || args.url || ''),
-        url: this.activeTab?.url,
-        origin: this.activeTab?.auditedOrigin,
-        decision: 'restricted_denied',
-        status: 'error',
-        error: 'Permission mode is Restricted (read-only).',
-      })
-      throw new Error('Action rejected: permission mode is Restricted (read-only).')
-    }
 
     const commandId = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const command: BridgeCommand = {
@@ -535,7 +521,7 @@ export class BrowserCompanionService {
         if (Array.isArray(body.approvedOrigins)) {
           this.approvedOrigins = new Set(body.approvedOrigins)
         }
-        if (body.mode && ['ask_every_time', 'auto_safe', 'restricted'].includes(body.mode)) {
+        if (body.mode && ['ask_every_time', 'auto_safe', 'skip'].includes(body.mode)) {
           this.mode = body.mode
         }
         res.writeHead(200, { 'content-type': 'application/json' })
@@ -664,7 +650,7 @@ export class BrowserCompanionService {
 }
 
 /**
- * Register all 13 Browser Automation tools into Switchboard's `ctx.tools`
+ * Register all 15 Browser Automation tools into Switchboard's `ctx.tools`
  */
 export function registerBrowserTools(ctx: Context, service: BrowserCompanionService): () => void {
   const disposers: Array<() => void> = []
@@ -784,6 +770,44 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
     },
     async execute(args: { selector: string; tabId?: number }, toolCtx: ToolContext) {
       const result = await service.executeOnBrowser('browser_click', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
+  // browser_download: a click that must start a download. Protected: always asks in the extension.
+  reg({
+    name: 'browser_download',
+    description: 'Click a download link or button and report the file Chrome starts downloading. Always requires approval in the Switchboard panel.',
+    risk: 'risky',
+    parameters: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector or element ref of the download link or button.' },
+        tabId: { type: 'number', description: 'Optional tab ID.' },
+      },
+      required: ['selector'],
+    },
+    async execute(args: { selector: string; tabId?: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_download', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
+  // browser_tab_create: open a page in a new tab grouped as "Switchboard".
+  reg({
+    name: 'browser_tab_create',
+    description: 'Open an HTTP(S) URL in a new tab, grouped under "Switchboard". The site must be allowed in Chrome.',
+    risk: 'risky',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Absolute HTTP(S) URL to open.' },
+        tabId: { type: 'number', description: 'Optional tab ID used as the current tab.' },
+      },
+      required: ['url'],
+    },
+    async execute(args: { url: string; tabId?: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_tab_create', args, toolCtx)
       return JSON.stringify(result)
     },
   })

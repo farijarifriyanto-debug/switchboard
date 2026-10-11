@@ -260,7 +260,8 @@
       <p id="site-request-desc"></p>
       <p>Chrome asks once for access to this website. No extra site approval in Switchboard.</p>
       <div class="row">
-        <button id="site-request-allow">Allow in Chrome &amp; continue</button>
+        <button id="site-request-once">Allow this action</button>
+        <button id="site-request-allow">Always allow actions on this site</button>
         <button id="site-request-deny" class="secondary">Deny</button>
       </div>
       <p id="site-request-feedback" role="status"></p>
@@ -392,7 +393,7 @@
     <select id="permission-mode-select">
       <option value="ask_every_time">Manual — confirm agent actions</option>
       <option value="auto_safe">Auto — use existing action policy</option>
-      <option value="restricted">Read-only (no page modifications)</option>
+      <option value="skip">Skip — no extra prompts (Chrome site permission still required)</option>
     </select>
     <p style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Sensitive credential and payment card fields are always strictly blocked in every mode.</p>
 

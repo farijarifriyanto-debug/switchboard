@@ -75,7 +75,7 @@ console.log(`✓ Local test server listening at ${testPageUrl}`)
 // 2. Launch real Google Chrome headlessly with remote debugging
 const cdpPort = 9224
 const chromeProcess = spawn(
-  'google-chrome',
+  process.env.CHROME_BIN || 'google-chrome',
   [
     '--headless=new',
     '--no-sandbox',
@@ -403,7 +403,7 @@ try {
       toolCallsSeen.push(event.name || event.tool)
     } else if (event.type === 'error') {
       agentErrors.push(String(event.error || event.message || 'unknown agent error'))
-    } else if (event.type === 'text' || event.type === 'chunk') {
+    } else if (event.type === 'text' || event.type === 'chunk' || event.type === 'delta') {
       finalAnswer += event.content || event.text || ''
     }
   }
@@ -412,6 +412,8 @@ try {
   assert.deepEqual(agentErrors, [], 'agent must complete without provider or tool errors')
   console.log('Agent tool calls:', toolCallsSeen)
   console.log('Agent final answer:', finalAnswer.slice(0, 300))
+  // The final answer must report the button text the agent read from the live page.
+  assert.match(finalAnswer, /Clicks: 2/, 'final answer reports the live button text')
 
   assert.ok(toolCallsSeen.length >= 1, 'agent autonomously invoked browser tools')
   assert.ok(toolCallsSeen.some((t) => t.includes('browser_')), 'browser tools were called')

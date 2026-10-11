@@ -6,7 +6,7 @@
  * - Fake origin and malicious cross-site request rejection (403)
  * - DNS rebinding / non-loopback Host rejection (403)
  * - Permission modes:
- *     - "Restricted" mode strictly blocks mutating tools (click, type, navigate, select)
+ *     - Permission modes: Manual, Auto, Skip (restricted mode removed)
  *     - "Auto Safe" mode allows read-only operations
  *     - "Ask Every Time" gate
  * - Sensitive credential and payment field blocking (password, cc, file inputs)
@@ -114,33 +114,15 @@ try {
     console.log('✓ DNS rebinding defense verified (403 for external Host header)')
   }
 
-  // 5. Permission Mode: "Restricted" Mode Enforces Read-Only Policy
+  // 5. Permission Modes: Manual, Auto and Skip (Claude in Chrome parity)
   {
-    // Connect dummy companion stream
-    const ac = new AbortController()
-    const sse = await fetch('http://127.0.0.1:7791/api/browser-companion/events', {
-      headers: { authorization: `Bearer ${token}` },
-      signal: ac.signal,
-    })
-    assert.equal(sse.status, 200)
+    // Only the three modes Claude in Chrome offers are accepted
+    service.setMode('skip')
+    assert.equal(service.currentMode, 'skip')
+    assert.throws(() => service.setMode('restricted'), /Invalid permission mode/, 'restricted mode is removed')
+    service.setMode('ask_every_time')
 
-    service.setMode('restricted')
-    assert.equal(service.currentMode, 'restricted')
-
-    // Calling mutating tool `browser_click` in restricted mode must be rejected immediately
-    const clickResult = await host.ctx.tools.call('browser_click', { selector: '#btn-buy' })
-    assert.match(clickResult, /Restricted \(read-only\)/i, 'mutating action blocked in restricted mode')
-
-    // Calling mutating tool `browser_type` in restricted mode must be rejected immediately
-    const typeResult = await host.ctx.tools.call('browser_type', { selector: '#input', text: 'hello' })
-    assert.match(typeResult, /Restricted \(read-only\)/i, 'typing blocked in restricted mode')
-
-    // Calling mutating tool `browser_navigate` in restricted mode must be rejected immediately
-    const navResult = await host.ctx.tools.call('browser_navigate', { url: 'https://example.com' })
-    assert.match(navResult, /Restricted \(read-only\)/i, 'navigation blocked in restricted mode')
-
-    ac.abort()
-    console.log('✓ "Restricted" mode strictly blocks all mutating tools')
+    console.log('✓ Permission modes match Claude in Chrome: Manual, Auto, Skip')
   }
 
   // 6. Untrusted Content Demarcation

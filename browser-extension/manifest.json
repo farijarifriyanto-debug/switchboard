@@ -6,9 +6,14 @@
   "permissions": [
     "activeTab",
     "alarms",
+    "debugger",
+    "downloads",
+    "nativeMessaging",
+    "notifications",
     "scripting",
     "sidePanel",
     "storage",
+    "tabGroups",
     "tabs"
   ],
   "host_permissions": [

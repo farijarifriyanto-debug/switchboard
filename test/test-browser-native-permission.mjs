@@ -22,7 +22,8 @@ const chrome={
   onChanged:listeners()
  },
  permissions:{
-  async contains({origins}){return origins.every(p=>hostGrants.has(p));}
+  async contains({origins}){return origins.every(p=>hostGrants.has(p));},
+  async remove({origins}){origins.forEach(p=>hostGrants.delete(p));return true;}
  },
  tabs:{
   async query(){return [tab];},
@@ -93,10 +94,11 @@ assert.equal(updates.length,1,'denied action cannot navigate');
 assert.ok(!local.approvedOrigins.includes('https://unauthorized.example'));
 console.log('PASS rejection stops navigation and does not grant any other origin');
 
-// Existing restricted mode still blocks mutating actions regardless of grants.
-local.permissionMode='restricted';
-await assert.rejects(run('handleToolExecution("browser_navigate",{url:"https://botconnector.id/other"})'),/Restricted/);
-console.log('PASS Restricted mode remains fail-closed');
+// Skip mode removes extra prompts but keeps the Chrome site permission check.
+local.permissionMode='skip';
+const skipResult=await run('handleToolExecution("browser_navigate",{url:"https://botconnector.id/other"})');
+assert.equal(skipResult.ok,true);
+console.log('PASS Skip mode runs a granted site without extra prompts');
 assert.equal(typeof toolbarHandler,'function');
 tab={...tab,url:'https://unapproved.example/',windowId:12};
 const opened=toolbarHandler(tab);
@@ -105,4 +107,14 @@ await opened;
 assert.equal(await run('siteAccessGranted("https://unapproved.example")'),false);
 assert.equal((await run('chrome.storage.session.get("captured")')).captured,null);
 console.log('PASS icon click opens permission UI immediately without a circular wait');
+// "Allow this action" grants host access for that one tool call only.
+{
+  const pending=run('handleToolExecution("browser_navigate",{url:"https://once.example/"})');
+  await new Promise(r=>setTimeout(r,35));
+  hostGrants.add('https://once.example/*');
+  await run('settleSiteAccess("https://once.example",true,true)');
+  await pending;
+  assert.equal(hostGrants.has('https://once.example/*'),false,'one-time grant must be removed after the tool call');
+  console.log('PASS Allow this action grants access for one tool call, then the Chrome grant is removed');
+}
 console.log('=== Browser native-permission integration contract PASSED ===');

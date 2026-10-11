@@ -360,7 +360,7 @@ function sitePattern(origin) {
 }
 // chrome.permissions.request MUST be invoked directly in a user gesture.
 // The agent itself cannot grant site access.
-function allowSiteFromClick(origin, button, feedback) {
+function allowSiteFromClick(origin, button, feedback, once = false) {
   let permission;
   try { permission = chrome.permissions.request({ origins: [sitePattern(origin)] }); }
   catch (e) { feedback.textContent = String(e.message || e); return; }
@@ -368,7 +368,7 @@ function allowSiteFromClick(origin, button, feedback) {
   void permission.then(async granted => {
     if (!granted) { feedback.textContent = 'Chrome denied site permission.'; return; }
     // The Chrome dialog was the one and only site grant.
-    const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_GRANTED', origin });
+    const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_GRANTED', origin, once });
     await syncCurrentTabToBridge();
     await refreshActiveTab();
     await refreshPendingSite();
@@ -435,6 +435,9 @@ async function refreshPendingSite() {
 }
 $('site-request-allow').addEventListener('click', () => {
   if (pendingOrigin) allowSiteFromClick(pendingOrigin, $('site-request-allow'), $('site-request-feedback'));
+});
+$('site-request-once').addEventListener('click', () => {
+  if (pendingOrigin) allowSiteFromClick(pendingOrigin, $('site-request-once'), $('site-request-feedback'), true);
 });
 $('site-request-deny').addEventListener('click', async () => {
   if (!pendingOrigin) return;
