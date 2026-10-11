@@ -363,6 +363,10 @@ async function capturePage(tab, options = {}) {
     args: [maxChars, compact]
   });
 
+  if (!injection?.result || typeof injection.result.url !== 'string' ||
+      !Array.isArray(injection.result.elements)) {
+    throw new Error('Unable to read page DOM; content script returned no valid snapshot');
+  }
   return injection.result;
 }
 
@@ -571,6 +575,9 @@ async function executeBrowserAction(action, params = {}, options = {}) {
       },
       args: [direction, amount, params.selector || '']
     });
+    if (!result?.result || !Number.isFinite(result.result.scrollY)) {
+      throw new Error('Scroll action failed; page did not return a scroll position');
+    }
     await recordAudit({
       tool: 'browser_scroll',
       action: 'scroll',
@@ -591,6 +598,7 @@ async function executeBrowserAction(action, params = {}, options = {}) {
   const [res] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: (act, sel, val, clearBefore, pressEnter) => {
+      try {
       // Find element by data-sb-ref or selector
       let el = null;
       if (sel.startsWith('@e')) {
@@ -633,17 +641,18 @@ async function executeBrowserAction(action, params = {}, options = {}) {
         }
         if (el.readOnly || el.disabled) throw new Error('Target input field is disabled or readonly');
 
-        if (clearBefore) {
-          el.value = '';
-        }
-
-        const textToSet = clearBefore ? String(val) : (el.value || '') + String(val);
-        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-        if (setter) {
-          setter.call(el, textToSet);
+        const isRichText = el.isContentEditable;
+        const current = isRichText ? (el.textContent || '') : (el.value || '');
+        const textToSet = clearBefore ? String(val) : current + String(val);
+        if (isRichText) {
+          // Contenteditable is not an HTMLInputElement: its value setter throws.
+          el.textContent = textToSet;
         } else {
-          el.value = textToSet;
+          const proto = el instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          if (setter) setter.call(el, textToSet);
+          else el.value = textToSet;
         }
 
         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -659,9 +668,23 @@ async function executeBrowserAction(action, params = {}, options = {}) {
       }
 
       throw new Error(`Unsupported action "${act}"`);
+      } catch (error) {
+        return { ok: false, error: String(error?.message || error) };
+      }
     },
     args: [action, selector, String(params.value ?? params.text ?? ''), Boolean(params.clear), Boolean(params.pressEnter)]
   });
+
+  // Chrome may return null when injected code throws. Fail closed rather
+  // than falsely reporting a successful or safely blocked browser action.
+  if (!res?.result || res.result.ok === false) {
+    const error = res?.result?.error || 'Browser action did not complete';
+    await recordAudit({
+      tool: 'browser_' + action, action, selector, url: tab.url,
+      origin: tabOrigin, decision: 'rejected', status: 'error', error
+    });
+    throw new Error(error);
+  }
 
   await recordAudit({
     tool: `browser_${action}`,
