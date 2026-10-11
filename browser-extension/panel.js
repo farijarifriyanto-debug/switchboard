@@ -41,10 +41,10 @@ async function refreshActiveTab() {
       $('active-tab-title').textContent = currentTab.title || 'Untitled';
       $('active-tab-origin').textContent = currentTab.origin || currentTab.url || 'None';
 
-      const { permissionMode = 'ask_every_time' } = await chrome.storage.local.get('permissionMode');
-      const { approvedOrigins: approved = [] } = await chrome.storage.local.get('approvedOrigins');
-      $('site-permission-status').textContent = approved.includes(currentTab.origin) ? 'Ready (' + permissionMode + ')' : 'Permission needed';
-      $('approved-origins-view').textContent = approved.join('\n') || 'None';
+      const access = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_ACCESS_STATUS', origin: currentTab.origin });
+      // This indicator reports Chrome's site grant only; action approval is a separate policy.
+      $('site-permission-status').textContent = access?.granted ? 'Allowed by Chrome' : 'Permission needed';
+      $('approved-origins-view').textContent = (access?.origins || []).join('\n') || 'None';
     } else {
       $('active-tab-title').textContent = 'No active capture';
       $('active-tab-origin').textContent = 'Select an HTTP(S) webpage, then refresh the tab.';
@@ -62,7 +62,10 @@ async function loadStoredConfig() {
   const stored = await chrome.storage.local.get(['bridgeUrl', 'companionToken', 'permissionMode', 'workflowSteps']);
   if (stored.bridgeUrl) bridgeUrl = stored.bridgeUrl;
   if (stored.companionToken) companionToken = stored.companionToken;
-  if (stored.permissionMode) $('permission-mode-select').value = stored.permissionMode;
+  const permissionMode = normalizePermissionMode(stored.permissionMode);
+  $('permission-mode-select').value = permissionMode;
+  if (stored.permissionMode !== permissionMode) await chrome.storage.local.set({ permissionMode });
+  updatePermissionModeDescription(permissionMode);
   if (Array.isArray(stored.workflowSteps)) {
     recordedWorkflowSteps = stored.workflowSteps;
     renderWorkflowSteps();
@@ -130,18 +133,84 @@ async function syncCurrentTabToBridge() {
 // -----------------------------------------------------------------------------
 // Approval Banner
 // -----------------------------------------------------------------------------
-let pendingApprovalResolver = null;
+let pendingApprovalId = null;
 
 function showApprovalBanner(details) {
-  $('approval-desc').textContent = `Action: "${details.tool || 'Browser action'}" on ${details.origin || currentTab?.origin || 'site'}`;
+  $('approval-desc').textContent = `Action: ${details.summary || details.tool || 'Browser action'} on ${details.origin || currentTab?.origin || 'site'}`;
   $('approval-banner').classList.add('visible');
+  pendingApprovalId = details.id;
 }
 
-function settleApproval(decision) {
-  $('approval-banner').classList.remove('visible');
-  if (pendingApprovalResolver) {
-    pendingApprovalResolver(decision);
-    pendingApprovalResolver = null;
+function approvalActionSummary(item) {
+  const args = item.args && typeof item.args === 'object' ? item.args : {};
+  const selector = String(args.selector || 'the selected element').slice(0, 180);
+  switch (item.tool) {
+    case 'browser_click': return `Click ${selector}`;
+    case 'browser_type': return typeof args.text === 'string'
+      ? `Enter ${args.text.length} characters into ${selector}`
+      : `Enter text into ${selector}`;
+    case 'browser_select': return `Choose an option in ${selector}`;
+    case 'browser_download': return `Download from ${selector}`;
+    case 'browser_navigate': {
+      try {
+        const url = new URL(String(args.url || ''));
+        return `Navigate to ${url.origin}${url.pathname}`;
+      } catch (_) { return 'Navigate to a website'; }
+    }
+    case 'browser_scroll': return `Scroll ${String(args.direction || 'down')}`;
+    case 'browser_tab_create': return 'Open a new browser tab';
+    case 'browser_tab_select': return 'Select a browser tab';
+    default: return String(item.tool || 'Browser action');
+  }
+}
+
+function approvalTargetOrigin(item, fallbackTab) {
+  const args = item.args && typeof item.args === 'object' ? item.args : {};
+  for (const candidate of [args.targetOrigin, fallbackTab?.origin]) {
+    try {
+      const url = new URL(String(candidate || ''));
+      if (url.protocol === 'http:' || url.protocol === 'https:') return url.origin;
+    } catch (_) { /* Continue to the next source, then show a neutral fallback. */ }
+  }
+  return 'site';
+}
+
+async function refreshActionApproval() {
+  if (!activeTask || !activeTaskSession || !companionToken) return;
+  try {
+    const response = await fetch('http://127.0.0.1:7777/api/approvals', {
+      headers: { authorization: 'Bearer ' + companionToken },
+    });
+    if (!response.ok) return;
+    const state = await response.json();
+    const pending = (state.pending || []).find(item => item.sessionId === activeTaskSession);
+    if (pending) showApprovalBanner({ id: pending.id, tool: pending.tool, summary: approvalActionSummary(pending), origin: approvalTargetOrigin(pending, currentTab) });
+    else if (pendingApprovalId) {
+      pendingApprovalId = null;
+      $('approval-banner').classList.remove('visible');
+    }
+  } catch (_) {}
+}
+
+async function settleApproval(decision) {
+  if (!pendingApprovalId || !companionToken) return;
+  const id = pendingApprovalId;
+  const buttons = ['btn-approve-once', 'btn-approve-session', 'btn-reject'].map($);
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const response = await fetch('http://127.0.0.1:7777/api/approvals/' + encodeURIComponent(id), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + companionToken },
+      body: JSON.stringify({ decision }),
+    });
+    if (!response.ok) throw new Error('Approval request is no longer pending.');
+    pendingApprovalId = null;
+    $('approval-banner').classList.remove('visible');
+    taskStatus(decision === 'rejected' ? 'Action rejected.' : 'Action approved.');
+  } catch (error) {
+    taskStatus('Could not submit approval: ' + String(error?.message || error));
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
   }
 }
 
@@ -346,11 +415,30 @@ $('btn-schedule-wf').addEventListener('click', async () => {
 // Security & Audit Tab
 // -----------------------------------------------------------------------------
 $('permission-mode-select').addEventListener('change', async (e) => {
-  const mode = e.target.value;
+  const mode = normalizePermissionMode(e.target.value);
+  e.target.value = mode;
   await chrome.storage.local.set({ permissionMode: mode });
+  updatePermissionModeDescription(mode);
   await syncCurrentTabToBridge();
   await refreshActiveTab();
 });
+
+function normalizePermissionMode(value) {
+  if (value === 'manual' || value === 'ask_every_time') return 'manual';
+  if (value === 'auto' || value === 'auto_safe') return 'auto';
+  if (value === 'skip') return 'skip';
+  return 'auto';
+}
+
+function updatePermissionModeDescription(mode) {
+  const descriptions = {
+    manual: 'Ask you to approve each browser action. Chrome still controls which sites the companion can access.',
+    auto: 'Automatically screen page content and each action. Uncertain, sensitive, or protected actions may need your approval.',
+    skip: 'Skip automatic checks. Explicit approval rules, prohibited-action blocks, and Chrome site permissions still apply.',
+  };
+  const description = $('permission-mode-description');
+  if (description) description.textContent = descriptions[mode] || descriptions.auto;
+}
 
 function sitePattern(origin) {
   const url = new URL(origin);
@@ -361,13 +449,30 @@ function sitePattern(origin) {
 // The agent itself cannot grant site access.
 function allowSiteFromClick(origin, button, feedback, once = false) {
   button.disabled = true;
-  void Promise.resolve().then(async () => {
-    // The Chrome dialog was the one and only site grant.
-    const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_GRANTED', origin, once });
+  let permissionRequest;
+  try {
+    // This must be called synchronously in the button's user-gesture handler.
+    permissionRequest = chrome.permissions.request({ origins: [sitePattern(origin)] });
+  } catch (error) {
+    permissionRequest = Promise.reject(error);
+  }
+  void Promise.resolve(permissionRequest).then(async (granted) => {
+    if (!granted) {
+      await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_DENIED', origin });
+      throw new Error('Chrome did not grant access to ' + origin);
+    }
+    const { pending } = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_PENDING_ACCESS' });
+    if (pending?.origin === origin) {
+      const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_APPROVAL_GRANTED', origin, once });
+      if (!result?.ok) throw new Error(result?.error || 'Chrome site permission was not accepted');
+    } else if (once) {
+      await chrome.permissions.remove({ origins: [sitePattern(origin)] });
+      throw new Error('The site request expired; its temporary Chrome permission was removed. Retry the browser action.');
+    }
     await syncCurrentTabToBridge();
     await refreshActiveTab();
     await refreshPendingSite();
-    feedback.textContent = result?.ok ? 'Approved; the AI task is continuing.' : 'Approved for future browser tasks.';
+    feedback.textContent = once ? 'Allowed for this action. The Chrome permission will be removed afterward.' : 'Allowed by Chrome; the task is continuing.';
   }).catch(e => { feedback.textContent = 'Access error: ' + String(e.message || e); })
     .finally(() => { button.disabled = false; });
 }
@@ -377,11 +482,7 @@ $('allow-current-origin-btn').addEventListener('click', () => {
 
 $('revoke-current-origin-btn').addEventListener('click', async () => {
   if (!currentTab?.origin) return;
-  // Clean obsolete metadata from versions before the single-grant migration.
-  const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-  await chrome.storage.local.set({
-    approvedOrigins: approvedOrigins.filter(origin => origin !== currentTab.origin)
-  });
+  await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_ACCESS_REVOKE', origin: currentTab.origin });
   await syncCurrentTabToBridge();
   await refreshActiveTab();
 });
@@ -445,8 +546,10 @@ setInterval(() => void refreshPendingSite(), 1000);
 // Connection, permission and recent activity overview
 // -----------------------------------------------------------------------------
 async function updateOverviewStatus() {
-  const { approvedOrigins: approved = [] } = await chrome.storage.local.get('approvedOrigins');
-  const isApproved = Boolean(currentTab?.origin && approved.includes(currentTab.origin));
+  const access = currentTab?.origin
+    ? await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_ACCESS_STATUS', origin: currentTab.origin })
+    : { granted: false };
+  const isApproved = Boolean(access?.granted);
   const hasCapture = Boolean(currentTab?.url);
   $('overview-site-origin').textContent = currentTab?.origin || 'No site selected';
   $('overview-site-status').textContent = isApproved ? 'Approved' : 'Not approved';
@@ -572,6 +675,7 @@ $('task-form').addEventListener('submit', async event => {
   if (!companionToken) { taskStatus('Connect Switchboard first.'); return; }
   activeTask = new AbortController();
   activeTaskSession = null;
+  const approvalPoll = setInterval(() => void refreshActionApproval(), 500);
   $('task-send').disabled = true;
   $('task-stop').disabled = false;
   const log = $('chat-log');
@@ -613,7 +717,10 @@ $('task-form').addEventListener('submit', async event => {
         if (!line.startsWith('data: ')) continue;
         let item;
         try { item = JSON.parse(line.slice(6)); } catch (_) { continue; }
-        if (item.type === 'session') activeTaskSession = item.sessionId;
+        if (item.type === 'session') {
+          activeTaskSession = item.sessionId;
+          void refreshActionApproval();
+        }
         if (item.type === 'tool_call') taskStatus('Using ' + String(item.name || 'browser tool'));
         if (item.type === 'final') {
           reply.innerHTML = formatReply(item.content || 'Finished without a text answer.');
@@ -626,7 +733,11 @@ $('task-form').addEventListener('submit', async event => {
   } catch (error) {
     if (error?.name !== 'AbortError') taskStatus('Failed: ' + String(error?.message || error));
   } finally {
+    clearInterval(approvalPoll);
     activeTask = null;
+    activeTaskSession = null;
+    pendingApprovalId = null;
+    $('approval-banner').classList.remove('visible');
     $('task-send').disabled = false;
     $('task-stop').disabled = true;
     await refreshPendingSite();

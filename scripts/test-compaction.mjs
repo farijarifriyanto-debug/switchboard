@@ -57,7 +57,7 @@ const boot = (extra = {}) =>
     metrics: { persist: '', load: false },
     sessions: { dir: '' },
     settings: { dir: '' },
-    agent: { maxPromptTokens: 900, keepRecent: 4 },
+    agent: { maxPromptTokens: 1_200, keepRecent: 4 },
     compaction: { keepRecent: 4 },
     web: { enabled: true, port: 0 },
     ...extra,

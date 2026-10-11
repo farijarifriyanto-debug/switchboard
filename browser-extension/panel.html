@@ -308,7 +308,7 @@
     <section id="site-request" role="region" aria-label="AI site permission request" hidden>
       <h2>Site access requested by Switchboard</h2>
       <p id="site-request-desc"></p>
-      <p>Chrome asks once for access to this website. No extra site approval in Switchboard.</p>
+      <p>Choose the scope, then confirm the site permission in Chrome. Switchboard does not keep a second site allowlist.</p>
       <div class="row">
         <button id="site-request-once">Allow this action</button>
         <button id="site-request-allow">Always allow actions on this site</button>
@@ -369,7 +369,7 @@
 
         <section class="ui-card" aria-label="Site permissions">
           <div class="card-head"><h2>Site permissions</h2><span id="overview-site-status" class="status-pill is-offline">Not approved</span></div>
-          <p id="overview-site-desc" class="card-note">One Chrome site permission is enough to let Switchboard work here.</p>
+          <p id="overview-site-desc" class="card-note">Chrome controls whether Switchboard can access this site.</p>
           <div class="site-url-row"><span>Origin</span><strong id="overview-site-origin">No site selected</strong></div>
           <div class="card-buttons">
             <button id="overview-allow-btn">Allow this site</button>
@@ -443,20 +443,20 @@
 
   <!-- Permissions & Audit -->
   <div id="tab-security" class="tab-pane"><div class="panel-hint">Site permissions and agent activity stay under your control. Review permissions before granting access.</div>
-    <label for="permission-mode-select">Permission Mode</label>
+    <label for="permission-mode-select">Browser action mode</label>
     <select id="permission-mode-select">
-      <option value="ask_every_time">Manual — confirm agent actions</option>
-      <option value="auto_safe">Auto — use existing action policy</option>
-      <option value="skip">Skip — no extra prompts (Chrome site permission still required)</option>
+      <option value="manual">Manual — approve each browser action</option>
+      <option value="auto" selected>Auto — screen page content and each action</option>
+      <option value="skip">Skip — skip automatic checks</option>
     </select>
-    <p style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Sensitive credential and payment card fields are always strictly blocked in every mode.</p>
+    <p id="permission-mode-description" style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Auto checks page content and each browser action. Uncertain or protected actions may need your approval.</p>
 
     <div class="row" style="margin-bottom:10px">
-      <button id="allow-current-origin-btn" style="background:var(--success)">Allow Current Site Origin</button>
-      <button id="revoke-current-origin-btn" class="danger">Revoke Current Site</button>
+      <button id="allow-current-origin-btn" style="background:var(--success)">Allow Current Site in Chrome</button>
+      <button id="revoke-current-origin-btn" class="danger">Revoke Chrome Access</button>
     </div>
 
-    <label>Approved Origins</label>
+    <label>Chrome-granted Site Origins</label>
     <pre id="approved-origins-view">None</pre>
 
     <div class="row" style="margin-top:10px;margin-bottom:4px">

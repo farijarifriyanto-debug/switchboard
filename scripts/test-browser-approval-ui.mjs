@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises'
 import { createHost } from '../dist/index.js'
 
 const app = await readFile(new URL('../web/app.js', import.meta.url), 'utf8')
+const panel = await readFile(new URL('../browser-extension/panel.js', import.meta.url), 'utf8')
 const start = app.indexOf('/** Human-readable browser actions')
 const end = app.indexOf('\nfunction ioSection(', start)
 assert.ok(start > 0 && end > start)
@@ -46,6 +47,17 @@ console.log('PASS approval UI names exact browser action, selector, tab, and las
 console.log('PASS mismatched tabs do not receive a false site attribution')
 console.log('PASS navigation URL, typed text and expanded tool cards protect private values')
 
+const panelStart = panel.indexOf('function approvalActionSummary(item) {')
+const panelEnd = panel.indexOf('\nasync function refreshActionApproval()', panelStart)
+assert.ok(panelStart >= 0 && panelEnd > panelStart, 'side-panel approval helpers are present')
+const panelApproval = new Function(panel.slice(panelStart, panelEnd) + '\nreturn { approvalActionSummary, approvalTargetOrigin }')()
+const privacyReducedTyping = { tool: 'browser_type', args: { selector: '#pesan', targetOrigin: 'http://127.0.0.1:8999' } }
+assert.equal(panelApproval.approvalActionSummary(privacyReducedTyping), 'Enter text into #pesan', 'a redacted text value must not be described as zero characters')
+assert.equal(panelApproval.approvalTargetOrigin(privacyReducedTyping, { origin: 'chrome-extension://maaiobpoekgkcgmdklepdajjoojbbjfj' }), 'http://127.0.0.1:8999', 'approval should name the agent action origin, not the extension tab')
+assert.equal(panelApproval.approvalTargetOrigin({ tool: 'browser_type', args: { selector: '#email', targetOrigin: 'https://example.org/path?secret=x' } }, null), 'https://example.org', 'approval context must be reduced to the target origin')
+assert.doesNotMatch(panelApproval.approvalActionSummary({ tool: 'browser_type', args: { selector: '#email', text: 'supersecretpassword' } }), /supersecretpassword/)
+console.log('PASS side-panel approvals retain the agent target origin and truthful private-text summary')
+
 const randomPort = async () => {
   const sock = net.createServer()
   await new Promise((resolve,reject) => { sock.once('error', reject); sock.listen(0, '127.0.0.1', resolve) })
@@ -65,6 +77,11 @@ const host = await createHost({
 })
 try {
   const {url} = await host.ctx.web.ready()
+  host.ctx.browserCompanion.setMode('manual')
+  host.ctx.browserCompanion.isClientConnected = () => true
+  host.ctx.browserCompanion.executeOnBrowser = async (tool) => tool === 'browser_tabs_list'
+    ? { ok: true, tabs: [{ id: 45, url: 'https://example.org/check?api_key=PRIVATE#secret', active: true }] }
+    : { ok: true, result: 'unused' }
   const status = await fetch('http://127.0.0.1:' + port + '/api/browser-companion/status', {
     method: 'POST',
     headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },

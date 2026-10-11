@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 
 const event = () => ({ addListener() {}, removeListener() {} });
-const local = { permissionMode: 'auto_safe', approvedOrigins: ['http://127.0.0.1:7777'] };
+const local = { permissionMode: 'auto_safe' };
 const temporary = {};
 const hostGrants = new Set(['http://127.0.0.1/*']);
 const tab = { id: 4, windowId: 1, url: 'http://127.0.0.1:7777/', title: 'Test', active: true, groupId: -1 };
@@ -47,12 +47,12 @@ const chrome = {
   scripting: {
     async executeScript({ func, args }) {
       const src = func.toString();
-      if (src.includes('getAttribute')) return [{ result: label }];
-      if (src.includes('getBoundingClientRect')) {
-        const result = { point: clickPoint, clicked: args[1], text: 'x' };
+      if (args?.[0] === 'click') {
+        const result = { point: clickPoint, clicked: args[1] };
         for (const cb of downloadListeners) cb({ filename: 'report.pdf', url: 'https://example.com/report.pdf' });
         return [{ result }];
       }
+      if (src.includes('getAttribute')) return [{ result: label }];
       if (src.includes('querySelector') && !src.includes('getBoundingClientRect')) return [{ result: 'Clicks: 1' }];
       return [{ result: { ok: true } }];
     }
@@ -96,7 +96,7 @@ const wait = () => new Promise(r => setTimeout(r, 35));
   const pressed = log.debugger.find(e => e[0] === 'Input.dispatchMouseEvent' && e[1].type === 'mousePressed');
   assert.deepEqual([pressed[1].x, pressed[1].y], [10, 20], 'click lands on the element center');
   assert.equal(r.result.point, undefined, 'point is internal and not returned to the agent');
-  assert.equal(r.result.text, 'Clicks: 1', 'text is read after the click');
+  assert.equal(r.result.text, undefined, 'click result does not persist page or input values');
   console.log('PASS trusted click goes through CDP Input events and detaches');
 }
 
@@ -110,38 +110,31 @@ const wait = () => new Promise(r => setTimeout(r, 35));
   console.log('PASS screenshot uses Page.captureScreenshot, no user gesture needed');
 }
 
-// 3. Authorization click is Protected: asks even when the site is allowed.
+// 3. Site permission is not requested again for an action on an allowed site.
 {
   label = 'Allow access to your account';
   log.debugger.length = 0;
-  const pending = run("handleToolExecution('browser_click', { selector: '#consent' })");
-  await wait();
-  assert.equal(log.debugger.length, 0, 'no click before approval');
-  assert.ok(run('pendingSiteRequests.size') > 0, 'approval requested for an authorization click');
-  await run("settleSiteAccess('http://127.0.0.1:7777', true, true)");
-  const r = await pending;
+  const r = await run("handleToolExecution('browser_click', { selector: '#consent' })");
   assert.equal(r.ok, true);
+  assert.equal(run('pendingSiteRequests.size'), 0, 'no second site permission request for an allowed site');
   assert.ok(log.debugger.some(e => e[0] === 'Input.dispatchMouseEvent'));
   label = '';
-  console.log('PASS authorization click waits for approval even on an allowed site');
+  console.log('PASS allowed site does not trigger duplicate site permission for authorization click');
 }
 
-// 4. Download is Protected and reports the file Chrome started.
+// 4. Download reports the file Chrome started; action approval is handled by Switchboard.
 {
   log.debugger.length = 0;
-  const pending = run("handleToolExecution('browser_download', { selector: '#dl' })");
-  await wait();
-  assert.equal(log.debugger.length, 0, 'no download click before approval');
-  await run("settleSiteAccess('http://127.0.0.1:7777', true, true)");
-  const r = await pending;
+  const r = await run("handleToolExecution('browser_download', { selector: '#dl' })");
   assert.equal(r.filename, 'report.pdf');
+  assert.equal(run('pendingSiteRequests.size'), 0, 'download action does not trigger a duplicate site prompt');
   assert.equal(downloadListeners.length, 0, 'download listener cleaned up');
-  console.log('PASS download asks first and reports the started file');
+  console.log('PASS download reports the started file without another site prompt');
 }
 
 // 5. Tab creation groups the new tab under "Switchboard".
 {
-  local.approvedOrigins.push('https://example.org');
+  hostGrants.add('https://example.org/*');
   log.groups.length = 0;
   const r = await run("handleToolExecution('browser_tab_create', { url: 'https://example.org/' })");
   assert.equal(r.ok, true);

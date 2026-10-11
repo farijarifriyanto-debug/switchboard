@@ -70,7 +70,10 @@ assert.ok(!JSON.stringify(dk.args).includes('hunter2'))
 // ---- real isolation, when this machine can do it
 const real = async (sandbox, label) => {
   const dir = await mkdtemp(path.join(tmpdir(), 'sbx-real-'))
+  const hostSecretName = `sbx-host-secret-${path.basename(dir)}.txt`
+  const hostSecret = path.join(path.dirname(dir), hostSecretName)
   await writeFile(path.join(dir, 'in.txt'), 'project file')
+  await writeFile(hostSecret, 'host-only sentinel')
   const make = (extra = {}) =>
     createHost({
       llm: { baseURL: 'http://127.0.0.1:9/v1', defaultModel: 'stub', retries: 0 },
@@ -86,7 +89,8 @@ const real = async (sandbox, label) => {
   try {
     assert.equal(await run('cat /workspace/in.txt'), 'project file', `${label}: the project is visible`)
     assert.match(await run('echo "[$SBX_TEST_SECRET]"'), /^\[\]$/, `${label}: host env (API keys) is not visible`)
-    assert.match(await run('ls /home 2>&1; ls /root 2>&1; cat /etc/shadow 2>&1'), /No such file|cannot access|Permission denied|can't open/, `${label}: the host home/shadow are not there`)
+    const hostSecretLookup = (await run(`find / -type f -name '${hostSecretName}' -print 2>/dev/null | head -n 1`)).trim()
+    assert.ok(hostSecretLookup === '' || hostSecretLookup === '(no output)', `${label}: host-only files are not mounted into the sandbox`)
     await run('echo written > /workspace/out.txt')
     assert.equal((await readFile(path.join(dir, 'out.txt'), 'utf8')).trim(), 'written', `${label}: writes to the project land on the host`)
     assert.equal((await run('cat /proc/net/dev | tail -n +3 | wc -l')).trim(), '1', `${label}: only the loopback interface exists`)
@@ -105,6 +109,7 @@ const real = async (sandbox, label) => {
     }
     return Date.now() - started
   } finally {
+    await rm(hostSecret, { force: true })
     await rm(dir, { recursive: true, force: true })
   }
 }

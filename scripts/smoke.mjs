@@ -9,7 +9,8 @@ import { createHost } from '../dist/index.js'
 
 const host = await createHost({
   llm: { baseURL: 'http://127.0.0.1:9/v1', defaultModel: 'stub' },
-  // Keep the smoke test hermetic: no persisted telemetry/sessions from earlier runs.
+  // Keep the smoke test hermetic: no persisted settings/telemetry/sessions from earlier runs.
+  settings: { dir: '' },
   metrics: { persist: '', load: false },
   sessions: { dir: '', load: false },
 })
@@ -123,6 +124,7 @@ try {
   // Web console: static assets + JSON API over loopback.
   const webHost = await createHost({
     llm: { baseURL: 'http://127.0.0.1:9/v1', defaultModel: 'stub' },
+    settings: { dir: '' },
     metrics: { persist: '', load: false },
     sessions: { dir: '', load: false },
     web: { enabled: true, port: 0 },

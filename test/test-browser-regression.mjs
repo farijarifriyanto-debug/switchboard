@@ -139,8 +139,10 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
 // -----------------------------------------------------------------------------
 {
   assert.doesNotMatch(bgSource, /'restricted'/, 'restricted mode is removed (Claude in Chrome has Manual, Auto, Skip)')
-  assert.match(bgSource, /PROTECTED_TOOLS\.has\(tool\)/,
-    'protected actions ask for approval every time, even for an allowed site')
+  assert.match(bgSource, /chrome\.permissions\.contains\(\{ origins: \[sitePattern\(origin\)\] \}\)/,
+    'Chrome native host grant is the site access decision')
+  assert.doesNotMatch(bgSource, /approvedOrigins = \[\]\)[\s\S]{0,100}return approvedOrigins\.includes\(origin\)/,
+    'legacy local origin allowlist cannot grant site access')
   assert.match(bgSource, /releaseOneTimeGrants\(\)/,
     'Allow this action ends with the tool call')
   console.log('✓ Regression Bug #8: Permission mode enforcement verified')

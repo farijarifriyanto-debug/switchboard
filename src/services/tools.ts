@@ -8,6 +8,21 @@ export interface ToolContext {
   workspace?: string
   sessionId?: string
   signal?: AbortSignal
+  /** Trusted user task for this turn; browser page data must never populate it. */
+  userIntent?: string
+  model?: string
+  provider?: string
+  /** Ephemeral browser binding produced by preflight; never persisted or logged. */
+  browserPageBinding?: {
+    tabId: number
+    origin: string
+    hash: string
+    kind?: 'page' | 'tab' | 'navigation'
+    pageOrigin?: string
+    mode?: 'manual' | 'auto' | 'skip'
+    safeSnapshot?: unknown
+    safeContent?: string
+  }
   /** Tool names this agent may NOT run (subagent children: ['task']). */
   deny?: string[]
 }
@@ -20,7 +35,29 @@ export interface ToolSpec {
   exposed?: boolean
   /** `risky` is gated by the `risky` approval mode (external tools that may mutate state). */
   risk?: 'risky'
+  /** Optional per-tool action policy. Global `all` still applies to every tool. */
+  requiresApproval?: (args: any, ctx: ToolContext) => boolean
+  /** Structured async policy. `block` is non-overridable; `require_approval` uses ApprovalService. */
+  preflight?: (args: any, ctx: ToolContext) => ToolPolicyResult | Promise<ToolPolicyResult>
+  /** Safe, bounded arguments for approval UI, logs, and activity events. */
+  auditArgs?: (args: any) => unknown
   execute(args: any, ctx: ToolContext): Promise<string | ToolResult> | string | ToolResult
+}
+
+export interface ToolPolicyResult {
+  verdict: 'continue' | 'require_approval' | 'block'
+  reason: string
+}
+
+export interface PreparedToolCall {
+  name: string
+  args: unknown
+  context: ToolContext
+  tool?: ToolRegistration
+  policy: ToolPolicyResult
+  needsApproval: boolean
+  fingerprint: string
+  earlyResult?: ToolResult
 }
 
 export interface ToolResult {
@@ -97,25 +134,123 @@ export class ToolsService extends Service {
 
   /** Additive rich-result API; string plugins and the agent loop remain compatible. */
   async callResult(name: string, args: unknown, ctx: ToolContext = {}): Promise<ToolResult> {
+    return this.callPrepared(await this.prepare(name, args, ctx))
+  }
+
+  /** Evaluates a tool's policy once and binds it to this exact call. */
+  async prepare(name: string, args: unknown, ctx: ToolContext = {}): Promise<PreparedToolCall> {
     const failure = (content: string): ToolResult => ({ content, isError: true })
     const tool = this.registry.get(name)
-    if (!tool) return failure(`Error: unknown tool "${name}"`)
-    if (ctx.deny?.includes(name)) {
-      return failure(`Error: tool "${name}" is not available to this agent`)
+    if (!tool) return { name, args, context: ctx, policy: { verdict: 'block', reason: 'Unknown tool.' }, needsApproval: false, fingerprint: '', earlyResult: failure(`Error: unknown tool "${name}"`) }
+    if (ctx.deny?.includes(name)) return { name, args, context: ctx, tool, policy: { verdict: 'block', reason: 'Tool is not available to this agent.' }, needsApproval: false, fingerprint: '', earlyResult: failure(`Error: tool "${name}" is not available to this agent`) }
+
+    let policy: ToolPolicyResult = { verdict: 'continue', reason: '' }
+    try {
+      if (tool.preflight) {
+        policy = await tool.preflight(args, ctx)
+        if (!policy || !['continue', 'require_approval', 'block'].includes(policy.verdict)) {
+          policy = { verdict: 'require_approval', reason: 'Tool policy returned an invalid decision.' }
+        }
+      } else {
+        const requiresApproval = tool.requiresApproval
+          ? tool.requiresApproval(args, ctx)
+          : this.ctx.approvals.needsApproval(name, ctx.sessionId, tool.risk)
+        if (requiresApproval) policy = { verdict: 'require_approval', reason: 'Approval is required by tool policy.' }
+      }
+    } catch {
+      // A failed policy check must never turn into a successful tool call.
+      policy = { verdict: 'require_approval', reason: 'Tool policy evaluation failed; approval is required.' }
+    }
+    const legacySessionGrant = !tool.preflight && this.ctx.approvals.hasSessionGrant(name, ctx.sessionId)
+    const needsApproval = policy.verdict !== 'block' && !legacySessionGrant
+      && (policy.verdict === 'require_approval' || this.ctx.approvals.mode === 'all')
+    let fingerprint: string
+    try {
+      fingerprint = JSON.stringify({ name, args, sessionId: ctx.sessionId, userIntent: ctx.userIntent, model: ctx.model, provider: ctx.provider, browserPageBinding: ctx.browserPageBinding })
+    } catch {
+      return { name, args, context: ctx, tool, policy: { verdict: 'block', reason: 'Tool arguments could not be bound safely.' }, needsApproval: false, fingerprint: '', earlyResult: failure('Error: tool arguments could not be bound safely.') }
+    }
+    return { name, args, context: ctx, tool, policy, needsApproval, fingerprint }
+  }
+
+  /** Safe argument projection shared by tool events, traces, and approval UI. */
+  auditArgs(name: string, args: unknown, ctx: ToolContext = {}): unknown {
+    const tool = this.registry.get(name)
+    try {
+      let projected: unknown
+      if (tool?.auditArgs) projected = tool.auditArgs(args)
+      else if (!name.startsWith('browser_')) return args
+      else {
+      const redact = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(redact)
+        if (!value || typeof value !== 'object') return value
+        const out: Record<string, unknown> = {}
+        for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+          if (/^(text|value|content|password|token|authorization|cookie|secret)$/i.test(key)) continue
+          if (/^(url|href)$/i.test(key) && typeof child === 'string') {
+            try { out[key] = new URL(child).origin } catch { out[key] = '[redacted]' }
+          } else out[key] = redact(child)
+        }
+        return out
+      }
+        projected = redact(args)
+      }
+      if (name.startsWith('browser_') && ctx.browserPageBinding && projected && typeof projected === 'object' && !Array.isArray(projected)) {
+        return { ...(projected as Record<string, unknown>), targetOrigin: ctx.browserPageBinding.origin }
+      }
+      return projected
+    } catch {
+      return '[arguments hidden]'
+    }
+  }
+
+  /** Safe arguments for persistent assistant/tool history sent back to the model.
+   * Unlike auditArgs, retain the presence of private browser inputs so the model
+   * can distinguish "a value was entered" from "no value was supplied".
+   */
+  conversationArgs(name: string, args: unknown, ctx: ToolContext = {}): unknown {
+    const projected = this.auditArgs(name, args, ctx)
+    if (!name.startsWith('browser_') || !args || typeof args !== 'object' || Array.isArray(args)
+      || !projected || typeof projected !== 'object' || Array.isArray(projected)) return projected
+
+    const source = args as Record<string, unknown>
+    const safe = { ...(projected as Record<string, unknown>) }
+    if (name === 'browser_type') {
+      if (Object.prototype.hasOwnProperty.call(source, 'text')) safe.text = '[redacted]'
+      else if (Object.prototype.hasOwnProperty.call(source, 'value')) safe.value = '[redacted]'
+    } else if (name === 'browser_select' && Object.prototype.hasOwnProperty.call(source, 'value')) {
+      safe.value = '[redacted]'
+    }
+    return safe
+  }
+
+  /** Runs the already-prepared call, requesting no more than one approval. */
+  async callPrepared(prepared: PreparedToolCall): Promise<ToolResult> {
+    const failure = (content: string): ToolResult => ({ content, isError: true })
+    if (prepared.earlyResult) return prepared.earlyResult
+    const tool = prepared.tool
+    if (!tool) return failure(`Error: unknown tool "${prepared.name}"`)
+    if (prepared.context.deny?.includes(prepared.name)) return failure(`Error: tool "${prepared.name}" is not available to this agent`)
+    let currentFingerprint: string
+    try {
+      const ctx = prepared.context
+      currentFingerprint = JSON.stringify({ name: prepared.name, args: prepared.args, sessionId: ctx.sessionId, userIntent: ctx.userIntent, model: ctx.model, provider: ctx.provider, browserPageBinding: ctx.browserPageBinding })
+    } catch {
+      return failure('Error: prepared tool arguments could not be verified.')
+    }
+    if (currentFingerprint !== prepared.fingerprint) return failure('Error: tool context changed after safety preflight; prepare the action again.')
+    if (prepared.policy.verdict === 'block') return failure(`Error: action blocked by safety policy. ${prepared.policy.reason}`.trim())
+    const { context: ctx } = prepared
+    if (prepared.needsApproval) {
+      const decision = await this.ctx.approvals.request(prepared.name, this.auditArgs(prepared.name, prepared.args, ctx), ctx.sessionId, ctx.signal)
+      if (decision === 'approved_session' && !tool.preflight) this.ctx.approvals.grantSession(prepared.name, ctx.sessionId)
+      if (decision === 'rejected') return failure('Error: the operator rejected this tool call.')
+      if (decision === 'timeout') return failure('Error: approval timed out; the tool was not run.')
+      if (decision === 'cancelled') return failure('Error: approval was cancelled; the tool was not run.')
     }
     try {
-      // The approval gate lives here so *every* caller (agent loop, console,
-      // future subagents) is covered by the same policy. needsApproval()
-      // already honors a live "Allow for this session" grant.
-      if (this.ctx.approvals.needsApproval(name, ctx.sessionId, tool.risk)) {
-        const decision = await this.ctx.approvals.request(name, args, ctx.sessionId, ctx.signal)
-        if (decision === 'approved_session') this.ctx.approvals.grantSession(name, ctx.sessionId)
-        if (decision === 'rejected') return failure('Error: the operator rejected this tool call.')
-        if (decision === 'timeout') return failure('Error: approval timed out; the tool was not run.')
-        if (decision === 'cancelled') return failure('Error: approval was cancelled; the tool was not run.')
-      }
       if (ctx.signal?.aborted) return failure('Error: tool call cancelled before execution.')
-      const out = await tool.execute(args, ctx)
+      const out = await tool.execute(prepared.args, ctx)
       if (typeof out === 'string') return { content: out, ...(out.startsWith('Error:') ? { isError: true } : {}) }
       if (out && typeof out.content === 'string') {
         return { ...out, content: out.isError && !out.content.startsWith('Error:') ? `Error: ${out.content}` : out.content }

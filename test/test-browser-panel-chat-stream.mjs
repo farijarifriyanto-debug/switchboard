@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createHost } from '../dist/index.js';
+
+const panelSource=readFileSync('browser-extension/panel.js','utf8');
+const panelHtml=readFileSync('browser-extension/panel.html','utf8');
+assert.match(panelSource,/api\/approvals['"]?/, 'side panel must poll backend action approvals');
+assert.match(panelSource,/item\.sessionId === activeTaskSession/, 'only the active chat session approval is shown');
+assert.match(panelSource,/api\/approvals\/['"] \+ encodeURIComponent\(id\)/, 'side panel must settle the matching approval');
+assert.match(panelHtml,/option value="auto" selected/, 'Auto is the default in the modern browser side panel');
+for (const mode of ['manual', 'auto', 'skip']) assert.match(panelHtml,new RegExp(`option value="${mode}"`),`${mode} action mode is available`);
+assert.match(panelHtml,/skip automatic checks/i,'Skip explains that it disables automatic checks');
+assert.match(panelSource,/ask_every_time.*manual|manual.*ask_every_time/i,'legacy Manual mode is migrated');
+assert.match(panelSource,/auto_safe.*auto|auto.*auto_safe/i,'legacy Auto mode is migrated');
 
 const randomPort=async()=>{const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p};
 const provider=http.createServer((req,res)=>{

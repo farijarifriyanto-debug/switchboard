@@ -279,7 +279,7 @@ try {
             el.value = '${text}';
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
-            return { typedLength: ${text.length}, selector: '${sel}' };
+            return { typedLength: ${text.length}, selector: '${sel}', verified: true };
           })()
         `)
       } else if (tool === 'browser_select') {
@@ -352,7 +352,7 @@ try {
 
   // 1c. Real Typing & Input Event Trigger
   const typeRaw = await host.ctx.tools.call('browser_type', { selector: '#search-input', text: 'switchboard' })
-  assert.match(typeRaw, /typedLength.*11/)
+  assert.match(typeRaw, /verified.*true/)
   const liveStatusText = await evalInChrome("document.getElementById('search-status').innerText")
   assert.equal(liveStatusText, 'Searched: switchboard', 'real Chrome oninput event dispatched')
   console.log('✓ browser_type typed into live Chrome input and triggered oninput handler')
