@@ -548,6 +548,22 @@ $('task-stop').addEventListener('click', async () => {
   activeTask?.abort();
   taskStatus('Stopped.');
 });
+// Enter sends; Shift+Enter adds a line.
+$('task-prompt').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  if (!activeTask) $('task-form').requestSubmit();
+});
+
+// Plain text escaped first, then only **bold**, `code` and line breaks are added.
+function formatReply(text) {
+  const escaped = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return escaped
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>');
+}
+
 $('task-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (activeTask) return;
@@ -600,7 +616,7 @@ $('task-form').addEventListener('submit', async event => {
         if (item.type === 'session') activeTaskSession = item.sessionId;
         if (item.type === 'tool_call') taskStatus('Using ' + String(item.name || 'browser tool'));
         if (item.type === 'final') {
-          reply.textContent = String(item.content || 'Finished without a text answer.');
+          reply.innerHTML = formatReply(item.content || 'Finished without a text answer.');
           log.scrollTop = log.scrollHeight;
           taskStatus(item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
