@@ -221,6 +221,13 @@
 
       /* Side panel shows only the chat, like Claude in Chrome. ?view=settings shows the full layout. */
     body.chat-only nav, body.chat-only .tab-pane:not(#tab-overview), body.chat-only #tab-overview > :not(.task-card) { display: none !important; }
+    /* Chat-only: one quiet column, no cards, no status chrome (Claude in Chrome style). */
+    body.chat-only .app-header, body.chat-only .page-intro, body.chat-only .context-bar, body.chat-only #companion-badge, body.chat-only #task-open-web, body.chat-only .task-card label, body.chat-only .task-card .card-head { display: none !important; }
+    body.chat-only .app-shell { padding: 14px; }
+    body.chat-only .task-card { border: 0; box-shadow: none; background: transparent; padding: 0; margin: 0; }
+    body.chat-only .task-card textarea { min-height: 120px; font-size: 14px; }
+    body.chat-only .task-card .row { justify-content: flex-end; }
+    body.chat-only #task-settings { border: 0; background: transparent; box-shadow: none; }
   </style>
 </head>
 <body>
