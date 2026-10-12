@@ -2,7 +2,7 @@
  * Switchboard Browser Companion — Unit and Integration Tests
  *
  * Verifies:
- * - Registration and presence of all 15 browser automation tools
+ * - Registration and presence of all 17 browser automation tools
  * - Bridge pairing, token authentication, and state management
  * - Disconnected companion error messaging
  * - Full bi-directional command dispatch via loopback bridge
@@ -24,7 +24,7 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
   })
   try {
     const tools = host.ctx.tools.list().map((t) => t.name).filter((n) => n.startsWith('browser_'))
-    assert.equal(tools.length, 15, 'all 15 browser tools are registered')
+    assert.equal(tools.length, 17, 'all 17 browser tools are registered')
 
     const expectedTools = [
       'browser_tabs_list',
@@ -40,6 +40,8 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
       'browser_extract',
       'browser_console_logs',
       'browser_network_errors',
+      'browser_tab_close',
+      'browser_key',
     ]
 
     for (const name of expectedTools) {
@@ -68,7 +70,7 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
       /Switchboard Browser Companion extension is not connected/i,
       'disconnected tool call returns clear instructions to connect companion',
     )
-    console.log('✓ 15 browser tools registered and disconnected guard verified')
+    console.log('✓ 17 browser tools registered and disconnected guard verified')
   } finally {
     await host.dispose()
   }

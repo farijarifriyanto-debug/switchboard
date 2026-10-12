@@ -284,6 +284,56 @@ async function withDebugger(tabId, run) {
   }
 }
 
+// Named keys only (no characters, no modifier shortcuts): typing text stays in browser_type,
+// where sensitive fields are checked.
+const KEY_EVENTS = {
+  Enter: { key: 'Enter', code: 'Enter', vk: 13, text: '\r' },
+  Tab: { key: 'Tab', code: 'Tab', vk: 9 },
+  'Shift+Tab': { key: 'Tab', code: 'Tab', vk: 9, modifiers: 8 },
+  Escape: { key: 'Escape', code: 'Escape', vk: 27 },
+  Backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
+  Delete: { key: 'Delete', code: 'Delete', vk: 46 },
+  ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', vk: 38 },
+  ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', vk: 40 },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', vk: 37 },
+  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', vk: 39 },
+  Home: { key: 'Home', code: 'Home', vk: 36 },
+  End: { key: 'End', code: 'End', vk: 35 },
+  PageUp: { key: 'PageUp', code: 'PageUp', vk: 33 },
+  PageDown: { key: 'PageDown', code: 'PageDown', vk: 34 },
+  Space: { key: ' ', code: 'Space', vk: 32, text: ' ' },
+};
+
+async function pressKey(tab, name) {
+  const spec = Object.prototype.hasOwnProperty.call(KEY_EVENTS, name) ? KEY_EVENTS[name] : null;
+  if (!spec) throw new Error('Unsupported key. Use one of: ' + Object.keys(KEY_EVENTS).join(', ') + '.');
+  const focus = (await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      const el = document.activeElement;
+      if (!el || el === document.body || el === document.documentElement) return { tag: 'body' };
+      const sensitive = el.matches('input[type="password"], input[type="file"], [autocomplete*="password"], [autocomplete*="cc-"], [autocomplete*="cvv"], [autocomplete*="one-time-code"]');
+      const editable = el.matches('textarea, select, [contenteditable=""], [contenteditable="true"], input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="image"])');
+      return { tag: el.tagName.toLowerCase(), sensitive, editable };
+    }
+  }))?.[0]?.result || { tag: 'body' };
+  if (focus.sensitive) throw new Error('Keyboard input into a sensitive credential, payment or file field is blocked.');
+  // Enter and Space activate buttons and links; those go through browser_click so the target can be checked.
+  if ((name === 'Enter' || name === 'Space') && focus.tag !== 'body' && !focus.editable) {
+    throw new Error('The focused element is not a text field. Use browser_click for buttons and links so the target can be checked.');
+  }
+  await withDebugger(tab.id, async target => {
+    const base = { key: spec.key, code: spec.code, windowsVirtualKeyCode: spec.vk, nativeVirtualKeyCode: spec.vk, modifiers: spec.modifiers || 0 };
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...base, type: spec.text ? 'keyDown' : 'rawKeyDown', ...(spec.text ? { text: spec.text } : {}) });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...base, type: 'keyUp' });
+  });
+  await recordAudit({
+    tool: 'browser_key', action: 'key', url: tab.url,
+    origin: new URL(tab.url).origin, decision: 'approved', status: 'success'
+  });
+  return { ok: true, result: { key: name } };
+}
+
 async function screenshotWithUserGrant(tab, quality) {
   const result = await withDebugger(tab.id, target =>
     chrome.debugger.sendCommand(target, 'Page.captureScreenshot', { format: 'jpeg', quality }));
@@ -1167,6 +1217,23 @@ async function runToolExecution(toolName, args = {}) {
     bindAgentTab(updated.id);
     return { ok: true, tab: { id: updated.id, title: updated.title, url: updated.url } };
   }
+  if (toolName === 'browser_tab_close') {
+    if (!args.tabId) throw new Error('tabId is required');
+    const target = await chrome.tabs.get(Number(args.tabId));
+    // The user's own tabs stay open; only tabs Switchboard opened (its tab group) can be closed.
+    let owned = false;
+    if (Number.isInteger(target.groupId) && target.groupId >= 0) {
+      try { owned = (await chrome.tabGroups.get(target.groupId)).title === 'Switchboard'; } catch (_) { owned = false; }
+    }
+    if (!owned) throw new Error('Only tabs opened by Switchboard can be closed.');
+    await chrome.tabs.remove(target.id);
+    await recordAudit({
+      tool: 'browser_tab_close', action: 'tab_close', url: target.url || '',
+      origin: SAFE_URL.test(target.url || '') ? new URL(target.url).origin : '',
+      decision: 'approved', status: 'success'
+    });
+    return { ok: true, result: 'Closed tab ' + target.id };
+  }
   // No bound tab yet: navigate opens its own grouped tab, others adopt the current tab.
   if (toolName === 'browser_navigate' && !args.tabId && !(await boundAgentTab())) {
     return await createAgentTab(String(args.url || ''));
@@ -1246,6 +1313,8 @@ async function runToolExecution(toolName, args = {}) {
     case 'browser_scroll': {
       return await executeBrowserAction('scroll', args, { tabId: tab.id });
     }
+
+    case 'browser_key': return await pressKey(tab, String(args.key || ''));
 
     case 'browser_select': {
       return await executeBrowserAction('select', args, { tabId: tab.id });

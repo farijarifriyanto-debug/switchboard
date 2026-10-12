@@ -687,7 +687,7 @@ export class BrowserCompanionService {
 }
 
 /**
- * Register all 15 Browser Automation tools into Switchboard's `ctx.tools`
+ * Register all 17 Browser Automation tools into Switchboard's `ctx.tools`
  */
 export function registerBrowserTools(ctx: Context, service: BrowserCompanionService): () => void {
   const disposers: Array<() => void> = []
@@ -695,13 +695,13 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
     'browser_tab_select', 'browser_navigate', 'browser_click', 'browser_type',
     'browser_scroll', 'browser_select', 'browser_download', 'browser_tab_create',
     'browser_dom_snapshot', 'browser_screenshot', 'browser_wait', 'browser_extract',
-    'browser_console_logs', 'browser_network_errors',
+    'browser_console_logs', 'browser_network_errors', 'browser_tab_close', 'browser_key',
   ])
   const autoConfirmActions = new Set(['browser_download'])
   const pageBoundTools = new Set([
     'browser_dom_snapshot', 'browser_screenshot', 'browser_click', 'browser_type',
     'browser_scroll', 'browser_select', 'browser_download', 'browser_wait',
-    'browser_extract', 'browser_console_logs', 'browser_network_errors',
+    'browser_extract', 'browser_console_logs', 'browser_network_errors', 'browser_key',
   ])
   const pageSnapshot = async (toolCtx: ToolContext, requestedTabId?: number, actionSelector?: string) => {
     const raw: any = await service.executeOnBrowser('browser_dom_snapshot', {
@@ -820,10 +820,10 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
       const protectedApproval = autoConfirmActions.has(spec.name)
       let page: Awaited<ReturnType<typeof pageSnapshot>> | undefined
       let tabTarget: { id: number; origin: string; pageOrigin: string } | undefined
-      const needsTabMetadata = spec.name === 'browser_tab_select' || spec.name === 'browser_navigate'
+      const needsTabMetadata = spec.name === 'browser_tab_select' || spec.name === 'browser_tab_close' || spec.name === 'browser_navigate'
         || (service.currentMode === 'manual' && pageBoundTools.has(spec.name))
       if (needsTabMetadata) {
-        if (spec.name === 'browser_tab_select' || Number.isInteger(args?.tabId) || service.getActiveTab()?.id
+        if (spec.name === 'browser_tab_select' || spec.name === 'browser_tab_close' || Number.isInteger(args?.tabId) || service.getActiveTab()?.id
           || (service.currentMode === 'manual' && pageBoundTools.has(spec.name))) {
           try {
             const tabs: any = await service.executeOnBrowser('browser_tabs_list', {}, toolCtx)
@@ -884,7 +884,7 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
         let targetOrigin = page?.origin || tabTarget?.origin || ''
         let pageContext = page?.screening.content || ''
         if (!page) {
-          if (spec.name === 'browser_tab_select') pageContext = `The requested existing tab has origin ${targetOrigin}. Its page content has not been read.`
+          if (spec.name === 'browser_tab_select' || spec.name === 'browser_tab_close') pageContext = `The requested existing tab has origin ${targetOrigin}. Its page content has not been read.`
           else if (spec.name === 'browser_navigate' || spec.name === 'browser_tab_create') {
             try {
               const target = new URL(String(args?.url || ''))
@@ -986,6 +986,45 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
     },
     async execute(args: { tabId: number }, toolCtx: ToolContext) {
       const result = await service.executeOnBrowser('browser_tab_select', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
+  // browser_tab_close: only tabs Switchboard opened can be closed (enforced in the extension).
+  reg({
+    name: 'browser_tab_close',
+    description: 'Close a tab that Switchboard opened (a tab in the "Switchboard" group) by tab ID. Your own tabs cannot be closed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'number', description: 'ID of the Switchboard tab to close.' },
+      },
+      required: ['tabId'],
+    },
+    async execute(args: { tabId: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_tab_close', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
+  // browser_key: named keys only, so text entry stays in browser_type where sensitive fields are checked.
+  reg({
+    name: 'browser_key',
+    description: 'Press a named key in the agent tab: Enter, Tab, Shift+Tab, Escape, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown or Space. Use browser_type to enter text and browser_click for buttons and links.',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: {
+          type: 'string',
+          enum: ['Enter', 'Tab', 'Shift+Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Space'],
+          description: 'Key to press.',
+        },
+        tabId: { type: 'number', description: 'Optional tab ID.' },
+      },
+      required: ['key'],
+    },
+    async execute(args: { key: string; tabId?: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_key', args, toolCtx)
       return JSON.stringify(result)
     },
   })
