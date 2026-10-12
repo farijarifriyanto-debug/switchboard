@@ -19,7 +19,7 @@ try {
   $uv = (Get-Command uv.exe -ErrorAction Stop).Source
   $uvx = (Get-Command uvx.exe -ErrorAction Stop).Source
   if (-not ([Environment]::Is64BitOperatingSystem)) { throw 'Windows x64 is required' }
-  if ((& $node -p 'process.platform+"-"+process.arch').Trim() -ne 'win32-x64') { throw 'The builder must use Windows x64 Node' }
+  if ((& $node -p process.platform).Trim() -ne 'win32' -or (& $node -p process.arch).Trim() -ne 'x64') { throw 'The builder must use Windows x64 Node' }
   if ((& $uv --version) -notmatch '^uv [0-9]+\.') { throw 'uv binary version verification failed' }
   Copy-Item $node (Join-Path $root 'runtime\node.exe')
   Copy-Item $uv (Join-Path $root 'runtime\uv.exe')
