@@ -55,3 +55,14 @@ We use information from browser permissions and APIs only for the prominently di
 We may update this policy when material extension behavior changes; the current text will be published at this URL. To raise privacy concerns, request assistance with local-data removal or report a security issue, use the [Switchboard issue tracker](https://github.com/farijarifriyanto-debug/switchboard/issues). The publisher contact email shown in the Chrome Web Store listing is an additional public contact channel.
 
 **Related project documentation:** [Browser Companion README](./README.md).
+
+## Browser permissions
+
+Each permission the extension requests is used only for the browser tasks the user starts:
+
+- **debugger** is attached to a tab only while one approved action runs. It sends trusted clicks and key presses and captures screenshots, then detaches. It is not used to read other browser data.
+- **downloads** observes a download that the user approved and reports its file name and source. The file contents are not read.
+- **nativeMessaging** asks a small helper that the user installed on the same computer for the local pairing credential and the loopback address. The helper makes no network requests.
+- **notifications** tells the user that a site permission request is waiting.
+- **tabGroups** groups the tabs that Switchboard opens under one labeled group, and only those tabs can be closed by the agent.
+- **activeTab**, **scripting**, **tabs**, **storage**, **sidePanel** and **alarms** are used as described above: reading and acting on approved pages, remembering settings, showing the side panel, and reconnecting after the browser suspends the background worker.

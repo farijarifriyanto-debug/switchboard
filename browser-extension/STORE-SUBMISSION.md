@@ -64,6 +64,11 @@ The server rejects non-HTTPS and nonofficial listing URLs. An unavailable URL le
 | storage | Local pairing secret, approved sites, settings and bounded audit log |
 | sidePanel | Companion connection, permissions, inspection and history |
 | alarms | Recover background connection after browser or service-worker suspension |
+| debugger | Trusted clicks and key presses and screenshots through the DevTools Protocol; attached only for the duration of one approved action |
+| downloads | Report a file download the user approved (name and source); file contents are not read |
+| nativeMessaging | Read the local pairing credential from a helper the user installed on the same computer, so no code has to be typed; no network access |
+| notifications | Tell the user when a site permission request is waiting |
+| tabGroups | Group the tabs Switchboard opens under one labeled group; only those tabs can be closed by the agent |
 | HTTP loopback host access | Communicate exclusively with the Switchboard service on this computer |
 | Optional HTTP/HTTPS site access | Request individual website permissions only after the user clicks Allow site; necessary to inspect and automate explicitly approved external pages. No grant is automatic or global. |
 
