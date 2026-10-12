@@ -1,6 +1,6 @@
 # Browser Companion — Claude in Chrome functional parity gate
 
-Status: **NO-GO**. Chrome Web Store published 0.4.2 while this audit was underway. Do not submit another version until every critical gate below passes. Do not unpublish the existing item without an explicit rollback decision.
+Status (12 October 2026): **Owner accepted the update to 0.4.3 with the gaps listed below.** Version 0.4.2 is already published on the Chrome Web Store; do not unpublish the existing item without an explicit rollback decision. The owner reviewed and accepted these open items in chat: (1) the tab list marking the agent tab is verified by automated tests only, not yet seen in Chrome; (2) per-site Chrome permission was not exercised in the owner's profile, because that profile already grants the extension all sites (`http://*/*`, `https://*/*`); (3) the new permissions `debugger`, `downloads`, `nativeMessaging`, `notifications` and `tabGroups` mean a longer store review and a new permission prompt for existing users; (4) users of the store version need the native host installed with the store extension ID, or they pair with a code; (5) the real-model checks were run with `deepseek-v4.1-flash` only. Earlier NO-GO findings below are kept as history.
 
 ## Scope
 
