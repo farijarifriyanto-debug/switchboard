@@ -15,7 +15,7 @@ function normalizePermissionMode(mode: unknown): PermissionMode {
   return 'auto'
 }
 
-function prohibitedBrowserIntent(intent: string): string | undefined {
+export function prohibitedBrowserIntent(intent: string): string | undefined {
   const text = intent.toLowerCase()
   if (/\b(?:purchase|buy|pay|checkout|transfer money|send payment|place an order)\b/.test(text)) return 'Purchases and financial transactions are blocked.'
   if (/\b(?:create|open|register|sign\s*up\s*for)\b.{0,32}\baccount\b/.test(text)) return 'Creating accounts is blocked.'
@@ -24,14 +24,26 @@ function prohibitedBrowserIntent(intent: string): string | undefined {
   if (/\b(?:follow|obey|execute|do what)\b.{0,36}\b(?:instructions?\s+(?:from|on|in)\s+(?:this\s+)?(?:webpage|website|email|page)|(?:webpage|website|email)\s+instructions?)\b/.test(text)) return 'Instructions from untrusted web pages and email content are blocked.'
   if (/\b(?:financial|stock|crypto|securities)\s+trade\b|\btrade\s+(?:stocks?|crypto|securities)\b/.test(text)) return 'Financial trades are blocked.'
   if (/\b(?:credit\s*card|cvv|social security|national id|passport number)\b/.test(text)) return 'Handling payment-card or government-ID data is blocked.'
+  // Indonesian equivalents of the rules above (keyword rules; the Auto evaluator still reviews every action).
+  if (/\b(?:jual|menjual|beli|membeli|trading|trade)\b.{0,16}\b(?:saham|kripto|crypto|forex|sekuritas|reksa\s*dana)\b|\b(?:saham|kripto|crypto|forex|sekuritas)\b.{0,16}\b(?:jual|menjual|beli|membeli|trading)\b/.test(text)) return 'Financial trades are blocked.'
+  if (/\b(?:beli|membeli|pembelian|bayar|membayar|pembayaran|checkout|(?:transfer(?:kan)?|kirim(?:kan)?)\s+uang|top\s*up|isi\s+saldo)\b/.test(text)) return 'Purchases and financial transactions are blocked.'
+  if (/\b(?:buat|membuat|bikin|membikin|mendaftar(?:kan)?|daftarkan|pendaftaran|registrasi)\b.{0,32}\b(?:akun|rekening)\b|\bbuka\s+(?:akun|rekening)\s+baru\b/.test(text)) return 'Creating accounts is blocked.'
+  if (/\b(?:hapus|menghapus|musnahkan)\b.{0,24}\b(?:permanen|selamanya)\b|\b(?:hapus|menghapus)\s+(?:akun|rekening)\b|\bkosongkan\s+(?:tempat\s+sampah|sampah|trash)\b/.test(text)) return 'Permanent deletion is blocked.'
+  if (/\b(?:lewati|melewati|bypass|tembus|menembus|selesaikan|menyelesaikan|pecahkan|memecahkan)\b.{0,32}\b(?:captcha|verifikasi\s+(?:manusia|bot)|bukan\s+robot)\b/.test(text)) return 'Bypassing bot or human-verification authorization is blocked.'
+  if (/\b(?:ikuti|mengikuti|turuti|menuruti|patuhi|jalankan|menjalankan)\b.{0,36}\b(?:instruksi|perintah|petunjuk)\b.{0,16}\b(?:di|dari|pada)\s+(?:halaman|situs|website|web|email|surel)\b/.test(text)) return 'Instructions from untrusted web pages and email content are blocked.'
+  if (/\b(?:kartu\s+kredit|kartu\s+debit|nomor\s+kartu|cvv|cvc|ktp|nik|nomor\s+induk\s+kependudukan|nomor\s+paspor|paspor)\b/.test(text)) return 'Handling payment-card or government-ID data is blocked.'
   return undefined
 }
 
-function prohibitedBrowserTarget(label: string): string | undefined {
+export function prohibitedBrowserTarget(label: string): string | undefined {
   if (/\b(?:buy now|purchase|place order|checkout|pay now|transfer money|send payment)\b/i.test(label)) return 'Purchases and financial transactions are blocked.'
   if (/\b(?:create|open)\s+(?:a\s+)?account|\b(?:sign\s*up|register)\b/i.test(label)) return 'Creating accounts is blocked.'
   if (/\b(?:permanently\s+delete|delete\s+account|erase permanently)\b/i.test(label)) return 'Permanent deletion is blocked.'
   if (/\b(?:place|execute)\s+(?:a\s+)?(?:stock|crypto|financial)\s+trade\b/i.test(label)) return 'Financial trades are blocked.'
+  // Indonesian button and link labels.
+  if (/\b(?:beli\s+sekarang|bayar\s+sekarang|pesan\s+sekarang|checkout|lanjut(?:kan)?\s+ke\s+pembayaran|(?:transfer|kirim)\s+uang)\b/i.test(label) || /^\s*(?:beli|bayar)\s*$/i.test(label)) return 'Purchases and financial transactions are blocked.'
+  if (/\b(?:buat|membuat|buka|membuka)\s+(?:sebuah\s+)?akun\b/i.test(label) || /^\s*(?:daftar(?:\s+(?:sekarang|gratis|akun))?|mendaftar|registrasi)\s*$/i.test(label)) return 'Creating accounts is blocked.'
+  if (/\b(?:hapus\s+permanen|hapus\s+selamanya|hapus\s+akun|kosongkan\s+(?:tempat\s+sampah|sampah))\b/i.test(label)) return 'Permanent deletion is blocked.'
   return undefined
 }
 
