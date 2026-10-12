@@ -1,0 +1,62 @@
+name: Portable Windows Switchboard
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub Release tag
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:plugin-catalog
+      - name: Bundle Windows portable Node + uv + Switchboard
+        shell: pwsh
+        run: ./scripts/package-portable-windows.ps1 -OutputDirectory "$env:RUNNER_TEMP/bc-release"
+      - name: Verify runnable bundle
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem "$env:RUNNER_TEMP/bc-release" -Filter '*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'No Windows bundle produced' }
+          $test = Join-Path $env:RUNNER_TEMP 'portable-qa'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $test
+          $root = Get-ChildItem $test -Directory | Select-Object -First 1
+          & "$($root.FullName)/runtime/node.exe" "$($root.FullName)/app/dist/cli.js" --version
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Node app cannot start' }
+          & "$($root.FullName)/runtime/uvx.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled uvx cannot start' }
+          if (-not (Test-Path "$($root.FullName)/Start-Switchboard.cmd")) { throw 'Launcher missing' }
+          Write-Host 'PORTABLE_WINDOWS_QA_PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: switchboard-portable-win64
+          path: ${{ runner.temp }}/bc-release/*
+          if-no-files-found: error
+      - name: Publish portable asset to same GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        shell: pwsh
+        run: |
+          Get-ChildItem "$env:RUNNER_TEMP/bc-release" -File | ForEach-Object {
+            gh release upload "$env:TAG" $_.FullName --clobber
+          }
