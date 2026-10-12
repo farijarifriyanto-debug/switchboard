@@ -2051,6 +2051,9 @@ const settingsUi = {
   deleteSessions: null, // authoritative list from a 409 payload
   forceNext: false,
   lastDeleted: null,
+  catalogPlugins: null,
+  catalogError: '',
+  catalogLoading: false,
 }
 
 async function settingsJson(pathname, options = {}) {
@@ -2098,6 +2101,20 @@ async function refreshSettings() {
   await loadState().catch(() => {})
 }
 
+async function loadPluginCatalog() {
+  settingsUi.catalogLoading = true
+  try {
+    const data = await settingsJson('/api/plugin-catalog')
+    settingsUi.catalogPlugins = data.plugins || []
+    settingsUi.catalogError = ''
+  } catch (error) {
+    settingsUi.catalogError = error.message || 'Cannot load plugin catalog.'
+  } finally {
+    settingsUi.catalogLoading = false
+    if (settingsUi.tab === 'plugins') renderSettingsPanel()
+  }
+}
+
 async function openSettings(tab) {
   if (tab) settingsUi.tab = tab
   const dialog = $('settings-dialog')
@@ -2115,6 +2132,7 @@ async function loadSettings() {
     settingsUi.loadError = error.message
   }
   renderSettingsPanel()
+  if (settingsUi.tab === 'plugins') void loadPluginCatalog()
 }
 
 function renderSettingsTabs() {
@@ -2383,30 +2401,46 @@ function renderPluginsPanel(panel, data) {
   const capabilities = state.pluginCapabilities || []
   const mcp = data.mcp || {}
   const servers = mcp.servers
+  const catalog = settingsUi.catalogPlugins || []
+  const catalogHtml = catalog.map((plugin) => {
+    const active = plugin.installed && plugin.state === 'up'
+    const action = plugin.managed
+      ? `<button class="settings-btn small ghost" type="button" data-action="catalog-remove" data-id="${esc(plugin.id)}">Remove</button>`
+      : plugin.installed
+        ? `<span class="status-value">Configured</span>`
+        : `<button class="settings-btn small primary" type="button" data-action="catalog-install" data-id="${esc(plugin.id)}">Install</button>`
+    const setup = !plugin.installed && plugin.id === 'opensandbox'
+      ? `<div class="plugin-catalog-setup"><label>Private endpoint <input class="catalog-endpoint" type="text" autocomplete="off" placeholder="127.0.0.1:18088" aria-label="OpenSandbox private endpoint"></label><label>API key <input class="catalog-key" type="password" autocomplete="off" placeholder="OpenSandbox API key" aria-label="OpenSandbox API key"></label></div>`
+      : ''
+    return `<article class="plugin-catalog-card" data-catalog-id="${esc(plugin.id)}">
+      <div class="plugin-catalog-line"><div><b>${esc(plugin.name)}</b> <span class="status-value">v${esc(plugin.version)}</span>
+      <p>${esc(plugin.description)}</p></div>${action}</div>
+      <p class="plugin-catalog-state">${active ? `${plugin.toolCount} tools connected` : plugin.installed ? esc(plugin.state) : 'Not installed'}</p>${setup}
+    </article>`
+  }).join('')
   panel.innerHTML = `
+    <div class="settings-section">
+      <h3>Plugin catalog</h3>
+      <p class="section-note">Official pinned MCP tools. Install once; tools are available to the current agent without reinstalling Switchboard.</p>
+      ${settingsUi.catalogError ? `<p class="settings-empty">${esc(settingsUi.catalogError)}</p>` : ''}
+      ${catalogHtml || '<p class="settings-empty">Loading plugin catalog…</p>'}
+      <p class="settings-note">For OpenSandbox, connect an existing private server; never expose its API port to the public internet. Installing either plugin uses the usual agent tool approvals.</p>
+    </div>
     <div class="settings-section">
       <h3>Capabilities</h3>
       <ul class="plugin-settings-list">${capabilities
-        .map(
-          (capability) => `<li><span>${esc(capability.name)}</span><span class="status-value">${(capability.tools || []).length} tools · ${esc(capability.health || 'ready')}</span></li>`,
-        )
+        .map((capability) => `<li><span>${esc(capability.name)}</span><span class="status-value">${(capability.tools || []).length} tools · ${esc(capability.health || 'ready')}</span></li>`)
         .join('') || '<li>No capabilities loaded.</li>'}</ul>
-      <p class="settings-note">Capabilities come from the plugins loaded by this console — enable or disable them in the repo config, then restart sbx web.</p>
+      <p class="settings-note">Existing plugin modules can still be loaded through their configured sources.</p>
     </div>
     <div class="settings-section">
       <h3>MCP servers</h3>
-      ${
-        mcp.configured === false
-          ? '<p class="settings-empty">No MCP servers configured.</p>'
-          : servers
-            ? `<ul class="plugin-settings-list">${servers
-                .map(
-                  (server) => `<li><span>${esc(server.name)}</span><span class="status-value">${esc(server.state)}${server.attempts ? ` · ${server.attempts} attempts` : ''}</span></li>`,
-                )
-                .join('') || '<li>No MCP servers configured.</li>'}</ul>`
-            : '<p class="settings-empty">MCP status is unavailable right now.</p>'
-      }
-      <p class="settings-note">Servers are declared under mcp.servers in switchboard.config.jsonc — restart sbx web after editing. This tab is read-only.</p>
+      ${mcp.configured === false
+        ? '<p class="settings-empty">No MCP servers configured.</p>'
+        : servers
+          ? `<ul class="plugin-settings-list">${servers.map((server) => `<li><span>${esc(server.name)}</span><span class="status-value">${esc(server.state)}${server.attempts ? ` · ${server.attempts} attempts` : ''}</span></li>`).join('') || '<li>No MCP servers configured.</li>'}</ul>`
+          : '<p class="settings-empty">MCP status is unavailable right now.</p>'}
+      <p class="settings-note">Manually configured MCP servers remain in switchboard.config.jsonc and keep priority over the catalog.</p>
     </div>`
 }
 
@@ -2461,6 +2495,36 @@ function startProviderEdit(mode, entry) {
 async function handleSettingsAction(action, element, event) {
   const editing = settingsUi.editing
   try {
+    if (action === 'catalog-install') {
+      const id = element.dataset.id
+      const card = element.closest('[data-catalog-id]')
+      const body = id === 'opensandbox'
+        ? { id, endpoint: card?.querySelector('.catalog-endpoint')?.value?.trim(), apiKey: card?.querySelector('.catalog-key')?.value }
+        : { id }
+      element.disabled = true
+      element.textContent = 'Connecting…'
+      try {
+        const result = await settingsRequest('/api/plugin-catalog/install', 'POST', body)
+        settingsToast(`${result.plugin.name} connected (${result.plugin.toolCount} tools).`)
+        await loadPluginCatalog()
+        settingsUi.data = await settingsJson('/api/settings')
+        renderSettingsPanel()
+        await loadState().catch(() => {})
+      } finally { element.disabled = false }
+      return
+    }
+    if (action === 'catalog-remove') {
+      element.disabled = true
+      try {
+        await settingsRequest(`/api/plugin-catalog/${encodeURIComponent(element.dataset.id)}`, 'DELETE')
+        settingsToast('Plugin disconnected and removed.')
+        await loadPluginCatalog()
+        settingsUi.data = await settingsJson('/api/settings')
+        renderSettingsPanel()
+        await loadState().catch(() => {})
+      } finally { element.disabled = false }
+      return
+    }
     if (action === 'add-provider') {
       startProviderEdit('create', null)
       renderSettingsPanel()
@@ -2762,6 +2826,7 @@ $('settings-dialog')?.addEventListener('click', (event) => {
     settingsUi.tab = tabButton.dataset.settingsTab
     renderSettingsTabs()
     renderSettingsPanel()
+    if (settingsUi.tab === 'plugins') void loadPluginCatalog()
     return
   }
   const button = event.target.closest('[data-action]')
@@ -2853,7 +2918,14 @@ loadState()
     void loadFiles('.')
     const resume = wantedSession(data.sessions || [])
     if (resume) await openSession(resume)
-    ui.prompt.focus()
+    // A BotConnector website link can open this local console with a plugin
+    // preselected. The remote page cannot send installation commands: the
+    // operator must still click Install in this authenticated local console.
+    const requestedPlugin = new URLSearchParams(location.search).get('plugin')
+    if (requestedPlugin === 'semgrep' || requestedPlugin === 'opensandbox') {
+      await openSettings('plugins')
+      history.replaceState(null, '', location.pathname + location.hash)
+    } else ui.prompt.focus()
   })
   .catch(() => {
     setStatus('error', 'Disconnected')

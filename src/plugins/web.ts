@@ -9,6 +9,7 @@ import type { AgentEvent, RunEvent } from '../types.js'
 import type { McpServiceApi } from './mcp.js'
 import type { BrowserCompanionService } from './browser-companion.js'
 import { SettingsError } from '../services/settings-error.js'
+import type { PluginCatalogService } from '../services/plugin-catalog.js'
 import { expandHome } from '../services/session.js'
 import { PROTOCOLS } from '../services/providers.js'
 import { listModels as discoverModels } from '../llm/discovery.js'
@@ -190,7 +191,7 @@ function contextCatalog(url?: string): Promise<Record<string, number>> {
  */
 export const webUi = {
   name: 'web-ui',
-  inject: ['agent', 'sessions', 'presets', 'compaction', 'automations', 'tools', 'llm', 'metrics', 'workspace', 'undo', 'approvals', 'trace', 'providers', 'credentials'],
+  inject: ['agent', 'sessions', 'presets', 'compaction', 'automations', 'tools', 'llm', 'metrics', 'workspace', 'undo', 'approvals', 'trace', 'providers', 'credentials', 'pluginCatalog'],
 
   apply(ctx: Context, config: WebUiConfig = {}) {
     const host = config.host ?? '127.0.0.1'
@@ -231,11 +232,11 @@ export const webUi = {
      * the API so the console can render them as plain text.
      */
     const mcpState = (): { configured: boolean; servers?: { name: string; state: string; attempts: number; lastError?: string }[] | null } => {
-      if (!mcpConfigured) return { configured: false }
       const svc = ctx.get('mcp', false) as McpServiceApi | null | undefined
-      if (!svc || typeof svc.status !== 'function') return { configured: true, servers: null }
+      if (!svc || typeof svc.status !== 'function') return mcpConfigured ? { configured: true, servers: null } : { configured: false }
       try {
         const list = svc.status() ?? []
+        if (!mcpConfigured && !list.length) return { configured: false }
         return {
           configured: true,
           servers: list.map((s) => ({
@@ -452,6 +453,34 @@ export const webUi = {
         const body = await readBody(req)
         const result = await ctx.tools.call('search_files', { pattern: body.pattern, path: body.path, maxResults: body.maxResults })
         return json(res, 200, { result })
+      }
+
+      // Trusted local plugin catalog. Only two pinned MCP packages; no arbitrary
+      // URLs, scripts, or package names can be submitted through these routes.
+      if (route === '/api/plugin-catalog' && req.method === 'GET') {
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, { plugins: ctx.pluginCatalog.list() })
+      }
+      if (route === '/api/plugin-catalog/install' && req.method === 'POST') {
+        const body = await readBody(req, 4096)
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['id', 'endpoint', 'apiKey'].includes(key))) return json(res, 400, { error: 'Unknown installation fields' })
+        try {
+          const plugin = await ctx.pluginCatalog.install(body.id, { ...(body.endpoint !== undefined ? { endpoint: body.endpoint } : {}), ...(body.apiKey !== undefined ? { apiKey: body.apiKey } : {}) })
+          res.setHeader('Cache-Control', 'no-store')
+          return json(res, 200, { ok: true, plugin })
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : 'Installation failed' })
+        }
+      }
+      const pluginDelete = route.match(/^\/api\/plugin-catalog\/(semgrep|opensandbox)$/)
+      if (pluginDelete && req.method === 'DELETE') {
+        try {
+          await ctx.pluginCatalog.uninstall(pluginDelete[1])
+          res.setHeader('Cache-Control', 'no-store')
+          return json(res, 200, { ok: true })
+        } catch (error) {
+          return json(res, 400, { error: error instanceof Error ? error.message : 'Removal failed' })
+        }
       }
 
       // -------------------------------------------------------------- plugins

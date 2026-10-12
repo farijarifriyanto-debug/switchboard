@@ -97,7 +97,10 @@
     "test:browser-panel-chat-stream": "node test/test-browser-panel-chat-stream.mjs",
     "test:browser-action-fail-closed": "node test/test-browser-action-fail-closed.mjs",
     "test:browser-cdp": "node test/test-browser-cdp.mjs",
-    "test:browser-native-pair": "node test/test-browser-native-pair.mjs"
+    "test:browser-native-pair": "node test/test-browser-native-pair.mjs",
+    "test:plugin-catalog": "node scripts/test-plugin-catalog.mjs",
+    "test:plugin-opensandbox": "node scripts/test-plugin-opensandbox.mjs",
+    "test:plugin-catalog-browser": "node scripts/test-plugin-catalog-browser.mjs"
   },
   "engines": {
     "node": ">=20.11"

@@ -452,6 +452,51 @@ Presets accept a trailing `*` as a prefix pattern (`mcp__browser__*`). Playwrigh
 snapshots into a `.playwright-mcp/` folder in the working directory (already in this repo's `.gitignore`;
 add it to yours).
 
+## Plugin catalog (official MCP tools)
+
+Install Switchboard once, then open **Settings → Plugins & MCP → Plugin catalog** in
+`sbx web`. Click **Install** for the trusted tools below; Switchboard runs their
+unmodified MCP servers with the existing agent approval policy. No custom tool
+layer or standalone BotConnector WebApp is required.
+
+- **Semgrep** — official `semgrep==1.180.0` MCP, bootstrapped by `uvx` the first
+  time you install it. It scans code locally; the store does not upload source
+  code to BotConnector. Uses the official MCP tool schemas and results.
+- **OpenSandbox** — official `opensandbox-mcp==1.1.1` client. Supply a running
+  OpenSandbox server's **private** address and its API key (stored only in the
+  Switchboard credential store, never in the plugin registry). For a remote VPS,
+  use a securely authenticated tunnel or private Tailscale service. Do not
+  expose a raw sandbox API on the public internet.
+
+The catalog saves nonsecret selections in `~/.switchboard/installed-mcp.json`
+(mode 0600 on POSIX) and reloads them at the next start. While `sbx web` is
+running, installed tools connect immediately, with no app restart. Removing a
+plugin also unregisters its tools immediately. Existing manually configured
+`mcp.servers` take precedence; the catalog does not modify them.
+
+**Website handoff (planned for the BotConnector website):** after the user has
+Switchboard installed and `sbx web` running locally, a link to
+`http://127.0.0.1:7777/?plugin=semgrep` (or `?plugin=opensandbox`) opens the
+local console directly to the plugin catalog. A public website **cannot**
+install code automatically: the operator must click **Install** in Switchboard.
+The website plugin-store page itself is not shipped by this repository. If the
+local console is not running, instruct the user to launch Switchboard first.
+
+**Current prerequisites / limits:** `uvx` must already be installed on the
+user's device; packaging the official uv runtime with Switchboard is future
+installer work. OpenSandbox needs a reachable private runtime and API key;
+per-user BotConnector Cloud sandbox provisioning and metering are **not** in
+this release. Existing official MCP tools are not wrapped/replaced. Do not
+claim global one-click parity before those dependencies and end-user QA pass.
+
+Optional real-engine tests (not run by `npm test` on machines without uvx):
+
+```bash
+npm run test:plugin-catalog
+SBX_TEST_OPENSANDBOX_KEY_FILE=/path/to/private-test-key npm run test:plugin-opensandbox
+SBX_TEST_PUPPETEER_PATH=/path/to/puppeteer npm run test:plugin-catalog-browser
+```
+
 ## MCP servers
 
 Any [Model Context Protocol](https://modelcontextprotocol.io) server works as a

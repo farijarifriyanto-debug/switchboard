@@ -19,6 +19,7 @@ import { UsageService } from './services/usage.js'
 import { MemoryService, toolsMemory } from './services/memory.js'
 import { toolsSkillDrafts } from './services/skill-store.js'
 import { CredentialStoreService } from './services/credentials.js'
+import { PluginCatalogService } from './services/plugin-catalog.js'
 import { ToolsService } from './services/tools.js'
 import { SessionService } from './services/session.js'
 import { WorkspaceService } from './services/workspace.js'
@@ -74,6 +75,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   await ctx.plugin(BrowserSafetyService)
   await ctx.plugin(ProviderRegistryService, { dir: config.settings?.dir, legacy: config.llm })
   await ctx.plugin(CredentialStoreService, { dir: config.settings?.dir, legacyConfigKey: config.llm?.apiKey })
+  await ctx.plugin(PluginCatalogService, { dir: config.settings?.dir })
   await ctx.plugin(SessionService, config.sessions ?? {})
   await ctx.plugin(PresetService, { dir: config.settings?.dir })
   await ctx.plugin(WorkspaceService, config.workspace ?? {})
@@ -101,7 +103,13 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
   await ctx.plugin(browserCompanion, config.browser ?? {})
 
   // MCP servers, when configured (fail-open; validation throws on bad config).
-  if (config.mcp !== undefined) await ctx.plugin(mcpBridge, config.mcp)
+  // Local catalog installations are additive; existing MCP config always wins.
+  // A running local console keeps the MCP supervisor available for hot install.
+  ctx.pluginCatalog.setManualMcpNames(Object.keys(config.mcp?.servers ?? {}))
+  const managedMcp = ctx.pluginCatalog.startupServers(config.mcp?.servers ?? {})
+  const mcpEnabled = config.mcp !== undefined || Boolean(config.web?.enabled) || Object.keys(managedMcp).length > 0
+  if (mcpEnabled) await ctx.plugin(mcpBridge, { ...config.mcp, servers: { ...managedMcp, ...config.mcp?.servers } })
+  ctx.pluginCatalog.attachMcp(mcpEnabled ? ctx.mcp : undefined)
 
   // The agent loop spine.
   await ctx.plugin(agentLoop, config.agent ?? {})
@@ -115,7 +123,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
       {
         ...config.web,
         ci: config.ci,
-        mcpConfigured: config.mcp !== undefined,
+        mcpConfigured: config.mcp !== undefined || Object.keys(managedMcp).length > 0,
         // Non-secret agent settings for GET /api/settings (spec §6).
         agent: {
           ...(config.agent?.maxSteps !== undefined ? { maxSteps: config.agent.maxSteps } : {}),
