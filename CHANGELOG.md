@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.1
+
+- Add an official pinned MCP plugin catalog for Semgrep and OpenSandbox to the existing Switchboard Plugins & MCP panel. Installing, reconnecting, and removal reuse the standard MCP bridge and approval policy.
+- Keep manually configured MCP servers authoritative. Explicit local install is required; remote websites cannot silently install tools.
+- Prepare a Windows portable bundle including Node and uv/uvx, with checksums and upstream licensing; first-run access uses the existing Switchboard local console.
+- Provide local-console handoff through ?plugin=semgrep or ?plugin=opensandbox; hosted OpenSandbox per-user provisioning remains subject to security and capacity gates.
+
 ## 0.4.0
 
 - New Chrome/Edge Manifest V3 Browser Companion for Switchboard CLI and Web UI. The agent prompt stays in Switchboard; the extension only executes approved browser actions and returns results.

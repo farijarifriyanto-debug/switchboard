@@ -558,6 +558,19 @@ body[data-theme] .form-errors {
   margin: 8px 0 0;
 }
 
+/* Built-in MCP catalog lives in the existing Plugins & MCP settings tab. */
+.plugin-catalog-card { padding: 13px 0; border-bottom: 1px solid var(--sb-alias-bg-skeleton, rgba(127,127,127,.18)); }
+.plugin-catalog-card:last-of-type { border-bottom: none; }
+.plugin-catalog-line { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.plugin-catalog-line > div { flex:1; min-width:0; }
+.plugin-catalog-line b { font-size:14px; }
+.plugin-catalog-line p { margin:5px 0 0; font-size:12.5px; color:var(--sb-alias-label-caption, #777); line-height:1.5; }
+.plugin-catalog-state { font-size:12px; color:var(--sb-alias-label-secondary, #666); margin:6px 0 0; }
+.plugin-catalog-setup { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.plugin-catalog-setup label { display:grid; gap:4px; font-size:12px; }
+.plugin-catalog-setup input { min-width:0; width:100%; padding:9px; background:var(--sb-alias-bg-overlay, #fff); color:inherit; border:1px solid var(--sb-alias-bg-skeleton, #ccc); border-radius:6px; font:inherit; }
+@media(max-width:560px){.plugin-catalog-line{flex-wrap:wrap}.plugin-catalog-setup{grid-template-columns:1fr}}
+
 /* ------------------------------------------------------- mobile 390px */
 @media (max-width: 560px) {
   .settings-dialog {

@@ -3,7 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
-import { childEnv, validateMcpServers, type McpConfig, type ResolvedMcpServer } from '../config.js'
+import { childEnv, validateMcpServers, type McpConfig, type McpServerConfig, type ResolvedMcpServer } from '../config.js'
 import { planMcpGeneration } from '../mcp/naming.js'
 import { capabilityTools, listPages, type CapabilityTool } from '../mcp/capabilities.js'
 import type { ToolResult } from '../services/tools.js'
@@ -27,6 +27,9 @@ export interface McpServiceApi {
   status(): McpServerStatus[]
   instructions(): string
   origin(toolName: string): string | undefined
+  /** Add/remove a trusted local-catalog MCP without restarting agent sessions. */
+  addServer(name: string, config: McpServerConfig): Promise<McpServerStatus>
+  removeServer(name: string): Promise<void>
 }
 
 declare module 'cordis' {
@@ -71,7 +74,7 @@ export const mcpBridge = {
   async apply(ctx: Context, config: McpConfig = {}) {
     const servers = validateMcpServers(config, (msg) => ctx.logger('mcp').warn('%s', msg))
     const names = Object.keys(servers)
-    if (!names.length) return
+    // An empty supervisor still accepts trusted catalog servers at runtime.
 
     const runtimes: ServerRuntime[] = names.map((name) => ({
       name,
@@ -344,6 +347,52 @@ export const mcpBridge = {
       }
     }
 
+    // Catalog mutations are serialized with existing MCP supervision.  A failed
+    // connection must not leave a fake installed tool or a background retry.
+    let mutationQueue: Promise<void> = Promise.resolve()
+    const enqueueMutation = <T>(op: () => Promise<T>): Promise<T> => {
+      const run = mutationQueue.then(op)
+      mutationQueue = run.then(() => {}, () => {})
+      return run
+    }
+    const stopRuntime = async (s: ServerRuntime): Promise<void> => {
+      s.stopping = true
+      clearTimer(s)
+      disposeGen(s)
+      s.instructions = ''
+      s.state = 'down'
+      const client = s.client
+      s.client = undefined
+      try { await client?.close() } catch { /* closing an unreachable server is best-effort */ }
+    }
+    const addServer = (name: string, input: McpServerConfig): Promise<McpServerStatus> => enqueueMutation(async () => {
+      if (runtimes.some((r) => r.name === name)) throw new Error(`MCP server "${name}" already configured`)
+      const parsed = validateMcpServers({ servers: { [name]: input } }, (message) => ctx.logger('mcp').warn('%s', message))
+      const runtime: ServerRuntime = {
+        name, cfg: { ...parsed[name], reconnect: { ...parsed[name].reconnect, enabled: false } },
+        state: 'connecting', gen: [], attempts: 0, instructions: '', stopping: false, queue: Promise.resolve(),
+      }
+      runtimes.push(runtime)
+      try {
+        await connectOnce(runtime, false)
+        if (runtime.state !== 'up') throw new Error(runtime.lastError || `MCP server "${name}" failed to connect`)
+        // Fail closed on the initial install, but retain normal reconnect after successful installation.
+        runtime.cfg.reconnect.enabled = parsed[name].reconnect.enabled
+        return status().find((s) => s.name === name)!
+      } catch (error) {
+        await stopRuntime(runtime)
+        runtimes.splice(runtimes.indexOf(runtime), 1)
+        throw error
+      }
+    })
+    const removeServer = (name: string): Promise<void> => enqueueMutation(async () => {
+      const index = runtimes.findIndex((r) => r.name === name)
+      if (index < 0) return
+      const runtime = runtimes[index]
+      await stopRuntime(runtime)
+      runtimes.splice(index, 1)
+    })
+
     const readyPromise = Promise.allSettled(runtimes.map((s) => connectOnce(s, true))).then((results) => {
       const failed = results.find((r) => r.status === 'rejected')
       if (failed) throw (failed as PromiseRejectedResult).reason
@@ -354,6 +403,8 @@ export const mcpBridge = {
       status,
       instructions,
       origin,
+      addServer,
+      removeServer,
     } satisfies McpServiceApi)
 
     ctx.effect(() => () => {
