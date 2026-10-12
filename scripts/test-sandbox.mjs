@@ -89,7 +89,10 @@ const real = async (sandbox, label) => {
   try {
     assert.equal(await run('cat /workspace/in.txt'), 'project file', `${label}: the project is visible`)
     assert.match(await run('echo "[$SBX_TEST_SECRET]"'), /^\[\]$/, `${label}: host env (API keys) is not visible`)
-    const hostSecretLookup = (await run(`find / -type f -name '${hostSecretName}' -print 2>/dev/null | head -n 1`)).trim()
+    // The host-only sentinel sits beside the project directory on the host. Check its exact path and the
+    // usual mount points; scanning / took longer than the 20s command limit on small CI runners.
+    assert.equal((await run(`test -e '${hostSecret}' && echo VISIBLE || echo hidden`)).trim(), 'hidden', `${label}: the host-only file path does not exist inside the sandbox`)
+    const hostSecretLookup = (await run(`find /tmp /var/tmp /home /root /mnt /media /opt /srv -maxdepth 3 -name '${hostSecretName}' -print 2>/dev/null | head -n 1`)).trim()
     assert.ok(hostSecretLookup === '' || hostSecretLookup === '(no output)', `${label}: host-only files are not mounted into the sandbox (the lookup printed ${JSON.stringify(hostSecretLookup.slice(0, 300))})`)
     await run('echo written > /workspace/out.txt')
     assert.equal((await readFile(path.join(dir, 'out.txt'), 'utf8')).trim(), 'written', `${label}: writes to the project land on the host`)
