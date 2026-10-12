@@ -90,7 +90,7 @@ const real = async (sandbox, label) => {
     assert.equal(await run('cat /workspace/in.txt'), 'project file', `${label}: the project is visible`)
     assert.match(await run('echo "[$SBX_TEST_SECRET]"'), /^\[\]$/, `${label}: host env (API keys) is not visible`)
     const hostSecretLookup = (await run(`find / -type f -name '${hostSecretName}' -print 2>/dev/null | head -n 1`)).trim()
-    assert.ok(hostSecretLookup === '' || hostSecretLookup === '(no output)', `${label}: host-only files are not mounted into the sandbox`)
+    assert.ok(hostSecretLookup === '' || hostSecretLookup === '(no output)', `${label}: host-only files are not mounted into the sandbox (the lookup printed ${JSON.stringify(hostSecretLookup.slice(0, 300))})`)
     await run('echo written > /workspace/out.txt')
     assert.equal((await readFile(path.join(dir, 'out.txt'), 'utf8')).trim(), 'written', `${label}: writes to the project land on the host`)
     assert.equal((await run('cat /proc/net/dev | tail -n +3 | wc -l')).trim(), '1', `${label}: only the loopback interface exists`)
