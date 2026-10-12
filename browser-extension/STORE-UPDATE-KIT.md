@@ -7,11 +7,11 @@ Dibuat 12 Oktober 2026 untuk pemilik akun developer. Chrome tidak mengizinkan ex
 | Item | Nilai |
 | --- | --- |
 | Berkas | `C:\Users\farij\cl\sb\switchboard-chrome.zip` |
-| Versi di manifest | `0.4.2` |
-| SHA-256 | `603f22ac873713dfd6de1887160e1657c55d3a880f04ee3eec237bc1f876c9b0` |
-| Dibangun dari | commit `52032e4` (branch `fix/browser-action-errors-20261011`), dengan `npm run package:extension` |
+| Versi di manifest | `0.4.3` |
+| SHA-256 | `fb7d4ada0387e63c34ab9a07df643d0fc441c2600c7b5ae44a8ffde28d9d4233` |
+| Dibangun dari | branch `fix/browser-action-errors-20261011` setelah commit "bump to 0.4.3", dengan `npm run package:extension` |
 
-**Aturan versi:** Web Store hanya menerima versi yang lebih tinggi dari yang sedang tayang. Lihat versi yang tayang di dashboard. Jika sudah `0.4.2` atau lebih tinggi, naikkan `version` di `manifest.json` (misalnya `0.4.3`), jalankan `npm run package:extension`, dan pakai ZIP baru. Jangan membuat item baru: perbarui item yang sudah ada.
+**Versi:** versi `0.4.2` sudah tayang publik di store (tercatat di `docs/browser-parity-gate-20261011.md`). Paket ini sudah dinaikkan ke `0.4.3`. Web Store hanya menerima versi yang lebih tinggi dari yang tayang, jadi kalau dashboard Anda menunjukkan versi tayang yang lebih tinggi dari `0.4.2`, naikkan lagi `version` di `manifest.json`, jalankan `npm run package:extension`, dan pakai ZIP baru. Jangan membuat item baru: perbarui item yang sudah ada.
 
 ## Hal yang berubah dan memicu peninjauan lebih lama
 
