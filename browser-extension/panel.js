@@ -17,6 +17,13 @@ function setBadge(state, label) {
   const badge = $('companion-badge');
   badge.className = `badge ${state}`;
   badge.textContent = label;
+  const dot = $('conn-dot');
+  if (dot) {
+    const connected = state === 'connected';
+    dot.classList.toggle('on', connected);
+    dot.title = connected ? 'Terhubung' : 'Terputus';
+    dot.setAttribute('aria-label', dot.title);
+  }
 }
 
 // Tab navigation
@@ -40,6 +47,8 @@ async function refreshActiveTab() {
       currentTab = res.tab;
       $('active-tab-title').textContent = currentTab.title || 'Untitled';
       $('active-tab-origin').textContent = currentTab.origin || currentTab.url || 'None';
+      const chip = $('tab-chip');
+      if (chip) { $('tab-chip-title').textContent = currentTab.title || currentTab.origin || 'Tab aktif'; chip.hidden = false; }
 
       const access = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SITE_ACCESS_STATUS', origin: currentTab.origin });
       // This indicator reports Chrome's site grant only; action approval is a separate policy.
@@ -47,6 +56,7 @@ async function refreshActiveTab() {
       $('approved-origins-view').textContent = (access?.origins || []).join('\n') || 'None';
     } else {
       $('active-tab-title').textContent = 'No active capture';
+      if ($('tab-chip')) $('tab-chip').hidden = true;
       $('active-tab-origin').textContent = 'Select an HTTP(S) webpage, then refresh the tab.';
     }
   } catch (err) {
@@ -650,6 +660,7 @@ $('task-stop').addEventListener('click', async () => {
   }
   activeTask?.abort();
   taskStatus('Stopped.');
+  note('Dihentikan.');
 });
 // Enter sends; Shift+Enter adds a line.
 $('task-prompt').addEventListener('keydown', event => {
@@ -658,21 +669,164 @@ $('task-prompt').addEventListener('keydown', event => {
   if (!activeTask) $('task-form').requestSubmit();
 });
 
-// Plain text escaped first, then only **bold**, `code` and line breaks are added.
-function formatReply(text) {
-  const escaped = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>');
+// ---- Chat rendering ----------------------------------------------------------
+// One conversation per panel: later messages reuse the session so the agent keeps context.
+let conversationId = null;
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+// Input is escaped first; only these patterns add markup: `code`, **bold**, *italic*, [text](http(s) url).
+function inlineMarkup(escaped) {
+  return escaped
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+function formatReply(text) {
+  return String(text).split(/```/).map((part, index) => {
+    if (index % 2 === 1) {
+      const code = part.replace(/^[a-zA-Z0-9_+-]*\n/, '').replace(/\n$/, '');
+      return '<pre><code>' + escapeHtml(code) + '</code></pre>';
+    }
+    const out = [];
+    let list = '';
+    let para = [];
+    const endPara = () => { if (para.length) { out.push('<p>' + para.join('<br>') + '</p>'); para = []; } };
+    const endList = () => { if (list) { out.push('</' + list + '>'); list = ''; } };
+    for (const raw of part.split('\n')) {
+      const line = raw.trimEnd();
+      const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+      const number = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      if (bullet || number) {
+        endPara();
+        const tag = bullet ? 'ul' : 'ol';
+        if (list !== tag) { endList(); out.push('<' + tag + '>'); list = tag; }
+        out.push('<li>' + inlineMarkup(escapeHtml((bullet || number)[1])) + '</li>');
+      } else if (!line.trim()) {
+        endPara(); endList();
+      } else {
+        endList();
+        para.push(inlineMarkup(escapeHtml(line)));
+      }
+    }
+    endPara(); endList();
+    return out.join('');
+  }).join('');
+}
+
+function hostOf(url) { try { return new URL(String(url)).host; } catch (_) { return 'halaman'; } }
+function shortSelector(selector) {
+  const text = String(selector || '').trim();
+  return text.length > 28 ? text.slice(0, 27) + '…' : text;
+}
+const STEP_LABELS = {
+  browser_navigate: a => 'Membuka ' + hostOf(a.url),
+  browser_tab_create: a => 'Membuka tab ' + hostOf(a.url),
+  browser_tab_close: () => 'Menutup tab',
+  browser_key: () => 'Menekan tombol',
+  browser_dom_snapshot: () => 'Membaca halaman',
+  browser_extract: () => 'Mengambil teks halaman',
+  browser_click: a => 'Mengklik ' + shortSelector(a.selector),
+  browser_type: a => 'Mengisi ' + shortSelector(a.selector),
+  browser_select: a => 'Memilih opsi ' + shortSelector(a.selector),
+  browser_scroll: () => 'Menggulir halaman',
+  browser_screenshot: () => 'Mengambil tangkapan layar',
+  browser_download: () => 'Mengunduh berkas',
+  browser_wait: () => 'Menunggu',
+  browser_tabs_list: () => 'Melihat daftar tab',
+  browser_tab_select: () => 'Berpindah tab',
+  browser_console_logs: () => 'Memeriksa console',
+  browser_network_errors: () => 'Memeriksa jaringan',
+};
+function stepLabel(name, args) {
+  const label = STEP_LABELS[name];
+  return label ? label(args || {}).trim() : String(name || 'Menjalankan alat').replace(/^browser_/, '').replace(/_/g, ' ');
+}
+
+function note(text, kind) {
+  $('chat-empty').hidden = true;
+  const log = $('chat-log');
+  const el = document.createElement('div');
+  el.className = 'msg msg-note' + (kind === 'error' ? ' error' : '');
+  el.textContent = text;
+  log.append(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function createAgentMessage() {
+  const root = document.createElement('div');
+  root.className = 'msg msg-agent';
+  const steps = document.createElement('details');
+  steps.className = 'steps';
+  steps.open = true;
+  steps.hidden = true;
+  const summary = document.createElement('summary');
+  steps.append(summary);
+  const answer = document.createElement('div');
+  answer.className = 'answer';
+  const thinking = document.createElement('div');
+  thinking.className = 'thinking';
+  thinking.setAttribute('role', 'status');
+  thinking.setAttribute('aria-label', 'Sedang bekerja');
+  thinking.innerHTML = '<i></i><i></i><i></i>';
+  root.append(steps, answer, thinking);
+  return { root, steps, summary, answer, thinking, items: new Map(), text: '' };
+}
+function refreshStepSummary(msg, finished) {
+  const total = msg.items.size;
+  const failed = [...msg.items.values()].filter(el => el.classList.contains('failed')).length;
+  msg.summary.textContent = finished
+    ? total + ' langkah' + (failed ? ', ' + failed + ' gagal' : '')
+    : 'Bekerja… ' + total + ' langkah';
+}
+
+function autosizePrompt() {
+  const prompt = $('task-prompt');
+  prompt.style.height = 'auto';
+  prompt.style.height = Math.min(prompt.scrollHeight, 160) + 'px';
+}
+$('task-prompt').addEventListener('input', autosizePrompt);
+
+function syncComposerMode() {
+  const select = $('composer-mode');
+  if (select) select.value = $('permission-mode-select').value;
+}
+$('composer-mode')?.addEventListener('change', event => {
+  const target = $('permission-mode-select');
+  target.value = event.target.value;
+  target.dispatchEvent(new Event('change'));
+});
+$('permission-mode-select').addEventListener('change', syncComposerMode);
+
+document.querySelectorAll('#chat-chips .chip').forEach(button => {
+  button.addEventListener('click', () => {
+    const prompt = $('task-prompt');
+    prompt.value = button.dataset.prompt || '';
+    autosizePrompt();
+    prompt.focus();
+    prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+  });
+});
+$('chat-new')?.addEventListener('click', () => {
+  if (activeTask) return;
+  conversationId = null;
+  $('chat-log').replaceChildren();
+  $('chat-empty').hidden = false;
+  $('task-prompt').value = '';
+  autosizePrompt();
+  $('task-prompt').focus();
+});
 
 $('task-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (activeTask) return;
   const question = $('task-prompt').value.trim();
-  if (!question) { taskStatus('Enter a browser task first.'); return; }
-  if (!companionToken) { taskStatus('Connect Switchboard first.'); return; }
+  if (!question) return;
+  if (!companionToken) { note('Switchboard belum terhubung. Buka Pengaturan untuk menghubungkannya.', 'error'); return; }
   activeTask = new AbortController();
   activeTaskSession = null;
   const approvalPoll = setInterval(() => void refreshActionApproval(), 500);
@@ -684,10 +838,10 @@ $('task-form').addEventListener('submit', async event => {
   userMsg.className = 'msg msg-user';
   userMsg.textContent = question;
   log.append(userMsg);
-  const reply = document.createElement('div');
-  reply.className = 'msg msg-agent';
-  log.append(reply);
+  const msg = createAgentMessage();
+  log.append(msg.root);
   $('task-prompt').value = '';
+  autosizePrompt();
   log.scrollTop = log.scrollHeight;
   taskStatus('Running with your configured AI model...');
   try {
@@ -701,8 +855,9 @@ $('task-form').addEventListener('submit', async event => {
       method: 'POST',
       signal: activeTask.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + companionToken },
-      body: JSON.stringify({ preset: 'browser', prompt: context + question })
+      body: JSON.stringify({ preset: 'browser', prompt: context + question, ...(conversationId ? { sessionId: conversationId } : {}) })
     });
+    if (response.status === 404 && conversationId) conversationId = null;
     if (!response.ok || !response.body) throw Error('Local Switchboard HTTP ' + response.status);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -719,21 +874,50 @@ $('task-form').addEventListener('submit', async event => {
         try { item = JSON.parse(line.slice(6)); } catch (_) { continue; }
         if (item.type === 'session') {
           activeTaskSession = item.sessionId;
+          conversationId = item.sessionId;
           void refreshActionApproval();
         }
-        if (item.type === 'tool_call') taskStatus('Using ' + String(item.name || 'browser tool'));
+        if (item.type === 'tool_call') {
+          taskStatus('Using ' + String(item.name || 'browser tool'));
+          const step = document.createElement('div');
+          step.className = 'step running';
+          step.innerHTML = '<span class="step-dot"></span><span class="step-label"></span>';
+          step.querySelector('.step-label').textContent = stepLabel(item.name, item.args);
+          msg.steps.append(step);
+          msg.steps.hidden = false;
+          msg.thinking.hidden = true;
+          msg.items.set(String(item.id), step);
+          refreshStepSummary(msg, false);
+        }
+        if (item.type === 'tool_result') {
+          const step = msg.items.get(String(item.id));
+          if (step) {
+            step.classList.remove('running');
+            step.classList.add(String(item.result || '').startsWith('Error:') ? 'failed' : 'done');
+            refreshStepSummary(msg, false);
+          }
+        }
+        if (item.type === 'delta' && item.text) {
+          msg.text += item.text;
+          msg.thinking.hidden = true;
+          msg.answer.innerHTML = formatReply(msg.text);
+        }
         if (item.type === 'final') {
-          reply.innerHTML = formatReply(item.content || 'Finished without a text answer.');
-          log.scrollTop = log.scrollHeight;
+          msg.text = item.content || msg.text || 'Selesai tanpa jawaban tertulis.';
+          msg.answer.innerHTML = formatReply(msg.text);
           taskStatus(item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
-        if (item.type === 'error') taskStatus('Error: ' + String(item.message || item.error || 'Unknown'));
+        if (item.type === 'error') note('Terjadi galat: ' + String(item.message || item.error || 'tidak diketahui'), 'error');
+        log.scrollTop = log.scrollHeight;
       }
     }
   } catch (error) {
-    if (error?.name !== 'AbortError') taskStatus('Failed: ' + String(error?.message || error));
+    if (error?.name !== 'AbortError') note('Gagal: ' + String(error?.message || error), 'error');
   } finally {
     clearInterval(approvalPoll);
+    msg.thinking.remove();
+    if (msg.items.size) { msg.steps.open = false; refreshStepSummary(msg, true); }
+    if (!msg.text && !msg.items.size) msg.root.remove();
     activeTask = null;
     activeTaskSession = null;
     pendingApprovalId = null;
@@ -753,6 +937,7 @@ $('task-form').addEventListener('submit', async event => {
   document.documentElement.removeAttribute('data-theme');
   localStorage.removeItem('sb_theme');
   await loadStoredConfig();
+  syncComposerMode();
   await refreshActiveTab();
   await refreshPendingSite();
   await refreshAuditLog();
@@ -780,15 +965,20 @@ $('task-form').addEventListener('submit', async event => {
 
 // Side panel = chat only. Settings open in a full tab (?view=settings).
 (() => {
-  if (new URLSearchParams(location.search).get('view') === 'settings') return;
+  if (new URLSearchParams(location.search).get('view') === 'settings') { const chatTab = document.querySelector('nav button[data-tab="tab-overview"]'); if (chatTab) chatTab.style.display = 'none'; document.querySelector('nav button[data-tab="tab-security"]')?.click(); return; }
   document.body.classList.add('chat-only');
   // Icon-only actions in the composer.
   const send = document.getElementById('task-send');
   const stop = document.getElementById('task-stop');
   const settings = document.getElementById('task-settings');
-  if (send) { send.textContent = '↑'; send.setAttribute('aria-label', 'Kirim instruksi'); send.title = 'Kirim'; }
-  if (stop) { stop.textContent = '■'; stop.setAttribute('aria-label', 'Hentikan'); stop.title = 'Hentikan'; }
+  if (send) { send.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'; send.setAttribute('aria-label', 'Kirim instruksi'); send.title = 'Kirim'; }
+  if (stop) { stop.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>'; stop.setAttribute('aria-label', 'Hentikan'); stop.title = 'Hentikan'; }
   if (settings) { settings.setAttribute('aria-label', 'Pengaturan'); settings.title = 'Pengaturan'; settings.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'; }
+  const form = document.getElementById('task-form');
+  for (const id of ['site-request', 'approval-banner']) {
+    const el = document.getElementById(id);
+    if (el && form) form.before(el);
+  }
   const prompt = document.getElementById('task-prompt');
   if (prompt) prompt.placeholder = 'Tulis instruksi untuk browser…';
   const tabTitle = document.getElementById('active-tab-title');

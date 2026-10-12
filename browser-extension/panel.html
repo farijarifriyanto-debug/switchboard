@@ -219,56 +219,109 @@
       .brand-title {font-size:13px;}
     }
 
-      /* Side panel shows only the chat, like Claude in Chrome. ?view=settings shows the full layout. */
-    body.chat-only nav, body.chat-only .tab-pane:not(#tab-overview), body.chat-only #tab-overview > :not(.task-card) { display: none !important; }
-    /* Chat-only composer (Claude in Chrome layout): empty area, input anchored at the bottom, icon actions. */
-    body.chat-only { background: #fff; color: #15171b; }
-    body.chat-only .app-shell { display: flex; flex-direction: column; min-height: 100vh; padding: 0; }
-    body.chat-only #tab-overview { flex: 1; display: flex; flex-direction: column; }
-    body.chat-only .task-card { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; }
-    body.chat-only #task-form { border: 1px solid #e3e5ea; border-radius: 14px; padding: 12px 12px 8px; background: #fff; }
-    body.chat-only #task-prompt { border: 0; outline: 0; padding: 0; min-height: 56px; resize: none; background: transparent; font-size: 14px; color: #15171b; box-shadow: none; }
-    body.chat-only #task-form .row { display: flex; justify-content: flex-end; gap: 8px; margin: 6px 0 0; }
-    body.chat-only #task-send, body.chat-only #task-stop { width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 50%; background: #15171b; color: #fff; border: 0; font-size: 15px; line-height: 1; }
-    body.chat-only #task-stop { background: #e3e5ea; color: #15171b; }
-    body.chat-only #task-status { margin: 8px 4px 0; font-size: 12px; color: #6b7280; }
-    /* Reply reads as text, not as a form output box. */
-    body.chat-only #task-output { background: none; border: 0; padding: 4px 2px 0; margin: 0; max-height: none; font: 14px/1.6 system-ui, sans-serif; color: #15171b; white-space: pre-wrap; overflow: visible; }
-    body.chat-only #task-output:empty, body.chat-only #task-output[hidden] { display: none !important; }
-    body.chat-only #task-status:empty { display: none; }
-    /* Conversation: your message on the right, the reply as text on the left. */
-    body.chat-only .chat-log { flex: 1; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding: 4px 2px 12px; }
-    body.chat-only .chat-log:empty { display: none; }
-    body.chat-only .msg { max-width: 92%; font-size: 14px; line-height: 1.6; color: #15171b; white-space: pre-wrap; word-break: break-word; }
-    body.chat-only .msg-user { align-self: flex-end; background: #f1f2f5; border-radius: 16px; padding: 8px 12px; }
-    body.chat-only .msg-agent { align-self: flex-start; }
-    /* Layout fixes: no horizontal overflow, round icon buttons that beat the generic button styles. */
-    body.chat-only, body.chat-only * { box-sizing: border-box; }
-    body.chat-only { overflow-x: hidden; width: 100%; }
-    html, body.chat-only { width: 100%; max-width: 100vw; }
-    body.chat-only .app-shell, body.chat-only #tab-overview, body.chat-only .task-card, body.chat-only #task-form { max-width: 100%; min-width: 0; width: 100%; box-sizing: border-box; }
-    body.chat-only .task-card { padding: 12px !important; }
-    body.chat-only #task-send, body.chat-only #task-stop { flex: 0 0 32px !important; width: 32px !important; height: 32px !important; min-width: 32px !important; min-height: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex; align-items: center; justify-content: center; }
-    body.chat-only #task-send { background: #15171b !important; color: #fff !important; border: 0 !important; }
-    body.chat-only #task-stop { background: #eceef2 !important; color: #15171b !important; border: 0 !important; }
-    body.chat-only #task-stop:disabled, body.chat-only #task-send:disabled { opacity: .35; }
-    body.chat-only #task-status:not(:empty) { display: none; }
-    body.chat-only .chat-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 6px; padding: 8px 4px 24px; }
-    body.chat-only .chat-empty-title { font-size: 20px; font-weight: 600; color: #15171b; letter-spacing: -0.01em; }
-    body.chat-only .chat-empty p { margin: 0; font-size: 13px; line-height: 1.6; color: #6b7280; max-width: 34ch; }
-    body.chat-only .chat-empty[hidden] { display: none !important; }
-    body.chat-only #task-form { border-radius: 16px; border-color: #d9dce3; }
-    body.chat-only .msg-status { font-size: 12px; color: #6b7280; }
+    /* ===== Chat-only side panel (default). ?view=settings keeps the full layout. ===== */
+    .chat-bar { display: none; }
+    body.chat-only nav,
+    body.chat-only .tab-pane:not(#tab-overview),
+    body.chat-only #tab-overview > :not(.task-card),
+    body.chat-only .app-header,
+    body.chat-only .page-intro,
+    body.chat-only .context-bar,
+    body.chat-only #companion-badge,
+    body.chat-only #task-open-web,
+    body.chat-only .task-card .card-head,
+    body.chat-only #task-form > label,
+    body.chat-only #task-status,
     body.chat-only #task-output { display: none !important; }
+
+    html { height: 100%; }
+    body.chat-only {
+      --ink: #14161a; --paper: #ffffff; --surface: #f4f5f7; --line: #e4e6eb;
+      --muted: #6b7280; --accent: #0e7f91; --ok: #2f9e6b; --warn: #c2410c;
+      height: 100%; margin: 0; overflow: hidden;
+      background: var(--paper); color: var(--ink);
+      font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    body.chat-only, body.chat-only * { box-sizing: border-box; }
+    body.chat-only .app-shell { height: 100vh; display: flex; flex-direction: column; padding: 0; }
+    body.chat-only #tab-overview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    body.chat-only .task-card { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 0; box-shadow: none; background: transparent; padding: 0; margin: 0; }
+
+    /* Top bar */
+    body.chat-only .chat-bar { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; height: 48px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); }
+    .chat-bar-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--ink); color: #fff; display: grid; place-items: center; flex: 0 0 auto; }
+    .chat-bar-title { font-weight: 650; font-size: 14px; letter-spacing: -0.01em; }
+    .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #c4c8d0; flex: 0 0 auto; }
+    .conn-dot.on { background: var(--ok); }
+    .bar-spacer { flex: 1; }
+    body.chat-only .bar-btn { width: 32px; height: 32px; min-height: 0; min-width: 0; padding: 0; border: 0 !important; border-radius: 8px; background: transparent !important; color: var(--muted) !important; display: grid; place-items: center; }
+    body.chat-only .bar-btn:hover:not(:disabled) { background: var(--surface) !important; color: var(--ink) !important; }
+    body.chat-only .bar-btn:disabled { opacity: .35; }
+
+    /* Empty state */
+    body.chat-only .chat-empty { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 24px 20px; }
+    body.chat-only .chat-empty[hidden] { display: none !important; }
+    .chat-empty-title { font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing: -0.02em; }
+    .chat-empty p { margin: 0; max-width: 36ch; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+    .chips { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
+    body.chat-only .chip { min-height: 0; padding: 8px 14px; border: 1px solid var(--line) !important; border-radius: 999px; background: var(--paper) !important; color: var(--ink) !important; font-size: 13px; font-weight: 500; text-align: left; }
+    body.chat-only .chip:hover { background: var(--surface) !important; }
+
+    /* Conversation */
+    body.chat-only .chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 16px 14px 8px; }
+    body.chat-only .chat-log:empty { display: none; }
+    body.chat-only .msg { max-width: 100%; word-break: break-word; }
+    body.chat-only .msg-user { align-self: flex-end; max-width: 88%; padding: 9px 14px; border-radius: 18px 18px 4px 18px; background: var(--surface); white-space: pre-wrap; }
+    body.chat-only .msg-agent { align-self: stretch; display: flex; flex-direction: column; gap: 10px; }
+    body.chat-only .msg-note { align-self: stretch; padding: 9px 12px; border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 13px; }
+    body.chat-only .msg-note.error { background: #fdf0ed; color: #9a3412; }
+    .answer { line-height: 1.65; }
+    .answer p { margin: 0 0 10px; }
+    .answer p:last-child, .answer ul:last-child, .answer ol:last-child { margin-bottom: 0; }
+    .answer ul, .answer ol { margin: 0 0 10px; padding-left: 20px; }
+    .answer li { margin: 2px 0; }
+    .answer a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .answer code { padding: 1px 5px; border-radius: 5px; background: var(--surface); font: 12.5px ui-monospace, Consolas, monospace; }
+    .answer pre { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface); overflow-x: auto; }
+    .answer pre code { padding: 0; background: none; }
+    .steps { font-size: 12.5px; color: var(--muted); }
+    .steps > summary { cursor: pointer; list-style: none; padding: 2px 0; user-select: none; }
+    .steps > summary::-webkit-details-marker { display: none; }
+    .steps > summary::after { content: " \203A"; display: inline-block; transition: transform .15s; }
+    .steps[open] > summary::after { transform: rotate(90deg); }
+    .step { display: flex; align-items: center; gap: 9px; padding: 3px 0 3px 2px; }
+    .step-dot { width: 7px; height: 7px; border-radius: 50%; background: #c4c8d0; flex: 0 0 auto; }
+    .step.running .step-dot { background: var(--accent); animation: sb-pulse 1s infinite ease-in-out; }
+    .step.done .step-dot { background: var(--ok); }
+    .step.failed .step-dot { background: var(--warn); }
+    .step.failed { color: #9a3412; }
+    .thinking { display: inline-flex; gap: 4px; padding: 4px 0; }
+    .thinking[hidden], .steps[hidden] { display: none; }
+    .thinking i { width: 6px; height: 6px; border-radius: 50%; background: #b6bbc5; animation: sb-pulse 1s infinite ease-in-out; }
+    .thinking i:nth-child(2) { animation-delay: .15s; }
+    .thinking i:nth-child(3) { animation-delay: .3s; }
+    @keyframes sb-pulse { 50% { opacity: .3; transform: scale(.75); } }
+    @media (prefers-reduced-motion: reduce) { .step-dot, .thinking i { animation: none !important; } }
+
+    /* Approval and site-request cards sit just above the composer */
+    body.chat-only #approval-banner, body.chat-only #site-request { margin: 0 12px 8px; padding: 12px 14px; border-radius: 14px; }
+    body.chat-only #approval-banner .row, body.chat-only #site-request .row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    /* Composer */
+    body.chat-only #task-form { flex: 0 0 auto; margin: 0 12px 12px; padding: 10px 10px 8px 14px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); box-shadow: 0 1px 2px rgba(20, 22, 26, .05); transition: border-color .12s, box-shadow .12s; }
+    body.chat-only #task-form:focus-within { border-color: #b9bec8; box-shadow: 0 0 0 3px rgba(14, 127, 145, .12); }
+    .tab-chip { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; margin: 0 0 8px; padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; }
+    .tab-chip[hidden] { display: none; }
+    .tab-chip span { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    body.chat-only #task-prompt { display: block; width: 100%; min-height: 24px; max-height: 160px; padding: 0; border: 0; outline: 0; box-shadow: none !important; background: transparent; color: var(--ink); font-size: 14px; line-height: 1.5; resize: none; }
     body.chat-only #task-prompt::placeholder { color: #9aa0ab; }
-    body.chat-only #task-settings { position: fixed; top: 10px; right: 10px; width: 30px; height: 30px; padding: 0; border: 0; background: transparent; color: #15171b; font-size: 0; }
-    /* Chat-only: one quiet column, no cards, no status chrome (Claude in Chrome style). */
-    body.chat-only .app-header, body.chat-only .page-intro, body.chat-only .context-bar, body.chat-only #companion-badge, body.chat-only #task-open-web, body.chat-only .task-card label, body.chat-only .task-card .card-head { display: none !important; }
-    body.chat-only .app-shell { padding: 14px; }
-    body.chat-only .task-card { border: 0; box-shadow: none; background: transparent; padding: 0; margin: 0; }
-    body.chat-only .task-card textarea { min-height: 120px; font-size: 14px; }
-    body.chat-only .task-card .row { justify-content: flex-end; }
-    body.chat-only #task-settings { border: 0; background: transparent; box-shadow: none; }
+    body.chat-only .composer-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; }
+    .mode-wrap select { appearance: none; padding: 5px 26px 5px 12px; border: 0; border-radius: 999px; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; }
+    body.chat-only #task-send, body.chat-only #task-stop { flex: 0 0 34px; width: 34px; height: 34px; min-width: 34px; min-height: 34px; padding: 0; border: 0 !important; border-radius: 50%; font-size: 15px; line-height: 1; }
+    body.chat-only #task-send { background: var(--ink) !important; color: #fff !important; }
+    body.chat-only #task-stop { background: var(--surface) !important; color: var(--ink) !important; }
+    body.chat-only #task-send:disabled, body.chat-only #task-stop:disabled { display: none; }
+    body.chat-only #approval-banner .row, body.chat-only #site-request .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } body.chat-only #approval-banner button, body.chat-only #site-request button { min-height: 34px; padding: 6px 10px; border-radius: 10px; font-size: 12.5px; white-space: normal; } body.chat-only #btn-approve-once, body.chat-only #site-request-once { background: var(--ink) !important; border-color: var(--ink) !important; color: #fff !important; } body.chat-only #btn-reject, body.chat-only #site-request-deny { grid-column: 1 / -1; } .steps > summary::after { margin-left: 4px; }
   </style>
 </head>
 <body>
@@ -334,20 +387,42 @@
 
     <section id="tab-overview" class="tab-pane active">
       <section class="ui-card task-card">
+        <div class="chat-bar">
+          <span class="chat-bar-mark" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9m-3-3 3 3-3 3M20 17h-9m3-3-3 3 3 3M4 17h3M17 7h3"/></svg></span>
+          <span class="chat-bar-title">Switchboard</span>
+          <span id="conn-dot" class="conn-dot" role="img" aria-label="Terputus" title="Terputus"></span>
+          <span class="bar-spacer"></span>
+          <button id="chat-new" type="button" class="bar-btn" aria-label="Obrolan baru" title="Obrolan baru"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+          <button id="task-settings" type="button" class="bar-btn" aria-label="Pengaturan" title="Pengaturan">Pengaturan</button>
+        </div>
         <div class="card-head"><h2>Ask Switchboard</h2><span class="status-pill">AI + Chrome</span></div>
         <div id="chat-empty" class="chat-empty">
           <div class="chat-empty-title">Mau dikerjakan di browser?</div>
           <p>Tulis instruksi. Switchboard membaca halaman dan bertindak hanya di situs yang sudah Anda izinkan.</p>
+          <div id="chat-chips" class="chips">
+            <button type="button" class="chip" data-prompt="Ringkas halaman yang sedang saya buka dalam lima poin.">Ringkas halaman ini</button>
+            <button type="button" class="chip" data-prompt="Isi formulir di halaman ini dengan data berikut: ">Isi formulir di halaman ini</button>
+            <button type="button" class="chip" data-prompt="Ambil semua nama paket dan harga di halaman ini, lalu buat tabel perbandingannya.">Bandingkan harga di halaman ini</button>
+          </div>
         </div>
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="task-form">
+          <div id="tab-chip" class="tab-chip" hidden>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-4.5 4-4.5 14 0 18M12 3c4.5 4 4.5 14 0 18"/></svg>
+            <span id="tab-chip-title"></span>
+          </div>
           <label for="task-prompt" style="margin-top:0">What should the agent do in your browser?</label>
-          <textarea id="task-prompt" rows="3" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>
-          <div class="row">
+          <textarea id="task-prompt" rows="1" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>
+          <div class="row composer-row">
+            <span class="mode-wrap"><select id="composer-mode" aria-label="Mode izin aksi" title="Manual: setujui tiap aksi. Auto: aksi diperiksa otomatis. Skip: tanpa pemeriksaan otomatis.">
+              <option value="manual">Manual</option>
+              <option value="auto" selected>Auto</option>
+              <option value="skip">Skip</option>
+            </select></span>
+            <span class="bar-spacer"></span>
             <button id="task-send" type="submit">Run in Chrome</button>
             <button id="task-stop" type="button" class="secondary" disabled>Stop</button>
             <button id="task-open-web" type="button" class="secondary">Full chat</button>
-            <button id="task-settings" type="button" class="secondary">Pengaturan</button>
           </div>
         </form>
         <div id="task-status" role="status" aria-live="polite">Connected AI required to run browser tasks.</div>
