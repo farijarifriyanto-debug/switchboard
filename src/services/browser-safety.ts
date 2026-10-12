@@ -35,9 +35,16 @@ export type BrowserSafetyPageResult = {
 
 export interface BrowserSafetyConfig {
   timeoutMs?: number
+  /** Time allowed to screen page content; the model rewrites up to MAX_PAGE_CHARS, so it needs longer than an action check. */
+  pageTimeoutMs?: number
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000
+const DEFAULT_PAGE_TIMEOUT_MS = 45_000
+// An action verdict is a few words. Page screening returns the page text inside JSON, so a
+// 256-token budget cut longer pages off mid-JSON and every large page failed as "invalid response".
+const ACTION_MAX_TOKENS = 256
+const PAGE_MAX_TOKENS = 4_096
 const MAX_INTENT_CHARS = 2_000
 const MAX_PAGE_CHARS = 8_000
 const MAX_ACTION_CHARS = 3_000
@@ -82,10 +89,12 @@ export class BrowserSafetyService extends Service {
   static inject: string[] = ['llm', 'sessions']
 
   readonly timeoutMs: number
+  readonly pageTimeoutMs: number
 
   constructor(ctx: Context, config: BrowserSafetyConfig = {}) {
     super(ctx, 'browserSafety')
     this.timeoutMs = Math.max(1, config.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+    this.pageTimeoutMs = Math.max(1, config.pageTimeoutMs ?? DEFAULT_PAGE_TIMEOUT_MS)
   }
 
   async evaluateAction(input: BrowserSafetyActionInput, signal?: AbortSignal): Promise<BrowserSafetyDecision> {
@@ -145,7 +154,7 @@ export class BrowserSafetyService extends Service {
       },
     ]
     try {
-      const response = await this.generate(input, messages, signal)
+      const response = await this.generate(input, messages, signal, { maxTokens: PAGE_MAX_TOKENS, timeoutMs: this.pageTimeoutMs })
       const data = parseObject(response.content)
       if (!data || !hasOnlyKeys(data, ['verdict', 'content', 'reason']) || !['clean', 'quarantined', 'require_approval'].includes(String(data.verdict)) || typeof data.content !== 'string') {
         return { verdict: 'require_approval', content: '', reason: 'Page safety evaluator returned an invalid response.' }
@@ -172,6 +181,7 @@ export class BrowserSafetyService extends Service {
     input: { sessionId?: string; model?: string; provider?: string },
     messages: AgentMessage[],
     signal?: AbortSignal,
+    limits: { maxTokens?: number; timeoutMs?: number } = {},
   ): Promise<{ content: string }> {
     const session = input.sessionId ? this.ctx.sessions.get(input.sessionId) : undefined
     const model = this.ctx.llm.resolveModel(input.model ?? session?.model)
@@ -190,10 +200,10 @@ export class BrowserSafetyService extends Service {
         timer = setTimeout(() => {
           controller.abort()
           reject(new Error('browser safety evaluation timed out'))
-        }, this.timeoutMs)
+        }, limits.timeoutMs ?? this.timeoutMs)
       })
       return await Promise.race([
-        this.ctx.llm.generate({ model, provider, messages, temperature: 0, maxTokens: 256, signal: controller.signal, sessionId: input.sessionId }),
+        this.ctx.llm.generate({ model, provider, messages, temperature: 0, maxTokens: limits.maxTokens ?? ACTION_MAX_TOKENS, signal: controller.signal, sessionId: input.sessionId }),
         timedOut,
         aborted,
       ])

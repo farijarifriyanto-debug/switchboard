@@ -94,6 +94,28 @@ try {
   assert.equal(screened.verdict, 'quarantined')
   assert.match(screened.content, /untrusted|withheld|conflict/i)
 
+  // Page screening returns the page text inside JSON, so it needs a larger output budget than an
+  // action verdict; a 256-token limit cut larger pages off mid-JSON and failed them as "invalid".
+  assert.ok(requests.filter(r => r.maxTokens === 256).length > 0, 'action checks keep the short output budget')
+  assert.ok(requests.at(-1).maxTokens >= 2_048, 'page screening gets enough output budget for the page text')
+  const bigPage = 'Paragraf halaman yang panjang. '.repeat(250)
+  replies.push(JSON.stringify({ verdict: 'clean', content: bigPage.slice(0, 7_900), reason: 'ok' }))
+  const big = await safety.screenPage({ sessionId: session.id, targetOrigin: 'https://example.test', content: bigPage })
+  assert.equal(big.verdict, 'clean', 'a large page that fits the budget is accepted')
+  assert.ok(big.content.length > 1_000, 'the large page text is kept')
+  assert.ok(requests.at(-1).maxTokens >= 2_048)
+
+  // A page screening that never answers still fails closed, on its own (longer) time limit.
+  safety.pageTimeoutMs = 10
+  host.ctx.llm.generate = async () => new Promise(() => {})
+  assert.equal((await safety.screenPage({
+    sessionId: session.id, targetOrigin: 'https://example.test', content: 'page text',
+  })).verdict, 'require_approval', 'timed-out page screening fails closed')
+  host.ctx.llm.generate = async (options) => {
+    requests.push(options)
+    return { model: options.model, content: replies.shift() }
+  }
+
   const serializedRequests = JSON.stringify(requests)
   assert.doesNotMatch(serializedRequests, /console\.log|logger\(|writeFile/i, 'test does not add evaluator request bodies to logs')
   console.log('PASS action verdicts, strict output, failure handling, session model/provider, and page screening')
