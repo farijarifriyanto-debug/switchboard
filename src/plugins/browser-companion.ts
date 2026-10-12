@@ -6,7 +6,46 @@ import type { Socket } from 'node:net'
 import WebSocket, { WebSocketServer } from 'ws'
 import type { ToolSpec, ToolContext, ToolResult } from '../services/tools.js'
 
-export type PermissionMode = 'ask_every_time' | 'auto_safe' | 'restricted'
+export type PermissionMode = 'manual' | 'auto' | 'skip'
+type LegacyPermissionMode = 'ask_every_time' | 'auto_safe'
+
+function normalizePermissionMode(mode: unknown): PermissionMode {
+  if (mode === 'manual' || mode === 'ask_every_time') return 'manual'
+  if (mode === 'skip') return 'skip'
+  return 'auto'
+}
+
+export function prohibitedBrowserIntent(intent: string): string | undefined {
+  const text = intent.toLowerCase()
+  if (/\b(?:purchase|buy|pay|checkout|transfer money|send payment|place an order)\b/.test(text)) return 'Purchases and financial transactions are blocked.'
+  if (/\b(?:create|open|register|sign\s*up\s*for)\b.{0,32}\baccount\b/.test(text)) return 'Creating accounts is blocked.'
+  if (/\b(?:permanently\s+delete|delete\s+(?:the\s+)?account|erase\s+permanently)\b/.test(text)) return 'Permanent deletion is blocked.'
+  if (/\b(?:bypass|circumvent|solve)\b.{0,32}\b(?:captcha|bot|human verification)\b/.test(text)) return 'Bypassing bot or human-verification authorization is blocked.'
+  if (/\b(?:follow|obey|execute|do what)\b.{0,36}\b(?:instructions?\s+(?:from|on|in)\s+(?:this\s+)?(?:webpage|website|email|page)|(?:webpage|website|email)\s+instructions?)\b/.test(text)) return 'Instructions from untrusted web pages and email content are blocked.'
+  if (/\b(?:financial|stock|crypto|securities)\s+trade\b|\btrade\s+(?:stocks?|crypto|securities)\b/.test(text)) return 'Financial trades are blocked.'
+  if (/\b(?:credit\s*card|cvv|social security|national id|passport number)\b/.test(text)) return 'Handling payment-card or government-ID data is blocked.'
+  // Indonesian equivalents of the rules above (keyword rules; the Auto evaluator still reviews every action).
+  if (/\b(?:jual|menjual|beli|membeli|trading|trade)\b.{0,16}\b(?:saham|kripto|crypto|forex|sekuritas|reksa\s*dana)\b|\b(?:saham|kripto|crypto|forex|sekuritas)\b.{0,16}\b(?:jual|menjual|beli|membeli|trading)\b/.test(text)) return 'Financial trades are blocked.'
+  if (/\b(?:beli|membeli|pembelian|bayar|membayar|pembayaran|checkout|(?:transfer(?:kan)?|kirim(?:kan)?)\s+uang|top\s*up|isi\s+saldo)\b/.test(text)) return 'Purchases and financial transactions are blocked.'
+  if (/\b(?:buat|membuat|bikin|membikin|mendaftar(?:kan)?|daftarkan|pendaftaran|registrasi)\b.{0,32}\b(?:akun|rekening)\b|\bbuka\s+(?:akun|rekening)\s+baru\b/.test(text)) return 'Creating accounts is blocked.'
+  if (/\b(?:hapus|menghapus|musnahkan)\b.{0,24}\b(?:permanen|selamanya)\b|\b(?:hapus|menghapus)\s+(?:akun|rekening)\b|\bkosongkan\s+(?:tempat\s+sampah|sampah|trash)\b/.test(text)) return 'Permanent deletion is blocked.'
+  if (/\b(?:lewati|melewati|bypass|tembus|menembus|selesaikan|menyelesaikan|pecahkan|memecahkan)\b.{0,32}\b(?:captcha|verifikasi\s+(?:manusia|bot)|bukan\s+robot)\b/.test(text)) return 'Bypassing bot or human-verification authorization is blocked.'
+  if (/\b(?:ikuti|mengikuti|turuti|menuruti|patuhi|jalankan|menjalankan)\b.{0,36}\b(?:instruksi|perintah|petunjuk)\b.{0,16}\b(?:di|dari|pada)\s+(?:halaman|situs|website|web|email|surel)\b/.test(text)) return 'Instructions from untrusted web pages and email content are blocked.'
+  if (/\b(?:kartu\s+kredit|kartu\s+debit|nomor\s+kartu|cvv|cvc|ktp|nik|nomor\s+induk\s+kependudukan|nomor\s+paspor|paspor)\b/.test(text)) return 'Handling payment-card or government-ID data is blocked.'
+  return undefined
+}
+
+export function prohibitedBrowserTarget(label: string): string | undefined {
+  if (/\b(?:buy now|purchase|place order|checkout|pay now|transfer money|send payment)\b/i.test(label)) return 'Purchases and financial transactions are blocked.'
+  if (/\b(?:create|open)\s+(?:a\s+)?account|\b(?:sign\s*up|register)\b/i.test(label)) return 'Creating accounts is blocked.'
+  if (/\b(?:permanently\s+delete|delete\s+account|erase permanently)\b/i.test(label)) return 'Permanent deletion is blocked.'
+  if (/\b(?:place|execute)\s+(?:a\s+)?(?:stock|crypto|financial)\s+trade\b/i.test(label)) return 'Financial trades are blocked.'
+  // Indonesian button and link labels.
+  if (/\b(?:beli\s+sekarang|bayar\s+sekarang|pesan\s+sekarang|checkout|lanjut(?:kan)?\s+ke\s+pembayaran|(?:transfer|kirim)\s+uang)\b/i.test(label) || /^\s*(?:beli|bayar)\s*$/i.test(label)) return 'Purchases and financial transactions are blocked.'
+  if (/\b(?:buat|membuat|buka|membuka)\s+(?:sebuah\s+)?akun\b/i.test(label) || /^\s*(?:daftar(?:\s+(?:sekarang|gratis|akun))?|mendaftar|registrasi)\s*$/i.test(label)) return 'Creating accounts is blocked.'
+  if (/\b(?:hapus\s+permanen|hapus\s+selamanya|hapus\s+akun|kosongkan\s+(?:tempat\s+sampah|sampah))\b/i.test(label)) return 'Permanent deletion is blocked.'
+  return undefined
+}
 
 export interface BrowserCompanionConfig {
   /** Whether the companion plugin is enabled. Defaults to true. */
@@ -17,8 +56,8 @@ export interface BrowserCompanionConfig {
   host?: string
   /** Shared secret or pairing token. If omitted, a random token is generated. */
   token?: string
-  /** Default permission mode. Defaults to 'ask_every_time'. */
-  defaultMode?: PermissionMode
+  /** Default action mode. Defaults to Auto, matching the modern side panel. */
+  defaultMode?: PermissionMode | LegacyPermissionMode
   /** Command execution timeout in milliseconds. Defaults to 30,000. */
   timeoutMs?: number
 }
@@ -39,7 +78,7 @@ export interface BrowserAuditEntry {
   selector?: string
   url?: string
   origin?: string
-  decision: 'auto_safe' | 'approved' | 'rejected' | 'restricted_denied'
+  decision: 'auto_safe' | 'approved' | 'rejected'
   status: 'success' | 'error' | 'pending'
   error?: string
 }
@@ -102,11 +141,11 @@ export class BrowserCompanionService {
       port: config.port,
       host: config.host ?? '127.0.0.1',
       token: config.token || randomBytes(16).toString('hex'),
-      defaultMode: config.defaultMode ?? 'ask_every_time',
+      defaultMode: normalizePermissionMode(config.defaultMode ?? 'auto'),
       timeoutMs: config.timeoutMs ?? 90_000,
     }
     this.token = this.config.token!
-    this.mode = this.config.defaultMode!
+    this.mode = normalizePermissionMode(this.config.defaultMode)
   }
 
   get currentToken(): string {
@@ -127,11 +166,11 @@ export class BrowserCompanionService {
     return this.mode
   }
 
-  setMode(mode: PermissionMode): void {
-    if (!['ask_every_time', 'auto_safe', 'restricted'].includes(mode)) {
+  setMode(mode: PermissionMode | LegacyPermissionMode): void {
+    if (!['manual', 'auto', 'skip', 'ask_every_time', 'auto_safe'].includes(mode)) {
       throw new Error(`Invalid permission mode: ${mode}`)
     }
-    this.mode = mode
+    this.mode = normalizePermissionMode(mode)
   }
 
   getApprovedOrigins(): string[] {
@@ -202,20 +241,6 @@ export class BrowserCompanionService {
       )
     }
 
-    // Permission mode enforcement for mutating operations
-    const isMutation = ['browser_click', 'browser_type', 'browser_navigate', 'browser_select'].includes(tool)
-    if (isMutation && this.mode === 'restricted') {
-      this.logAudit({
-        tool,
-        action: String(args.selector || args.url || ''),
-        url: this.activeTab?.url,
-        origin: this.activeTab?.auditedOrigin,
-        decision: 'restricted_denied',
-        status: 'error',
-        error: 'Permission mode is Restricted (read-only).',
-      })
-      throw new Error('Action rejected: permission mode is Restricted (read-only).')
-    }
 
     const commandId = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const command: BridgeCommand = {
@@ -238,7 +263,7 @@ export class BrowserCompanionService {
           action: String(args.selector || args.url || ''),
           url: this.activeTab?.url,
           origin: this.activeTab?.auditedOrigin,
-          decision: this.mode === 'auto_safe' ? 'auto_safe' : 'approved',
+          decision: this.mode === 'auto' ? 'auto_safe' : 'approved',
           status: 'error',
           error: 'Execution timed out',
         })
@@ -271,7 +296,7 @@ export class BrowserCompanionService {
             action: String(args.selector || args.url || ''),
             url: this.activeTab?.url,
             origin: this.activeTab?.auditedOrigin,
-            decision: this.mode === 'auto_safe' ? 'auto_safe' : 'approved',
+            decision: this.mode === 'auto' ? 'auto_safe' : 'approved',
             status: 'success',
           })
           resolve(val)
@@ -286,7 +311,7 @@ export class BrowserCompanionService {
             action: String(args.selector || args.url || ''),
             url: this.activeTab?.url,
             origin: this.activeTab?.auditedOrigin,
-            decision: this.mode === 'auto_safe' ? 'auto_safe' : 'approved',
+            decision: this.mode === 'auto' ? 'auto_safe' : 'approved',
             status: 'error',
             error: err.message,
           })
@@ -535,9 +560,7 @@ export class BrowserCompanionService {
         if (Array.isArray(body.approvedOrigins)) {
           this.approvedOrigins = new Set(body.approvedOrigins)
         }
-        if (body.mode && ['ask_every_time', 'auto_safe', 'restricted'].includes(body.mode)) {
-          this.mode = body.mode
-        }
+        if (body.mode && ['manual', 'auto', 'skip', 'ask_every_time', 'auto_safe'].includes(body.mode)) this.setMode(body.mode)
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true, mode: this.mode, activeTab: this.activeTab }))
       } catch (err: any) {
@@ -664,19 +687,280 @@ export class BrowserCompanionService {
 }
 
 /**
- * Register all 13 Browser Automation tools into Switchboard's `ctx.tools`
+ * Register all 17 Browser Automation tools into Switchboard's `ctx.tools`
  */
 export function registerBrowserTools(ctx: Context, service: BrowserCompanionService): () => void {
   const disposers: Array<() => void> = []
+  const browserActions = new Set([
+    'browser_tab_select', 'browser_navigate', 'browser_click', 'browser_type',
+    'browser_scroll', 'browser_select', 'browser_download', 'browser_tab_create',
+    'browser_dom_snapshot', 'browser_screenshot', 'browser_wait', 'browser_extract',
+    'browser_console_logs', 'browser_network_errors', 'browser_tab_close', 'browser_key',
+  ])
+  const autoConfirmActions = new Set(['browser_download'])
+  const pageBoundTools = new Set([
+    'browser_dom_snapshot', 'browser_screenshot', 'browser_click', 'browser_type',
+    'browser_scroll', 'browser_select', 'browser_download', 'browser_wait',
+    'browser_extract', 'browser_console_logs', 'browser_network_errors', 'browser_key',
+  ])
+  const pageSnapshot = async (toolCtx: ToolContext, requestedTabId?: number, actionSelector?: string) => {
+    const raw: any = await service.executeOnBrowser('browser_dom_snapshot', {
+      compact: true, maxChars: 6000, ...(Number.isInteger(requestedTabId) ? { tabId: requestedTabId } : {}),
+    }, toolCtx)
+    if (!raw || raw.ok === false) throw new Error('Unable to read the current browser page for safety preflight.')
+    let origin = typeof raw.origin === 'string' ? raw.origin : ''
+    if (!origin && typeof raw.url === 'string') {
+      try { origin = new URL(raw.url).origin } catch { /* rejected below */ }
+    }
+    try {
+      const parsed = new URL(origin)
+      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.origin !== origin) throw new Error()
+    } catch {
+      throw new Error('Browser page has no valid HTTP(S) origin; action preflight stopped.')
+    }
+    if (!Number.isInteger(raw.tabId) || typeof raw.hash !== 'string' || !raw.hash) {
+      throw new Error('Browser page snapshot is missing its bound tab or change token.')
+    }
+    if (Number.isInteger(requestedTabId) && raw.tabId !== requestedTabId) {
+      throw new Error('Browser page snapshot did not match the requested tab; action preflight stopped.')
+    }
+    const rawElements = (Array.isArray(raw.elements) ? raw.elements : []).slice(0, 80)
+    const selector = String(actionSelector || '')
+    const selected = rawElements.find((el: any) => el?.selector === selector || el?.ref === selector)
+    const selectedLabel = String(selected?.text || '')
+    const protectedAuthorization = Boolean(selected && /\b(?:allow|authori[sz]e|grant|consent|approve|izinkan|setujui|otorisasi)\b/i.test(selectedLabel))
+    const prohibitedTarget = prohibitedBrowserTarget(selectedLabel)
+    const selectedSensitive = Boolean(selected?.isSensitive)
+    const elements = rawElements.map((el: any) => ({
+      ref: typeof el?.ref === 'string' ? el.ref.slice(0, 24) : undefined,
+      selector: typeof el?.selector === 'string' ? el.selector.slice(0, 240) : undefined,
+      tag: typeof el?.tag === 'string' ? el.tag.slice(0, 24) : undefined,
+      type: typeof el?.type === 'string' ? el.type.slice(0, 32) : undefined,
+      disabled: Boolean(el?.disabled),
+      isSensitive: Boolean(el?.isSensitive),
+    }))
+    const projection = {
+      title: typeof raw.title === 'string' ? raw.title.slice(0, 200) : '',
+      origin,
+      text: typeof raw.text === 'string' ? raw.text.slice(0, 6000) : '',
+      elements,
+    }
+    if (!projection.text.trim() && elements.length === 0 && service.currentMode !== 'skip') throw new Error('Browser page snapshot contained no visible page context.')
+    const screened = service.currentMode === 'skip'
+      ? { verdict: 'clean' as const, content: `[UNTRUSTED PAGE CONTENT — automatic checks skipped]\n${projection.text}` }
+      : await ctx.browserSafety.screenPage({
+          sessionId: toolCtx.sessionId,
+          model: toolCtx.model,
+          provider: toolCtx.provider,
+          targetOrigin: origin,
+          content: JSON.stringify(projection),
+        }, toolCtx.signal)
+    const safeSnapshot = {
+      title: projection.title,
+      origin,
+      elements,
+      text: screened.content,
+      hash: raw.hash,
+      isDiff: Boolean(raw.isDiff),
+    }
+    const binding = { tabId: raw.tabId, origin, hash: raw.hash, kind: 'page' as const, mode: service.currentMode, safeSnapshot, safeContent: screened.content }
+    return {
+      origin, binding, screening: screened, protectedAuthorization, prohibitedTarget, selectedSensitive,
+      downloadOrigin: typeof selected?.hrefOrigin === 'string' ? selected.hrefOrigin : undefined,
+    }
+  }
+
+  const revalidateBinding = async (toolCtx: ToolContext) => {
+    const binding = toolCtx.browserPageBinding
+    if (!binding) throw new Error('Browser action has no safety-preflight tab binding.')
+    if (binding.mode !== service.currentMode) throw new Error('Browser action mode changed after safety preflight; prepare the action again.')
+    if (binding.kind === 'page') {
+      const raw: any = await service.executeOnBrowser('browser_dom_snapshot', {
+        compact: true, maxChars: 6000, tabId: binding.tabId,
+      }, toolCtx)
+      let origin = typeof raw?.origin === 'string' ? raw.origin : ''
+      if (!origin && typeof raw?.url === 'string') {
+        try { origin = new URL(raw.url).origin } catch { /* rejected below */ }
+      }
+      if (!raw || raw.ok === false || raw.tabId !== binding.tabId || origin !== binding.origin || raw.hash !== binding.hash) {
+        throw new Error('Browser page changed after safety preflight; prepare the action again.')
+      }
+    } else {
+      const tabs: any = await service.executeOnBrowser('browser_tabs_list', {}, toolCtx)
+      const tab = Array.isArray(tabs?.tabs) ? tabs.tabs.find((item: any) => item.id === binding.tabId) : undefined
+      let origin = ''
+      try { origin = new URL(String(tab?.url || '')).origin } catch { /* rejected below */ }
+      const expectedCurrentOrigin = binding.kind === 'navigation' ? binding.pageOrigin : binding.origin
+      if (!tab || !origin || origin !== expectedCurrentOrigin) throw new Error('Browser tab changed after safety preflight; prepare the action again.')
+    }
+  }
+
+  const screenReadResult = async (toolCtx: ToolContext, value: unknown) => {
+    const binding = toolCtx.browserPageBinding
+    if (!binding?.safeContent) throw new Error('Page content was not cleared by safety screening; it cannot be shown to the agent.')
+    if (service.currentMode === 'skip') {
+      return JSON.stringify({ ok: true, origin: binding.origin, content: `[UNTRUSTED PAGE CONTENT — automatic checks skipped]\n${JSON.stringify(value).slice(0, 6000)}` })
+    }
+    const screened = await ctx.browserSafety.screenPage({
+      sessionId: toolCtx.sessionId,
+      model: toolCtx.model,
+      provider: toolCtx.provider,
+      targetOrigin: binding.origin,
+      content: JSON.stringify(value).slice(0, 6000),
+    }, toolCtx.signal)
+    if (screened.verdict === 'require_approval') throw new Error(screened.reason || 'Browser result needs review before the agent can use it.')
+    return JSON.stringify({ ok: true, origin: binding.origin, content: screened.content })
+  }
 
   const reg = (spec: ToolSpec) => {
-    disposers.push(ctx.tools.register(spec))
+    const originalExecute = spec.execute
+    const preflight = spec.name.startsWith('browser_') ? async (args: any, toolCtx: ToolContext) => {
+      if (!service.isClientConnected()) return { verdict: 'continue' as const, reason: '' }
+      const manualApproval = service.currentMode === 'manual' && spec.name !== 'browser_tabs_list'
+      const protectedApproval = autoConfirmActions.has(spec.name)
+      let page: Awaited<ReturnType<typeof pageSnapshot>> | undefined
+      let tabTarget: { id: number; origin: string; pageOrigin: string } | undefined
+      const needsTabMetadata = spec.name === 'browser_tab_select' || spec.name === 'browser_tab_close' || spec.name === 'browser_navigate'
+        || (service.currentMode === 'manual' && pageBoundTools.has(spec.name))
+      if (needsTabMetadata) {
+        if (spec.name === 'browser_tab_select' || spec.name === 'browser_tab_close' || Number.isInteger(args?.tabId) || service.getActiveTab()?.id
+          || (service.currentMode === 'manual' && pageBoundTools.has(spec.name))) {
+          try {
+            const tabs: any = await service.executeOnBrowser('browser_tabs_list', {}, toolCtx)
+            const desiredId = Number.isInteger(args?.tabId) ? Number(args.tabId) : service.getActiveTab()?.id
+            const target = Array.isArray(tabs?.tabs)
+              ? tabs.tabs.find((tab: any) => tab.id === desiredId) || (!desiredId && tabs.tabs.find((tab: any) => tab.active))
+              : undefined
+            if (!target || !Number.isInteger(target.id)) return { verdict: 'block' as const, reason: 'The target browser tab is unavailable.' }
+            const pageOrigin = new URL(String(target.url || '')).origin
+            if (!['http:', 'https:'].includes(new URL(pageOrigin).protocol)) throw new Error()
+            const targetOrigin = spec.name === 'browser_navigate' ? new URL(String(args?.url || '')).origin : pageOrigin
+            if (!['http:', 'https:'].includes(new URL(targetOrigin).protocol)) throw new Error()
+            tabTarget = { id: target.id, origin: targetOrigin, pageOrigin }
+            toolCtx.browserPageBinding = {
+              tabId: target.id, origin: targetOrigin, pageOrigin,
+              hash: spec.name === 'browser_navigate' ? 'navigation-target' : 'tab-target',
+              kind: spec.name === 'browser_navigate' ? 'navigation' : 'tab', mode: service.currentMode,
+            }
+          } catch {
+            return { verdict: 'block' as const, reason: 'The target browser tab or HTTP(S) destination is invalid.' }
+          }
+        } else if (spec.name === 'browser_navigate') {
+          try {
+            const target = new URL(String(args?.url || ''))
+            if (!['http:', 'https:'].includes(target.protocol)) throw new Error()
+          } catch {
+            return { verdict: 'block' as const, reason: 'Browser navigation requires an absolute HTTP(S) target.' }
+          }
+        }
+      }
+      if (pageBoundTools.has(spec.name) && (service.currentMode !== 'manual' || spec.name === 'browser_download')) {
+        try {
+          page = await pageSnapshot(toolCtx, args?.tabId, args?.selector)
+          toolCtx.browserPageBinding = page.binding
+        } catch (error) {
+          return { verdict: 'block' as const, reason: error instanceof Error ? error.message : 'Browser page preflight failed.' }
+        }
+      }
+      if (page?.selectedSensitive && spec.name === 'browser_type') {
+        return { verdict: 'block' as const, reason: 'Interaction with sensitive credential, payment, or file fields is blocked.' }
+      }
+      if (spec.name === 'browser_download') {
+        if (!page?.downloadOrigin) {
+          return { verdict: 'block' as const, reason: 'The download source cannot be identified and is blocked.' }
+        }
+        if (page.downloadOrigin !== page.origin) {
+          return { verdict: 'block' as const, reason: 'Downloads from a different, unverified origin are blocked.' }
+        }
+      }
+      const prohibited = browserActions.has(spec.name) ? prohibitedBrowserIntent(toolCtx.userIntent || '') : undefined
+      if (prohibited) return { verdict: 'block' as const, reason: prohibited }
+      if (page?.prohibitedTarget && spec.name === 'browser_click') return { verdict: 'block' as const, reason: page.prohibitedTarget }
+      if (page?.screening.verdict === 'require_approval') {
+        return { verdict: 'require_approval' as const, reason: page.screening.reason || 'Page content requires review.' }
+      }
+      if (manualApproval) return { verdict: 'require_approval' as const, reason: 'Manual mode requires approval for each browser action.' }
+      if (service.currentMode === 'auto' && browserActions.has(spec.name)) {
+        let targetOrigin = page?.origin || tabTarget?.origin || ''
+        let pageContext = page?.screening.content || ''
+        if (!page) {
+          if (spec.name === 'browser_tab_select' || spec.name === 'browser_tab_close') pageContext = `The requested existing tab has origin ${targetOrigin}. Its page content has not been read.`
+          else if (spec.name === 'browser_navigate' || spec.name === 'browser_tab_create') {
+            try {
+              const target = new URL(String(args?.url || ''))
+              if (!['http:', 'https:'].includes(target.protocol)) throw new Error()
+              targetOrigin = target.origin
+              pageContext = `Navigation target origin: ${targetOrigin}. Destination page content has not been read.`
+            } catch {
+              return { verdict: 'block' as const, reason: 'Browser navigation requires an absolute HTTP(S) target.' }
+            }
+          } else if (!targetOrigin) {
+            return { verdict: 'block' as const, reason: 'The target browser tab is unavailable.' }
+          }
+        }
+        const actionArgs = {
+          ...args,
+          ...(toolCtx.browserPageBinding ? { tabId: toolCtx.browserPageBinding.tabId } : {}),
+          ...(typeof args?.url === 'string' ? { url: targetOrigin } : {}),
+        }
+        const decision = await ctx.browserSafety.evaluateAction({
+          sessionId: toolCtx.sessionId,
+          model: toolCtx.model,
+          provider: toolCtx.provider,
+          userIntent: toolCtx.userIntent || '',
+          targetOrigin,
+          pageContext: pageContext || `Target origin: ${targetOrigin}. No destination page content is available.`,
+          action: { tool: spec.name, args: actionArgs },
+        }, toolCtx.signal)
+        if (decision.verdict !== 'continue') return { verdict: decision.verdict, reason: decision.reason }
+      }
+      if (page?.protectedAuthorization && spec.name === 'browser_click') {
+        return { verdict: 'require_approval' as const, reason: 'Authorization and consent actions require explicit approval in every mode.' }
+      }
+      return {
+        verdict: protectedApproval ? 'require_approval' as const : 'continue' as const,
+        reason: protectedApproval ? 'The file source cannot be verified automatically; confirm this download explicitly.' : '',
+      }
+    } : undefined
+    disposers.push(ctx.tools.register({
+      ...spec,
+      ...(preflight ? {
+        preflight,
+        async execute(args: any, toolCtx: ToolContext) {
+          if (service.currentMode === 'manual' && pageBoundTools.has(spec.name) && toolCtx.browserPageBinding?.kind !== 'page') {
+            const page = await pageSnapshot(toolCtx, toolCtx.browserPageBinding?.tabId, args?.selector)
+            if (page.selectedSensitive && spec.name === 'browser_type') {
+              throw new Error('Interaction with sensitive credential, payment, or file fields is blocked.')
+            }
+            if (page.screening.verdict === 'require_approval') {
+              throw new Error(page.screening.reason || 'Page content could not be screened; the browser action was not executed.')
+            }
+            toolCtx.browserPageBinding = page.binding
+          }
+          if (toolCtx.browserPageBinding) await revalidateBinding(toolCtx)
+          if (spec.name === 'browser_dom_snapshot') {
+            const snapshot = toolCtx.browserPageBinding?.safeSnapshot
+            if (!snapshot && service.isClientConnected()) throw new Error('Safe page snapshot is unavailable; the page was not passed to the agent.')
+            if (!snapshot) return originalExecute(args, toolCtx)
+            return JSON.stringify(snapshot)
+          }
+          const boundArgs = toolCtx.browserPageBinding && (pageBoundTools.has(spec.name) || spec.name === 'browser_tab_select' || spec.name === 'browser_navigate')
+            ? { ...args, tabId: toolCtx.browserPageBinding.tabId }
+            : args
+          const result = await originalExecute(boundArgs, toolCtx)
+          if (['browser_extract', 'browser_console_logs', 'browser_network_errors'].includes(spec.name)) {
+            return screenReadResult(toolCtx, result)
+          }
+          return result
+        },
+      } : {}),
+    }))
   }
 
   // 1. browser_tabs_list
   reg({
     name: 'browser_tabs_list',
-    description: 'List accessible browser tabs in the current window with titles and URLs.',
+    description: 'List tabs in the current window with titles and URLs. This is a listing only: the agent works in its own tab, which other browser tools use by default. Do not assume a listed tab is that tab.',
     parameters: {
       type: 'object',
       properties: {
@@ -692,7 +976,7 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   // 2. browser_tab_select
   reg({
     name: 'browser_tab_select',
-    description: 'Switch active focus to a specific browser tab by tab ID.',
+    description: 'Make a tab by tab ID the agent’s working tab and focus it. Browser tools without a tab ID act on this tab afterwards.',
     parameters: {
       type: 'object',
       properties: {
@@ -706,11 +990,49 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
     },
   })
 
+  // browser_tab_close: only tabs Switchboard opened can be closed (enforced in the extension).
+  reg({
+    name: 'browser_tab_close',
+    description: 'Close a tab that Switchboard opened (a tab in the "Switchboard" group) by tab ID. Your own tabs cannot be closed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'number', description: 'ID of the Switchboard tab to close.' },
+      },
+      required: ['tabId'],
+    },
+    async execute(args: { tabId: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_tab_close', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
+  // browser_key: named keys only, so text entry stays in browser_type where sensitive fields are checked.
+  reg({
+    name: 'browser_key',
+    description: 'Press a named key in the agent tab: Enter, Tab, Shift+Tab, Escape, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown or Space. Use browser_type to enter text and browser_click for buttons and links.',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: {
+          type: 'string',
+          enum: ['Enter', 'Tab', 'Shift+Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Space'],
+          description: 'Key to press.',
+        },
+        tabId: { type: 'number', description: 'Optional tab ID.' },
+      },
+      required: ['key'],
+    },
+    async execute(args: { key: string; tabId?: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_key', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
   // 3. browser_navigate
   reg({
     name: 'browser_navigate',
     description: 'Navigate the browser to an HTTP/HTTPS URL. Navigation across unapproved origins requires permission.',
-    risk: 'risky',
     parameters: {
       type: 'object',
       properties: {
@@ -773,7 +1095,6 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   reg({
     name: 'browser_click',
     description: 'Click an element specified by a CSS selector or element ref (@e1, @e2).',
-    risk: 'risky',
     parameters: {
       type: 'object',
       properties: {
@@ -788,17 +1109,52 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
     },
   })
 
+  // browser_download: a click that must start a download. Protected: always asks in the extension.
+  reg({
+    name: 'browser_download',
+    description: 'Click a download link or button and report the file Chrome starts downloading. Always requires approval in the Switchboard panel.',
+    parameters: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector or element ref of the download link or button.' },
+        tabId: { type: 'number', description: 'Optional tab ID.' },
+      },
+      required: ['selector'],
+    },
+    async execute(args: { selector: string; tabId?: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_download', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
+  // browser_tab_create: open a page in a new tab grouped as "Switchboard".
+  reg({
+    name: 'browser_tab_create',
+    description: 'Open an HTTP(S) URL in a new tab, grouped under "Switchboard". The site must be allowed in Chrome.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Absolute HTTP(S) URL to open.' },
+        tabId: { type: 'number', description: 'Optional tab ID used as the current tab.' },
+      },
+      required: ['url'],
+    },
+    async execute(args: { url: string; tabId?: number }, toolCtx: ToolContext) {
+      const result = await service.executeOnBrowser('browser_tab_create', args, toolCtx)
+      return JSON.stringify(result)
+    },
+  })
+
   // 7. browser_type
   reg({
     name: 'browser_type',
-    description: 'Type text into an input or textarea element specified by selector or ref. Sensitive fields (passwords, credit cards) are blocked.',
-    risk: 'risky',
+    description: 'Type text into an input or textarea element specified by selector or ref. With clear=false (the default), text is appended; when replacing existing text, set clear=true and do not assume the field is empty. A successful result includes verified=true: the live field matched without returning its text. Do not repeat the mutation. Sensitive fields (passwords, credit cards) are blocked.',
     parameters: {
       type: 'object',
       properties: {
         selector: { type: 'string', description: 'CSS selector or element ref.' },
         text: { type: 'string', description: 'Text to type.' },
-        clear: { type: 'boolean', description: 'Clear existing text before typing.' },
+        clear: { type: 'boolean', description: 'Set clear=true to replace existing text; clear=false (default) appends.' },
         pressEnter: { type: 'boolean', description: 'Press Enter key after typing.' },
         tabId: { type: 'number', description: 'Optional tab ID.' },
       },
@@ -833,7 +1189,6 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   reg({
     name: 'browser_select',
     description: 'Select an option in a <select> dropdown element by value or visible label.',
-    risk: 'risky',
     parameters: {
       type: 'object',
       properties: {
@@ -872,7 +1227,7 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   // 11. browser_extract
   reg({
     name: 'browser_extract',
-    description: 'Extract text, HTML, or attributes from element(s) matching a CSS selector.',
+    description: 'Extract text, HTML, or DOM attributes from element(s) matching a CSS selector. For form controls, attribute:"value" reads the markup attribute, not the live value, and may be empty after typing. Do not use it to verify typing; browser_type returns verified=true after checking the live value without exposing it.',
     parameters: {
       type: 'object',
       properties: {
@@ -932,7 +1287,7 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
 /** Cordis plugin declaration */
 export const browserCompanion = {
   name: 'browser-companion',
-  inject: ['tools', 'approvals', 'automations'],
+  inject: ['tools', 'approvals', 'automations', 'browserSafety'],
 
   async apply(ctx: Context, config: BrowserCompanionConfig = {}) {
     if (config.enabled === false) return

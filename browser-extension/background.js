@@ -57,15 +57,26 @@ async function syncBrowserState() {
   if (!config.desired || !config.token || !socketIsOpen()) return;
   let activeTab = null;
   try {
-    const tab = await getActiveTab();
+    const tab = (await boundAgentTab()) || await getActiveTab();
     activeTab = { id: tab.id, title: tab.title || '', url: tab.url, auditedOrigin: new URL(tab.url).origin };
   } catch (_) {
     // Restricted/non-HTTP pages never receive browser actions.
   }
-  const { approvedOrigins = [], permissionMode = 'ask_every_time' } =
-    await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
+  const { permissionMode: storedMode } = await chrome.storage.local.get('permissionMode');
+  const permissionMode = normalizeActionMode(storedMode);
+  if (storedMode !== permissionMode) await chrome.storage.local.set({ permissionMode });
+  // Only native Chrome host grants are reported as site access.
+  const candidates = new Set();
+  if (activeTab?.auditedOrigin) candidates.add(activeTab.auditedOrigin);
+  if (chrome.permissions?.getAll) {
+    const { origins = [] } = await chrome.permissions.getAll();
+    for (const pattern of origins) {
+      if (!/^https?:\/\/[^*]+\/\*$/.test(pattern)) continue;
+      try { candidates.add(new URL(pattern.slice(0, -1)).origin); } catch (_) {}
+    }
+  }
   const grantedOrigins = [];
-  for (const origin of approvedOrigins) {
+  for (const origin of candidates) {
     try { if (await siteAccessGranted(origin)) grantedOrigins.push(origin); } catch (_) {}
   }
   const response = await fetch(config.url + '/api/browser-companion/status', {
@@ -92,6 +103,7 @@ async function sendBridgeResult(command, endpoint, token) {
     if (!command || typeof command.id !== 'string' || typeof command.tool !== 'string') {
       throw new Error('Invalid browser command');
     }
+    // Action approval in Switchboard does not substitute for Chrome site access.
     result = await handleToolExecution(command.tool, command.args || {});
     if (!result?.ok) throw new Error(result?.error || 'Browser tool rejected');
   } catch (failure) {
@@ -106,10 +118,31 @@ async function sendBridgeResult(command, endpoint, token) {
   if (!response.ok) throw new Error('Failed to acknowledge browser command (HTTP ' + response.status + ')');
 }
 
+// Native messaging: the local host returns the companion token the CLI wrote on this computer.
+// Only the extension IDs in the host manifest can start it, so no typed code is needed.
+const NATIVE_HOST_NAME = 'com.botconnector.switchboard';
+async function pairViaNativeHost() {
+  const reply = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, { type: 'get-companion-token' });
+  if (!reply?.ok || !/^[a-f0-9]{48}$/.test(reply.token || '')) throw new Error(reply?.error || 'Native host returned no token.');
+  const url = validBridgeUrl(reply.url);
+  const response = await fetch(url + '/api/browser-companion/pair', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: reply.token }),
+  });
+  if (!response.ok) throw new Error('Native pairing rejected (HTTP ' + response.status + ').');
+  const data = await response.json();
+  if (!data.ok || !data.token) throw new Error('Invalid pairing response.');
+  await chrome.storage.local.set({ bridgeUrl: url, companionToken: data.token, bridgeConnected: true });
+}
+
 async function ensureBridgeSocket() {
   if (socketIsOpen()) return true;
   if (bridgeConnectPromise) return bridgeConnectPromise;
   bridgeConnectPromise = (async () => {
+    // First run on this computer: pair through the native host instead of a typed code.
+    if (!(await chrome.storage.local.get('companionToken')).companionToken) {
+      try { await pairViaNativeHost(); } catch (_) { /* host not installed or sbx not running yet */ }
+    }
     const { url, token, desired } = await bridgeConfig();
     if (!desired || !token) return false;
     stopSocket();
@@ -223,20 +256,108 @@ chrome.tabs.onUpdated.addListener((_tabId, change) => {
 chrome.windows.onFocusChanged.addListener(() => scheduleStatusSync());
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes.approvedOrigins || changes.permissionMode) scheduleStatusSync();
+  if (changes.permissionMode) scheduleStatusSync();
 });
+chrome.permissions?.onAdded?.addListener(() => scheduleStatusSync());
+chrome.permissions?.onRemoved?.addListener(() => scheduleStatusSync());
 
 void chrome.alarms.create(BRIDGE_ALARM, { periodInMinutes: 0.5 });
 void ensureBridgeSocket().catch(() => {});
 
-async function screenshotWithUserGrant(tab, quality) {
+// Trusted input and screenshots go through the DevTools Protocol, as Claude in Chrome does.
+// The debugger is attached only for the duration of one action.
+async function withDebugger(tabId, run) {
+  const target = { tabId };
+  let attached = false;
   try {
-    return await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality });
+    await chrome.debugger.attach(target, '1.3');
+    attached = true;
   } catch (error) {
-    if (/activeTab|<all_urls>/i.test(errorMessage(error))) {
-      throw new Error('Chrome screenshot access needs a user gesture. Click the Switchboard extension icon while viewing this tab, then retry. Site approval alone does not grant screenshot permission.');
+    if (!/already attached/i.test(errorMessage(error))) throw error;
+  }
+  try {
+    return await run(target);
+  } finally {
+    if (attached) {
+      try { await chrome.debugger.detach(target); } catch (_) {}
     }
-    throw error;
+  }
+}
+
+// Named keys only (no characters, no modifier shortcuts): typing text stays in browser_type,
+// where sensitive fields are checked.
+const KEY_EVENTS = {
+  Enter: { key: 'Enter', code: 'Enter', vk: 13, text: '\r' },
+  Tab: { key: 'Tab', code: 'Tab', vk: 9 },
+  'Shift+Tab': { key: 'Tab', code: 'Tab', vk: 9, modifiers: 8 },
+  Escape: { key: 'Escape', code: 'Escape', vk: 27 },
+  Backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
+  Delete: { key: 'Delete', code: 'Delete', vk: 46 },
+  ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', vk: 38 },
+  ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', vk: 40 },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', vk: 37 },
+  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', vk: 39 },
+  Home: { key: 'Home', code: 'Home', vk: 36 },
+  End: { key: 'End', code: 'End', vk: 35 },
+  PageUp: { key: 'PageUp', code: 'PageUp', vk: 33 },
+  PageDown: { key: 'PageDown', code: 'PageDown', vk: 34 },
+  Space: { key: ' ', code: 'Space', vk: 32, text: ' ' },
+};
+
+async function pressKey(tab, name) {
+  const spec = Object.prototype.hasOwnProperty.call(KEY_EVENTS, name) ? KEY_EVENTS[name] : null;
+  if (!spec) throw new Error('Unsupported key. Use one of: ' + Object.keys(KEY_EVENTS).join(', ') + '.');
+  const focus = (await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      const el = document.activeElement;
+      if (!el || el === document.body || el === document.documentElement) return { tag: 'body' };
+      const sensitive = el.matches('input[type="password"], input[type="file"], [autocomplete*="password"], [autocomplete*="cc-"], [autocomplete*="cvv"], [autocomplete*="one-time-code"]');
+      const editable = el.matches('textarea, select, [contenteditable=""], [contenteditable="true"], input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="image"])');
+      return { tag: el.tagName.toLowerCase(), sensitive, editable };
+    }
+  }))?.[0]?.result || { tag: 'body' };
+  if (focus.sensitive) throw new Error('Keyboard input into a sensitive credential, payment or file field is blocked.');
+  // Enter and Space activate buttons and links; those go through browser_click so the target can be checked.
+  if ((name === 'Enter' || name === 'Space') && focus.tag !== 'body' && !focus.editable) {
+    throw new Error('The focused element is not a text field. Use browser_click for buttons and links so the target can be checked.');
+  }
+  await withDebugger(tab.id, async target => {
+    const base = { key: spec.key, code: spec.code, windowsVirtualKeyCode: spec.vk, nativeVirtualKeyCode: spec.vk, modifiers: spec.modifiers || 0 };
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...base, type: spec.text ? 'keyDown' : 'rawKeyDown', ...(spec.text ? { text: spec.text } : {}) });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...base, type: 'keyUp' });
+  });
+  await recordAudit({
+    tool: 'browser_key', action: 'key', url: tab.url,
+    origin: new URL(tab.url).origin, decision: 'approved', status: 'success'
+  });
+  return { ok: true, result: { key: name } };
+}
+
+async function screenshotWithUserGrant(tab, quality) {
+  const result = await withDebugger(tab.id, target =>
+    chrome.debugger.sendCommand(target, 'Page.captureScreenshot', { format: 'jpeg', quality }));
+  if (!result?.data) throw new Error('Screenshot failed: Chrome returned no image data.');
+  return 'data:image/jpeg;base64,' + result.data;
+}
+
+// Labels that name an authorization. Clicking one is a Protected action (AGENTS §6, Claude in Chrome).
+const AUTHORIZATION_LABEL = /\b(allow|authori[sz]e|grant|consent|approve|izinkan|setujui|otorisasi)\b/i;
+
+async function readElementLabel(tabId, selector) {
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return '';
+        return [el.innerText, el.value, el.getAttribute('aria-label'), el.getAttribute('title')].filter(Boolean).join(' ').slice(0, 200);
+      },
+      args: [selector]
+    });
+    return String(res?.result || '');
+  } catch (_) {
+    return '';
   }
 }
 
@@ -303,7 +424,14 @@ async function capturePage(tab, options = {}) {
         const tag = el.tagName.toLowerCase();
         const type = el.getAttribute('type') || '';
         const isPassword = type === 'password';
-        const isSensitive = isPassword || el.matches('[autocomplete*="password"], [autocomplete*="cc-"], [autocomplete*="cvv"], input[type="file"]');
+        const labelledByText = (el.getAttribute('aria-labelledby') || '').split(/\s+/)
+          .map(id => document.getElementById(id)?.textContent || '').join(' ');
+        const associatedLabelText = Array.from(el.labels || []).map(label => label.textContent || '').join(' ');
+        const sensitiveHints = [type, el.id, el.getAttribute('name'), el.getAttribute('autocomplete'),
+          el.getAttribute('aria-label'), el.getAttribute('placeholder'), el.getAttribute('title'),
+          labelledByText, associatedLabelText].join(' ');
+        const isSensitive = isPassword || el.matches('[autocomplete*="password"], [autocomplete*="cc-"], [autocomplete*="cvv"], input[type="file"]') ||
+          /credit.?card|card.?number|cvv|cvc|ssn|social.?security|national.?id|passport/i.test(sensitiveHints);
 
         // Build stable unique CSS selector
         let selector = '';
@@ -322,6 +450,8 @@ async function capturePage(tab, options = {}) {
         }
 
         const labelText = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '').slice(0, 80).trim();
+        let hrefOrigin = '';
+        try { if (el.href) hrefOrigin = new URL(el.href, location.href).origin; } catch (_) {}
 
         // Tag element in DOM for fast reference lookup
         const refTag = `@e${refIndex++}`;
@@ -334,6 +464,7 @@ async function capturePage(tab, options = {}) {
           text: labelText,
           type: type || undefined,
           name: el.getAttribute('name') || undefined,
+          hrefOrigin: hrefOrigin || undefined,
           placeholder: el.getAttribute('placeholder') || undefined,
           disabled: el.hasAttribute('disabled') || undefined,
           isSensitive: isSensitive || undefined,
@@ -343,7 +474,7 @@ async function capturePage(tab, options = {}) {
 
       // Simple hash for change detection & observation caching
       let hash = 0;
-      const hashStr = title + url + text.slice(0, 500) + elements.length;
+      const hashStr = title + url + text.slice(0, 500) + elements.map(el => [el.ref, el.selector, el.tag, el.type, el.text, el.isSensitive, el.hrefOrigin].join(':')).join('|');
       for (let i = 0; i < hashStr.length; i++) {
         hash = ((hash << 5) - hash) + hashStr.charCodeAt(i);
         hash |= 0;
@@ -363,6 +494,10 @@ async function capturePage(tab, options = {}) {
     args: [maxChars, compact]
   });
 
+  if (!injection?.result || typeof injection.result.url !== 'string' ||
+      !Array.isArray(injection.result.elements)) {
+    throw new Error('Unable to read page DOM; content script returned no valid snapshot');
+  }
   return injection.result;
 }
 
@@ -424,12 +559,17 @@ chrome.action.onClicked.addListener(async (tab) => {
     if (!tab?.id || !SAFE_URL.test(tab.url || '')) {
       throw new Error('Open a regular HTTP(S) page.');
     }
-    await requireTabSite(tab, 'browser_dom_snapshot');
-    await ensureTabMonitoring(tab.id);
-    const data = await capturePage(tab);
-    await chrome.storage.session.set({
-      captured: { tabId: tab.id, data, at: Date.now() }
-    });
+    // Clicking the toolbar MUST open the panel immediately. Never queue an
+    // approval wait before the user can reach the permission button.
+    if (!(await siteAccessGranted(new URL(tab.url).origin))) {
+      await chrome.storage.session.set({ captured: null });
+    } else {
+      await ensureTabMonitoring(tab.id);
+      const data = await capturePage(tab);
+      await chrome.storage.session.set({
+        captured: { tabId: tab.id, data, at: Date.now() }
+      });
+    }
   } catch (error) {
     await chrome.storage.session.set({
       captured: { error: errorMessage(error), at: Date.now() }
@@ -438,10 +578,14 @@ chrome.action.onClicked.addListener(async (tab) => {
   await opening.catch(() => {});
 });
 
-// User-mediated per-site Chrome access. Browser commands may ask for access,
-// but only a click in the trusted side panel invokes Chrome's native dialog.
+// One site-permission authority: Chrome native host grants. Browser commands
+// can wait for a grant, but only a user gesture can invoke Chrome's prompt.
+// Switchboard does NOT maintain a second site-approval gate.
 const pendingSiteRequests = new Map();
+// "Allow this action" grants host access only for one tool call; these origins lose it when the call ends.
+const oneTimeOrigins = new Set();
 const SITE_APPROVAL_WAIT_MS = 75_000;
+
 function sitePattern(origin) {
   const url = new URL(origin);
   if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin) {
@@ -450,9 +594,9 @@ function sitePattern(origin) {
   return url.protocol + '//' + url.hostname + '/*';
 }
 async function siteAccessGranted(origin) {
-  const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-  if (!approvedOrigins.includes(origin)) return false;
-  return Boolean(await chrome.permissions?.contains({ origins: [sitePattern(origin)] }));
+  if (!chrome.permissions?.contains) return false;
+  try { return await chrome.permissions.contains({ origins: [sitePattern(origin)] }); }
+  catch (_) { return false; }
 }
 async function publishPendingSite() {
   const first = pendingSiteRequests.values().next().value;
@@ -463,12 +607,49 @@ async function publishPendingSite() {
   if (first) {
     await chrome.action.setBadgeBackgroundColor({ color: '#ae691a' });
     await chrome.action.setTitle({ title: 'Approval needed: ' + first.origin });
+    try {
+      chrome.notifications.create('switchboard-approval', {
+        type: 'basic', iconUrl: 'icons/bico-48.png',
+        title: 'Switchboard needs site access',
+        message: 'Allow ' + first.origin + ' in the Switchboard panel to continue.'
+      });
+    } catch (_) {}
   } else {
     await chrome.action.setTitle({ title: 'Open Switchboard Companion' });
   }
 }
+// Resolves once the tab reports "complete" on the target URL (or after a timeout).
+function waitForTabLoad(tabId, targetHref, timeoutMs = 15000) {
+  const targetOrigin = new URL(targetHref).origin;
+  const onTarget = (current) => current?.status === 'complete' && String(current.url || '').startsWith(targetOrigin);
+  return new Promise((resolve) => {
+    let timer = null;
+    const done = () => {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+    const onUpdated = (id, change, updated) => {
+      if (id === tabId && onTarget({ ...updated, status: change.status ?? updated?.status })) done();
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    timer = setTimeout(done, timeoutMs);
+    chrome.tabs.get(tabId).then((current) => {
+      if (onTarget(current)) done();
+    }, done);
+  });
+}
+
 async function waitForSiteAccess(origin, tool) {
-  if (await siteAccessGranted(origin)) return;
+  if (oneTimeOrigins.has(origin)) {
+    throw new Error('Temporary Chrome site permission is in use by another browser action; retry after it completes.');
+  }
+  const hadGrant = await siteAccessGranted(origin);
+  if (oneTimeOrigins.has(origin)) {
+    throw new Error('Temporary Chrome site permission is in use by another browser action; retry after it completes.');
+  }
+  // Manual/Auto action policy does not override Chrome's site-level decision.
+  if (hadGrant) return;
   if (!chrome.permissions?.contains) {
     throw new Error('Chrome host permission unavailable. Update Browser Companion.');
   }
@@ -492,23 +673,51 @@ async function waitForSiteAccess(origin, tool) {
     request.waiting.push(waiter);
   });
 }
-async function settleSiteAccess(origin, allowed) {
+async function settleSiteAccess(origin, allowed, once = false) {
   const request = pendingSiteRequests.get(origin);
   if (!request) return { ok: false, error: 'No pending site request' };
-  if (allowed && !(await siteAccessGranted(origin))) {
-    return { ok: false, error: 'Both Chrome host permission and Switchboard site approval are required.' };
+  if (allowed) {
+    if (!(await siteAccessGranted(origin))) {
+      return { ok: false, error: 'Chrome did not grant this site permission' };
+    }
+    if (once) oneTimeOrigins.add(origin);
   }
   pendingSiteRequests.delete(origin);
-  for (const waiter of request.waiting) {
+  const waiters = request.waiting.splice(0);
+  for (const waiter of waiters) {
     clearTimeout(waiter.timer);
-    if (allowed) waiter.resolve();
-    else waiter.reject(new Error('User denied site access: ' + origin));
+  }
+  if (allowed && once) {
+    waiters.shift()?.resolve();
+    for (const waiter of waiters) {
+      waiter.reject(new Error('One-action Chrome grant was reserved for another browser action; retry after it completes.'));
+    }
+  } else {
+    for (const waiter of waiters) {
+      if (allowed) waiter.resolve();
+      else waiter.reject(new Error('User denied site access: ' + origin));
+    }
   }
   await publishPendingSite();
   return { ok: true };
 }
 async function requireTabSite(tab, tool) {
   await waitForSiteAccess(new URL(tab.url).origin, tool);
+}
+
+function normalizeActionMode(value) {
+  if (value === 'manual' || value === 'ask_every_time') return 'manual';
+  if (value === 'skip') return 'skip';
+  return 'auto';
+}
+async function releaseOneTimeGrants() {
+  const origins = [...oneTimeOrigins].map(sitePattern);
+  oneTimeOrigins.clear();
+  if (origins.length) {
+    if (!chrome.permissions?.remove) throw new Error('Chrome cannot remove temporary site permission');
+    const removed = await chrome.permissions.remove({ origins });
+    if (!removed) throw new Error('Could not remove temporary Chrome site permission');
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -519,18 +728,18 @@ async function executeBrowserAction(action, params = {}, options = {}) {
   if (!tab?.id || !SAFE_URL.test(tab.url || '')) throw new Error('Valid active HTTP(S) tab required');
 
   const tabOrigin = new URL(tab.url).origin;
-  const { approvedOrigins = [], permissionMode = 'ask_every_time' } = await chrome.storage.local.get(['approvedOrigins', 'permissionMode']);
 
-  // Mode check
-  if (permissionMode === 'restricted' && MUTATING_ACTIONS.has(action)) {
-    throw new Error('Permission mode is Restricted (read-only): actions that modify the page are blocked.');
-  }
 
   // Navigating out of a tab never reads its source DOM. Authorize the target,
   // not the starting page; other actions need explicit site consent.
-  const isApprovedOrigin = approvedOrigins.includes(tabOrigin);
+  const isApprovedOrigin = await siteAccessGranted(tabOrigin);
+  let userApproved = false;
   if (action !== 'navigate' && MUTATING_ACTIONS.has(action)) {
     await requireTabSite(tab, 'browser_' + action);
+    await ensureTabMonitoring(tab.id);
+    // Do not inspect page content (even a target label) until Chrome grants access.
+    const authorization = action === 'click' && AUTHORIZATION_LABEL.test(await readElementLabel(tab.id, String(params.selector || '')));
+    userApproved = authorization;
   }
 
   // Handle navigate
@@ -541,6 +750,8 @@ async function executeBrowserAction(action, params = {}, options = {}) {
     }
     await waitForSiteAccess(targetUrl.origin, 'browser_navigate');
     await chrome.tabs.update(tab.id, { url: targetUrl.href });
+    // Wait for the new page so the next read does not hit the previous document.
+    await waitForTabLoad(tab.id, targetUrl.href);
     await recordAudit({
       tool: 'browser_navigate',
       action: 'navigate',
@@ -571,6 +782,9 @@ async function executeBrowserAction(action, params = {}, options = {}) {
       },
       args: [direction, amount, params.selector || '']
     });
+    if (!result?.result || !Number.isFinite(result.result.scrollY)) {
+      throw new Error('Scroll action failed; page did not return a scroll position');
+    }
     await recordAudit({
       tool: 'browser_scroll',
       action: 'scroll',
@@ -590,7 +804,8 @@ async function executeBrowserAction(action, params = {}, options = {}) {
 
   const [res] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: (act, sel, val, clearBefore, pressEnter) => {
+    func: async (act, sel, val, clearBefore, pressEnter) => {
+      try {
       // Find element by data-sb-ref or selector
       let el = null;
       if (sel.startsWith('@e')) {
@@ -602,18 +817,23 @@ async function executeBrowserAction(action, params = {}, options = {}) {
       if (!el) throw new Error(`Element not found for selector "${sel}".`);
 
       // Security check: strictly block sensitive fields (password, payment cards, file upload) (BUG FIX #7)
-      if (el.matches('input[type="password"], [autocomplete*="password"], [autocomplete*="cc-"], [autocomplete*="cvv"], input[type="file"]')) {
+      const labelledByText = (el.getAttribute('aria-labelledby') || '').split(/\s+/)
+        .map(id => document.getElementById(id)?.textContent || '').join(' ');
+      const associatedLabelText = Array.from(el.labels || []).map(label => label.textContent || '').join(' ');
+      const sensitiveHints = [el.type, el.id, el.name, el.getAttribute('autocomplete'),
+        el.getAttribute('aria-label'), el.getAttribute('placeholder'), el.getAttribute('title'),
+        labelledByText, associatedLabelText].join(' ');
+      const sensitiveByLabel = /credit.?card|card.?number|cvv|cvc|security.?code|card.?verification|ssn|social.?security|national.?id|passport/i.test(sensitiveHints);
+      if (el.matches('input[type="password"], [autocomplete*="password"], [autocomplete*="cc-"], [autocomplete*="cvv"], input[type="file"]') || sensitiveByLabel) {
         throw new Error('Security violation: interaction with sensitive credential or payment fields is blocked.');
       }
 
       el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
 
       if (act === 'click') {
-        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-        el.click();
-        return { clicked: sel, text: (el.innerText || el.value || '').slice(0, 50) };
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) throw new Error(`Element "${sel}" is not visible.`);
+        return { point: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, clicked: sel };
       }
 
       if (act === 'select') {
@@ -633,21 +853,30 @@ async function executeBrowserAction(action, params = {}, options = {}) {
         }
         if (el.readOnly || el.disabled) throw new Error('Target input field is disabled or readonly');
 
-        if (clearBefore) {
-          el.value = '';
-        }
-
-        const textToSet = clearBefore ? String(val) : (el.value || '') + String(val);
-        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-        if (setter) {
-          setter.call(el, textToSet);
+        const isRichText = el.isContentEditable;
+        const current = isRichText ? (el.textContent || '') : (el.value || '');
+        const textToSet = clearBefore ? String(val) : current + String(val);
+        if (isRichText) {
+          // Contenteditable is not an HTMLInputElement: its value setter throws.
+          el.textContent = textToSet;
         } else {
-          el.value = textToSet;
+          const proto = el instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          if (setter) setter.call(el, textToSet);
+          else el.value = textToSet;
         }
 
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // Let synchronous framework handlers settle, then verify the live DOM
+        // value without returning the user's text to the extension or chat.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const liveValue = isRichText ? (el.textContent || '') : (el.value || '');
+        if (liveValue !== textToSet) {
+          throw new Error('Browser input value could not be verified after typing; inspect the field before retrying.');
+        }
 
         if (pressEnter) {
           el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
@@ -655,21 +884,59 @@ async function executeBrowserAction(action, params = {}, options = {}) {
           el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
         }
 
-        return { typedLength: String(val).length, selector: sel };
+        return { typed: true, selector: sel, verified: true };
       }
 
       throw new Error(`Unsupported action "${act}"`);
+      } catch (error) {
+        return { ok: false, error: String(error?.message || error) };
+      }
     },
     args: [action, selector, String(params.value ?? params.text ?? ''), Boolean(params.clear), Boolean(params.pressEnter)]
   });
 
-  await recordAudit({
+  // Chrome may return null when injected code throws. Fail closed rather
+  // than falsely reporting a successful or safely blocked browser action.
+  if (!res?.result || res.result.ok === false) {
+    const error = res?.result?.error || 'Browser action did not complete';
+    await recordAudit({
+      tool: 'browser_' + action, action, selector, url: tab.url,
+      origin: tabOrigin, decision: 'rejected', status: 'error', error
+    });
+    throw new Error(error);
+  }
+
+  if (action === 'click') {
+    const { x, y } = res.result.point;
+    await withDebugger(tab.id, async target => {
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+        await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+          type, x, y, button: type === 'mouseMoved' ? 'none' : 'left', clickCount: type === 'mouseMoved' ? 0 : 1
+        });
+      }
+    });
+    delete res.result.point;
+  }
+  // Tool output is persisted in chat history and traces; never return page or
+  // input values from mutations, even if an injected page function does so.
+  if (action === 'type') {
+    if (res.result.verified !== true) {
+      const error = 'Browser input value could not be verified after typing; inspect the field before retrying.';
+      await recordAudit({
+        tool: 'browser_type', action, selector, url: tab.url,
+        origin: tabOrigin, decision: 'rejected', status: 'error', error
+      });
+      throw new Error(error);
+    }
+    res.result = { typed: true, selector, verified: true };
+  }
+  if (!options.quiet) await recordAudit({
     tool: `browser_${action}`,
     action,
     selector,
     url: tab.url,
     origin: tabOrigin,
-    decision: isApprovedOrigin ? 'auto_safe' : 'approved',
+    decision: isApprovedOrigin && !userApproved ? 'auto_safe' : 'approved',
     status: 'success'
   });
 
@@ -682,6 +949,18 @@ async function executeBrowserAction(action, params = {}, options = {}) {
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id || typeof message?.type !== 'string') return false;
 
+  // Content scripts run with the extension id too, but their sender URL is the
+  // host page. Only extension-owned pages may call privileged APIs. The sole
+  // webpage entry point is the localhost onboarding nudge below.
+  let extensionPage = false;
+  try {
+    const senderUrl = new URL(sender.url || '');
+    extensionPage = senderUrl.protocol === 'chrome-extension:' && senderUrl.host === chrome.runtime.id;
+  } catch (_) {}
+  const localhostOnboarding = message.type === 'SWITCHBOARD_OPEN_COMPANION' && sender.tab &&
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(sender.tab.url || '');
+  if (!extensionPage && !localhostOnboarding) return false;
+
   (async () => {
     // 1. SWITCHBOARD_GET_CAPTURE
     if (message.type === 'SWITCHBOARD_GET_CAPTURE') {
@@ -691,7 +970,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 
     // Tab metadata does not require a DOM-injection or host grant.
     if (message.type === 'SWITCHBOARD_ACTIVE_TAB') {
-      const tab = await getActiveTab();
+      const tab = (await boundAgentTab()) || await getActiveTab();
       return { ok: true, tab: {
         id: tab.id, title: tab.title || 'Untitled', url: tab.url, origin: new URL(tab.url).origin
       } };
@@ -703,10 +982,22 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       } : null };
     }
     if (message.type === 'SWITCHBOARD_SITE_APPROVAL_GRANTED') {
-      return await settleSiteAccess(String(message.origin || ''), true);
+      return await settleSiteAccess(String(message.origin || ''), true, message.once === true);
     }
     if (message.type === 'SWITCHBOARD_SITE_APPROVAL_DENIED') {
       return await settleSiteAccess(String(message.origin || ''), false);
+    }
+    if (message.type === 'SWITCHBOARD_SITE_ACCESS_STATUS') {
+      const origins = chrome.permissions?.getAll ? (await chrome.permissions.getAll()).origins || [] : [];
+      const origin = String(message.origin || '');
+      return { ok: true, granted: origin ? await siteAccessGranted(origin) : false, origins };
+    }
+    if (message.type === 'SWITCHBOARD_SITE_ACCESS_REVOKE') {
+      const origin = String(message.origin || '');
+      const removed = await siteAccessGranted(origin) && chrome.permissions?.remove
+        ? await chrome.permissions.remove({ origins: [sitePattern(origin)] }) : false;
+      scheduleStatusSync();
+      return { ok: true, removed: Boolean(removed) };
     }
 
     // 2. SWITCHBOARD_LIST_TABS (Independent handler)
@@ -728,9 +1019,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === 'SWITCHBOARD_CAPTURE_SCREENSHOT') {
       const tab = await getActiveTab();
       const tabOrigin = new URL(tab.url).origin;
-      const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-      if (!approvedOrigins.includes(tabOrigin)) {
-        throw new Error(`Site origin "${tabOrigin}" must be approved before screenshot capture.`);
+      if (!(await siteAccessGranted(tabOrigin))) {
+        throw new Error('Chrome site permission is required for screenshot capture: ' + tabOrigin);
       }
       const dataUrl = await screenshotWithUserGrant(tab, Number(message.quality) || 65);
       await recordAudit({
@@ -794,7 +1084,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     // never accept URLs, browser tool names or pairing tokens from a webpage.
     if (message.type === 'SWITCHBOARD_OPEN_COMPANION' && sender.tab &&
         /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(sender.tab.url || '')) {
-      const panelUrl = chrome.runtime.getURL('panel.html');
+      const panelUrl = chrome.runtime.getURL('panel.html?view=settings');
       const open = await chrome.tabs.query({ url: panelUrl });
       if (open.length) await chrome.tabs.update(open[0].id, { active: true });
       else await chrome.tabs.create({ url: panelUrl });
@@ -829,23 +1119,143 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 // -----------------------------------------------------------------------------
 // Unified Agent Tool Execution Engine (All 13 Tools)
 // -----------------------------------------------------------------------------
+// Downloads start from a click on the page. The download is reported only when Chrome actually starts it.
+async function downloadViaClick(tab, args) {
+  let onCreated;
+  let timer;
+  const started = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      chrome.downloads.onCreated.removeListener(onCreated);
+      reject(new Error('No download started within 15 seconds after the click.'));
+    }, 15000);
+    onCreated = item => {
+      clearTimeout(timer);
+      chrome.downloads.onCreated.removeListener(onCreated);
+      resolve(item);
+    };
+    chrome.downloads.onCreated.addListener(onCreated);
+  });
+  try {
+    await executeBrowserAction('click', args, { tabId: tab.id, quiet: true });
+  } catch (error) {
+    clearTimeout(timer);
+    chrome.downloads.onCreated.removeListener(onCreated);
+    throw error;
+  }
+  const item = await started;
+  await recordAudit({
+    tool: 'browser_download', action: 'download', selector: String(args.selector || ''),
+    url: item.url, origin: new URL(tab.url).origin, decision: 'approved', status: 'success'
+  });
+  return { ok: true, result: 'Download started', filename: item.filename, url: item.url };
+}
+
+// Tabs the agent opens go into one tab group named "Switchboard", as Claude in Chrome groups its tabs.
+let agentGroupId = null;
+
+// The tab the agent works in. Tools without an explicit tabId use this tab, so
+// switching tabs in Chrome does not move the agent (Claude in Chrome's tab group).
+let agentTabId = null;
+async function boundAgentTab() {
+  const id = agentTabId ?? (await chrome.storage.session.get('agentTabId')).agentTabId;
+  if (!id) return null;
+  try {
+    return await chrome.tabs.get(id);
+  } catch (_) {
+    agentTabId = null;
+    return null;
+  }
+}
+function bindAgentTab(id) {
+  agentTabId = id;
+  chrome.storage.session.set({ agentTabId: id }).catch(() => {});
+}
+async function createAgentTab(url) {
+  const target = new URL(url);
+  if (!['http:', 'https:'].includes(target.protocol)) throw new Error('Tab creation restricted to HTTP/HTTPS URLs.');
+  await waitForSiteAccess(target.origin, 'browser_tab_create');
+  const tab = await chrome.tabs.create({ url: target.href, active: true });
+  bindAgentTab(tab.id);
+  let groupId = agentGroupId;
+  if (groupId !== null) {
+    try { await chrome.tabGroups.get(groupId); } catch (_) { groupId = null; }
+  }
+  if (groupId === null) {
+    groupId = await chrome.tabs.group({ tabIds: [tab.id] });
+    await chrome.tabGroups.update(groupId, { title: 'Switchboard', color: 'blue' });
+    agentGroupId = groupId;
+  } else {
+    await chrome.tabs.group({ tabIds: [tab.id], groupId });
+  }
+  await recordAudit({
+    tool: 'browser_tab_create', action: 'tab_create', url: target.href,
+    origin: target.origin, decision: 'approved', status: 'success'
+  });
+  return { ok: true, result: 'Opened ' + target.href, tab: { id: tab.id, url: target.href, groupId } };
+}
+
 async function handleToolExecution(toolName, args = {}) {
+  try { return await runToolExecution(toolName, args); }
+  finally { await releaseOneTimeGrants(); }
+}
+async function runToolExecution(toolName, args = {}) {
   // Listing and switching tabs never inject content scripts.
   if (toolName === 'browser_tabs_list') {
     const tabs = await chrome.tabs.query({ currentWindow: true });
-    return { ok: true, tabs: tabs.filter(t => SAFE_URL.test(t.url || ''))
-      .map(t => ({ id: t.id, title: t.title, url: t.url, active: Boolean(t.active) })) };
+    // Mark the agent's own tab so the model does not confuse it with the focused tab.
+    const agentId = (await boundAgentTab())?.id ?? null;
+    return { ok: true, agentTabId: agentId, tabs: tabs.filter(t => SAFE_URL.test(t.url || ''))
+      .map(t => ({ id: t.id, title: t.title, url: t.url, active: Boolean(t.active), agent: t.id === agentId })) };
+  }
+  // Opening a new tab does not depend on the current tab being an HTTP page.
+  if (toolName === 'browser_tab_create') {
+    return await createAgentTab(String(args.url || ''));
   }
   if (toolName === 'browser_tab_select') {
     if (!args.tabId) throw new Error('tabId is required');
     const updated = await chrome.tabs.update(Number(args.tabId), { active: true });
+    bindAgentTab(updated.id);
     return { ok: true, tab: { id: updated.id, title: updated.title, url: updated.url } };
   }
-  const tab = args.tabId ? await chrome.tabs.get(Number(args.tabId)) : await getActiveTab();
+  if (toolName === 'browser_tab_close') {
+    if (!args.tabId) throw new Error('tabId is required');
+    const target = await chrome.tabs.get(Number(args.tabId));
+    // The user's own tabs stay open; only tabs Switchboard opened (its tab group) can be closed.
+    let owned = false;
+    if (Number.isInteger(target.groupId) && target.groupId >= 0) {
+      try { owned = (await chrome.tabGroups.get(target.groupId)).title === 'Switchboard'; } catch (_) { owned = false; }
+    }
+    if (!owned) throw new Error('Only tabs opened by Switchboard can be closed.');
+    await chrome.tabs.remove(target.id);
+    await recordAudit({
+      tool: 'browser_tab_close', action: 'tab_close', url: target.url || '',
+      origin: SAFE_URL.test(target.url || '') ? new URL(target.url).origin : '',
+      decision: 'approved', status: 'success'
+    });
+    return { ok: true, result: 'Closed tab ' + target.id };
+  }
+  // No bound tab yet: navigate opens its own grouped tab, others adopt the current tab.
+  if (toolName === 'browser_navigate' && !args.tabId && !(await boundAgentTab())) {
+    return await createAgentTab(String(args.url || ''));
+  }
+  let tab;
+  if (args.tabId) {
+    tab = await chrome.tabs.get(Number(args.tabId));
+  } else {
+    tab = await boundAgentTab();
+    if (!tab) {
+      tab = await getActiveTab();
+      bindAgentTab(tab.id);
+    }
+  }
   if (!tab?.id || !SAFE_URL.test(tab.url || '')) throw new Error('Valid HTTP(S) tab required');
   if (toolName !== 'browser_navigate') {
-    await requireTabSite(tab, toolName);
-    await ensureTabMonitoring(tab.id);
+    const mutatingAction = toolName.startsWith('browser_') && MUTATING_ACTIONS.has(toolName.slice(8));
+    // Mutating actions do their permission check before any page injection.
+    if (!mutatingAction) {
+      await requireTabSite(tab, toolName);
+      await ensureTabMonitoring(tab.id);
+    }
   }
 
   switch (toolName) {
@@ -865,21 +1275,24 @@ async function handleToolExecution(toolName, args = {}) {
 
     case 'browser_navigate': {
       if (!args.url) throw new Error('url is required');
-      return await executeBrowserAction('navigate', { url: args.url }, { tabId: args.tabId });
+      return await executeBrowserAction('navigate', { url: args.url }, { tabId: tab.id });
     }
 
     case 'browser_dom_snapshot': {
       const snapshot = await capturePage(tab, args);
-      return { ok: true, ...snapshot };
+      await recordAudit({
+        tool: 'browser_dom_snapshot', action: 'read', url: tab.url,
+        origin: new URL(tab.url).origin, decision: 'auto_safe', status: 'success'
+      });
+      return { ok: true, tabId: tab.id, ...snapshot };
     }
 
     case 'browser_screenshot': {
       const siteOrigin = new URL(tab.url).origin;
-      const { approvedOrigins = [] } = await chrome.storage.local.get('approvedOrigins');
-      if (!approvedOrigins.includes(siteOrigin)) {
+      if (!(await siteAccessGranted(siteOrigin))) {
         await recordAudit({ tool: 'browser_screenshot', action: 'screenshot', url: tab.url,
-          origin: siteOrigin, decision: 'rejected', status: 'error', error: 'Unapproved site' });
-        throw new Error('Screenshot denied: approve this site origin in Browser Companion first.');
+          origin: siteOrigin, decision: 'rejected', status: 'error', error: 'Chrome host permission missing' });
+        throw new Error('Screenshot denied: allow this site in Chrome Browser Companion first.');
       }
       const dataUrl = await screenshotWithUserGrant(tab, Number(args.quality) || 65);
       await recordAudit({ tool: 'browser_screenshot', action: 'screenshot', url: tab.url,
@@ -887,20 +1300,24 @@ async function handleToolExecution(toolName, args = {}) {
       return { ok: true, dataUrl, url: tab.url, title: tab.title };
     }
 
+    case 'browser_download': return await downloadViaClick(tab, args);
+    case 'browser_tab_create': return await createAgentTab(String(args.url || ''));
     case 'browser_click': {
-      return await executeBrowserAction('click', args, { tabId: args.tabId });
+      return await executeBrowserAction('click', args, { tabId: tab.id });
     }
 
     case 'browser_type': {
-      return await executeBrowserAction('type', args, { tabId: args.tabId });
+      return await executeBrowserAction('type', args, { tabId: tab.id });
     }
 
     case 'browser_scroll': {
-      return await executeBrowserAction('scroll', args, { tabId: args.tabId });
+      return await executeBrowserAction('scroll', args, { tabId: tab.id });
     }
 
+    case 'browser_key': return await pressKey(tab, String(args.key || ''));
+
     case 'browser_select': {
-      return await executeBrowserAction('select', args, { tabId: args.tabId });
+      return await executeBrowserAction('select', args, { tabId: tab.id });
     }
 
     case 'browser_wait': {

@@ -77,6 +77,11 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+/** Provider gateways sometimes report overload in an HTTP 200 SSE error frame. */
+function isRetryableStreamFailure(message: string): boolean {
+  return /overload(?:ed|ing)?|server[_ -]?busy|temporarily unavailable|try again later|rate[_ -]?limit|capacity[_ -]?(?:exceeded|unavailable)/i.test(message)
+}
+
 /** Re-exported for compatibility: both live with the protocol adapters now. */
 export { InlineReasoningSplitter } from '../llm/adapters.js'
 export type { Piece } from '../llm/adapters.js'
@@ -266,24 +271,42 @@ export class LLMService extends Service {
         errors.push(`${label(target)}: skipped (cooling down after a failure)`)
         continue
       }
-      let produced = false
-      try {
-        // With a fallback waiting, do not spend the whole retry budget on this target.
-        for await (const ev of this.streamOnce({ ...opts, ...target }, last ? undefined : 1)) {
-          if (ev.type !== 'done') produced = true
-          yield ev
+      let streamRetries = 0
+      const maxStreamRetries = Math.min(Math.max(0, this.settings.retries ?? 0), last ? Infinity : 1)
+      while (true) {
+        let produced = false
+        try {
+          // With a fallback waiting, do not spend the whole retry budget on this target.
+          for await (const ev of this.streamOnce({ ...opts, ...target }, last ? undefined : 1)) {
+            if (ev.type !== 'done') produced = true
+            yield ev
+          }
+          return
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          // Output already reached the caller (or the caller stopped): retrying
+          // would duplicate text or tool calls.
+          if (produced || opts.signal?.aborted) {
+            throw error
+          }
+          if (isRetryableStreamFailure(message) && streamRetries < maxStreamRetries) {
+            streamRetries += 1
+            const base = this.settings.retryDelayMs ?? 500
+            const cap = this.settings.retryMaxDelayMs ?? 8000
+            const delayMs = Math.round(Math.min(cap, base * 2 ** (streamRetries - 1)) * (0.5 + Math.random() * 0.5))
+            this.ctx.emit('llm/retry', { attempt: streamRetries, max: maxStreamRetries, delayMs, error: message, ...(opts.sessionId ? { sessionId: opts.sessionId } : {}) })
+            await sleep(delayMs, opts.signal)
+            continue
+          }
+          if (last) {
+            throw chain.length > 1 ? new Error(`all ${chain.length} targets failed: ${[...errors, `${label(target)}: ${message}`].join(' | ')}`) : error
+          }
+          errors.push(`${label(target)}: ${message}`)
+          if (isRetryableStreamFailure(message) || /HTTP (408|409|425|429|5\d\d)|fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|abort|timeout/i.test(message)) this.cool(target)
+          const next = chain.slice(i + 1).find((t) => !this.isCooling(t)) ?? chain[chain.length - 1]
+          this.ctx.emit('llm/fallback', { from: label(target), to: label(next), error: message.slice(0, 300), ...(opts.sessionId ? { sessionId: opts.sessionId } : {}) })
+          break
         }
-        return
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        // Output already reached the caller (or the caller stopped): switching now would duplicate text.
-        if (produced || opts.signal?.aborted || last) {
-          throw chain.length > 1 && !produced && !opts.signal?.aborted ? new Error(`all ${chain.length} targets failed: ${[...errors, `${label(target)}: ${message}`].join(' | ')}`) : error
-        }
-        errors.push(`${label(target)}: ${message}`)
-        if (/HTTP (408|409|425|429|5\d\d)|fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|abort|timeout/i.test(message)) this.cool(target)
-        const next = chain.slice(i + 1).find((t) => !this.isCooling(t)) ?? chain[chain.length - 1]
-        this.ctx.emit('llm/fallback', { from: label(target), to: label(next), error: message.slice(0, 300), ...(opts.sessionId ? { sessionId: opts.sessionId } : {}) })
       }
     }
     throw new Error(`all ${chain.length} targets failed: ${errors.join(' | ')}`)

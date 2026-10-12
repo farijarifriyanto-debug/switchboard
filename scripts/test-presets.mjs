@@ -83,6 +83,16 @@ try {
   const browserNames = [...names, 'mcp__browser__navigate', 'mcp__browser__click', 'mcp__other__x']
   const browser = ctx.presets.resolve('browser', browserNames)
   assert.deepEqual(browserNames.filter((n) => !browser.excludeTools.includes(n)).sort(), [...names.filter(n => n.startsWith('browser_')), 'load_skill', 'mcp__browser__click', 'mcp__browser__navigate', 'web_search'].sort())
+  assert.match(ctx.presets.get('browser').system, /Do not repeat a successful browser mutation/,
+    'the browser agent must treat a successful mutation result as completion')
+  assert.match(ctx.presets.get('browser').system, /browser_type success includes verified:true/i,
+    'the browser agent relies on privacy-safe live value verification instead of an unreadable field snapshot')
+  assert.match(ctx.presets.get('browser').system, /After browser_type returns verified=true.*do not use browser_extract to read its value solely to verify/i,
+    'the browser agent must trust live input verification instead of rereading private field values')
+  assert.match(ctx.presets.get('browser').system, /clear:false.*appends/i,
+    'the browser agent knows typing defaults to append semantics')
+  assert.match(ctx.presets.get('browser').system, /when replacing existing text.*clear:true/i,
+    'the browser agent explicitly opts into replacement when the user asks to replace text')
   assert.throws(() => validatePreset({ id: 'bad', name: 'x', tools: { allow: ['mcp__*__x'] } }), /only allowed at the end/)
   assert.throws(() => validatePreset({ id: 'bad', name: 'x', tools: { allow: ['*'] } }), /only allowed at the end/)
   await ctx.presets.create({ id: 'nobrowser', name: 'No browser', tools: { deny: ['mcp__browser__*', 'run_command'] } })

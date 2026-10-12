@@ -321,21 +321,35 @@ export const agentLoop = {
               }
 
               if (!calls.length) {
-                ctx.sessions.append(session.id, assistant)
+                // Some models stop after a tool result without writing a summary. Say so
+                // instead of ending the run with an empty answer.
+                const answer = turn.content.trim() || 'Selesai. Model tidak menulis ringkasan; hasil tiap langkah ada di detail tool di atas.'
+                ctx.sessions.append(session.id, { ...assistant, content: answer })
                 setStatus(session.id, 'completed')
                 ctx.trace?.runEvent(runEvent(session.id, 'turn_completed', {
                   status: 'completed',
                   label: 'Finished',
                 }))
-                ctx.emit('agent/done', { sessionId: session.id, steps, content: turn.content })
+                ctx.emit('agent/done', { sessionId: session.id, steps, content: answer })
                 endEmitted = true
-                yield { type: 'final', content: turn.content, steps, stopReason: 'answer' }
+                yield { type: 'final', content: answer, steps, stopReason: 'answer' }
                 return
               }
 
               // The assistant turn is only committed once its tool calls are known,
               // so a failed turn never leaves a half-written conversation behind.
-              ctx.sessions.append(session.id, assistant)
+              const storedAssistant = assistant.tool_calls?.length
+                ? {
+                    ...assistant,
+                    tool_calls: assistant.tool_calls.map((call) => {
+                      let parsed: unknown = {}
+                      try { parsed = call.function.arguments ? JSON.parse(call.function.arguments) : {} } catch { parsed = {} }
+                      const safeArgs = ctx.tools.conversationArgs(call.function.name, parsed)
+                      return { ...call, function: { ...call.function, arguments: JSON.stringify(safeArgs) } }
+                    }),
+                  }
+                : assistant
+              ctx.sessions.append(session.id, storedAssistant)
 
               for (const call of calls) {
                 if (controller.signal.aborted) {
@@ -348,38 +362,47 @@ export const agentLoop = {
                 } catch {
                   args = { _raw: call.function.arguments }
                 }
+                const safeArgs = ctx.tools.auditArgs(call.function.name, args)
                 const label = toolLabel(call.function.name, args)
                 ctx.trace?.runEvent(runEvent(session.id, 'tool_requested', {
                   label: `Calling ${label}`,
-                  data: { name: call.function.name, args, callId: call.id },
+                  data: { name: call.function.name, args: safeArgs, callId: call.id },
                 }))
-                yield { type: 'tool_call', id: call.id, name: call.function.name, args }
+                yield { type: 'tool_call', id: call.id, name: call.function.name, args: safeArgs }
 
-                // Gate: a pending approval flips the session into waiting_approval.
-                // Excluded tools are never offered for approval (spec 10.4: "no
-                // approval") — the deny check in tools.call surfaces the error.
-                if (!exclude.includes(call.function.name) && ctx.approvals.needsApproval(call.function.name, session.id, ctx.tools.get(call.function.name)?.risk)) {
+                const toolCtx = {
+                  sessionId: session.id,
+                  workspace: session.projectRoot,
+                  signal: controller.signal,
+                  userIntent: prompt,
+                  model,
+                  provider: runProvider,
+                  ...(exclude.length ? { deny: exclude } : {}),
+                }
+                // Prepare once so the agent status/event and execution gate use
+                // the same structured policy result.
+                const prepared = await ctx.tools.prepare(call.function.name, args, toolCtx)
+                if (prepared.needsApproval) {
                   setStatus(session.id, 'waiting_approval')
                   ctx.trace?.runEvent(runEvent(session.id, 'approval_needed', {
                     status: 'waiting_approval',
                     label: `Approval needed: ${label}`,
-                    data: { name: call.function.name, args, callId: call.id },
+                    data: { name: call.function.name, args: safeArgs, callId: call.id, reason: prepared.policy.reason },
                   }))
-                  yield { type: 'approval_needed', name: call.function.name, args } as unknown as AgentEvent
+                  yield { type: 'approval_needed', name: call.function.name, args: safeArgs, reason: prepared.policy.reason } as unknown as AgentEvent
                 }
 
                 ctx.trace?.runEvent(runEvent(session.id, 'tool_running', {
                   label: `Running ${label}`,
-                  data: { name: call.function.name, args, callId: call.id },
+                  data: { name: call.function.name, args: safeArgs, callId: call.id },
                 }))
                 const startedAt = Date.now()
-                const toolCtx = { sessionId: session.id, workspace: session.projectRoot, signal: controller.signal, ...(exclude.length ? { deny: exclude } : {}) }
                 let beforeFile: string | undefined
                 if (call.function.name === 'write_file' && typeof (args as any)?.path === 'string') {
                   const previous = await ctx.tools.call('read_file', { path: (args as any).path }, toolCtx)
                   beforeFile = previous.startsWith('Error:') ? '' : previous
                 }
-                let result = await ctx.tools.call(call.function.name, args, toolCtx)
+                let result = (await ctx.tools.callPrepared(prepared)).content
                 if (result.length > maxToolResultChars) {
                   const kept = result.slice(0, maxToolResultChars)
                   result = `${kept}\n…[truncated ${result.length - maxToolResultChars} chars]`
@@ -395,7 +418,7 @@ export const agentLoop = {
                 ctx.emit('agent/tool', {
                   id: call.id,
                   name: call.function.name,
-                  args,
+                  args: safeArgs,
                   result,
                   sessionId: session.id,
                   durationMs,
@@ -404,7 +427,7 @@ export const agentLoop = {
                 ctx.trace?.runEvent(runEvent(session.id, 'tool_completed', {
                   status: 'working',
                   label: `${failed1 ? 'Failed' : 'Finished'} ${label}`,
-                  data: { name: call.function.name, args, callId: call.id, exit: result.startsWith('exit ') ? result.split('\n')[0] : undefined },
+                  data: { name: call.function.name, args: safeArgs, callId: call.id, exit: result.startsWith('exit ') ? result.split('\n')[0] : undefined },
                 }), result.length > 2_000 ? `${result.slice(0, 2_000)}…` : result)
                 if (call.function.name === 'write_file' && !failed1) {
                   ctx.trace?.runEvent(runEvent(session.id, 'file_changed', {

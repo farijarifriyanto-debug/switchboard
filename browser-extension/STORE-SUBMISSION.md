@@ -2,7 +2,7 @@
 
 ## Status
 
-**Update candidate v0.4.2.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
+**Update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
 The Switchboard v0.4.0 GitHub Release includes manual installation ZIPs, not a real marketplace listing. This new candidate adds Bico icons and local Web UI installation detection and must be reviewed independently before marketplace submission.
 
@@ -64,6 +64,11 @@ The server rejects non-HTTPS and nonofficial listing URLs. An unavailable URL le
 | storage | Local pairing secret, approved sites, settings and bounded audit log |
 | sidePanel | Companion connection, permissions, inspection and history |
 | alarms | Recover background connection after browser or service-worker suspension |
+| debugger | Trusted clicks and key presses and screenshots through the DevTools Protocol; attached only for the duration of one approved action |
+| downloads | Report a file download the user approved (name and source); file contents are not read |
+| nativeMessaging | Read the local pairing credential from a helper the user installed on the same computer, so no code has to be typed; no network access |
+| notifications | Tell the user when a site permission request is waiting |
+| tabGroups | Group the tabs Switchboard opens under one labeled group; only those tabs can be closed by the agent |
 | HTTP loopback host access | Communicate exclusively with the Switchboard service on this computer |
 | Optional HTTP/HTTPS site access | Request individual website permissions only after the user clicks Allow site; necessary to inspect and automate explicitly approved external pages. No grant is automatic or global. |
 
@@ -87,10 +92,10 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 
 **Remaining human step:** Connect or create Chrome Web Store and Microsoft Edge Add-ons developer publisher accounts, enter real publisher details, and submit each extension for review. This cannot be completed merely by publishing Switchboard to npm or GitHub.
 
-## Update acceptance requirements for 0.4.2
+## Update acceptance requirements for 0.4.3
 
 - Explain optional per-origin HTTP/HTTPS access in the Chrome Web Store permission disclosure and privacy policy.
 - Verify the actual Chrome native site permission dialog, not just Switchboard local allowlist state.
 - Verify denied permission prevents navigation, granted permission resumes the pending task, and revocation removes later access.
 - Verify the direct side-panel prompt returns a real AI answer through an authenticated local Switchboard backend.
-- Upload version 0.4.2 as an update to the existing Chrome listing only after its package and developer account are verified. Do not create a duplicate Chrome listing.
+- Upload version 0.4.3 as an update to the existing Chrome listing only after its package and developer account are verified. Do not create a duplicate Chrome listing.

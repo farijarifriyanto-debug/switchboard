@@ -24,6 +24,7 @@ import { SessionService } from './services/session.js'
 import { WorkspaceService } from './services/workspace.js'
 import { ApprovalService } from './services/approval.js'
 import { TraceService } from './services/trace.js'
+import { BrowserSafetyService } from './services/browser-safety.js'
 import { MetricsService } from './plugins/metrics.js'
 import { agentLoop } from './plugins/agent.js'
 import { subagent } from './plugins/subagent.js'
@@ -70,6 +71,7 @@ export async function createHost(userConfig: SwitchboardConfig = {}): Promise<Ho
 
   // Core services.
   await ctx.plugin(LLMService, config.llm ?? {})
+  await ctx.plugin(BrowserSafetyService)
   await ctx.plugin(ProviderRegistryService, { dir: config.settings?.dir, legacy: config.llm })
   await ctx.plugin(CredentialStoreService, { dir: config.settings?.dir, legacyConfigKey: config.llm?.apiKey })
   await ctx.plugin(SessionService, config.sessions ?? {})
@@ -173,6 +175,8 @@ export { MemoryService, withMemory } from './services/memory.js'
 export { WorkspaceService } from './services/workspace.js'
 export { ApprovalService } from './services/approval.js'
 export { TraceService } from './services/trace.js'
+export { BrowserSafetyService } from './services/browser-safety.js'
+export type { BrowserSafetyActionInput, BrowserSafetyConfig, BrowserSafetyDecision, BrowserSafetyPageInput, BrowserSafetyPageResult, BrowserSafetyVerdict } from './services/browser-safety.js'
 export { MetricsService } from './plugins/metrics.js'
 export { agentLoop } from './plugins/agent.js'
 export { subagent } from './plugins/subagent.js'

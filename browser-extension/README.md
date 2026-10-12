@@ -32,7 +32,7 @@ See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard ste
 
 ## Site access and AI tasks (0.4.2)
 
-Browser access uses two independent checks: Switchboard site approval and Chrome/Edge native host permission. When a task needs a new site, Switchboard waits and marks the extension icon with **!**. Open the companion panel, review the requested domain, then choose **Allow site & continue**. The browser shows its native permission dialog; choosing Deny stops the original action. No blanket permission to all sites is requested. Do not approve unfamiliar sites.
+Browser site access uses the native Chrome/Edge host permission as its single source of truth. Manual/Auto control AI actions, not a second site allowlist. When a task needs a new site, Switchboard waits and marks the extension icon with **!**. Open the companion panel, review the requested domain, then choose **Allow in Chrome & continue**. The browser shows its native permission dialog; choosing Deny stops the original action. Chrome permission alone is sufficient; Switchboard does not ask you to approve the same site twice. No blanket permission to all sites is requested. Do not approve unfamiliar sites.
 
 Use **Ask Switchboard** in the Overview tab to submit browser instructions without switching to the Web UI. The field talks to the authenticated Switchboard agent on localhost, streams tool activity, and offers Stop. The connected AI model and browser security gates remain unchanged.
 
@@ -56,7 +56,7 @@ The extension never requires a separate AI-provider API key. The pairing code is
 - The bridge is bound to loopback. WebSocket upgrade checks peer address, HTTP Host, exact extension Origin, and a persistent authentication token carried in the WebSocket subprotocol. Local HTTP routes require bearer authentication; invalid origin/host requests are rejected.
 - Pairing is limited to five failed guesses per CLI launch and the short code expires after 15 minutes. Using the code consumes it; already paired clients reconnect with their existing token.
 - Extension permissions: `activeTab`, `scripting`, `sidePanel`, `storage`, `tabs`, and `alarms`. Host permissions are limited to HTTP loopback.
-- Mutating actions require an explicitly approved site. CLI tool approvals are controlled separately by Switchboard (default risky-tool approval; `--yes` explicitly disables CLI prompts). Restricted browser mode blocks page mutations regardless of CLI mode. Passwords and payment details are protected. DOM content is untrusted and is not agent instruction.
+- Mutating actions require Chrome-native site permission and remain subject to the configured action policy. CLI tool approvals are controlled separately by Switchboard (default risky-tool approval; `--yes` explicitly disables CLI prompts). Restricted browser mode blocks page mutations regardless of CLI mode. Passwords and payment details are protected. DOM content is untrusted and is not agent instruction.
 - Screenshots requested through either the UI or agent tools require approval of the active site origin **and** Chrome's `activeTab` grant: click the Switchboard toolbar icon while on that tab. This grant may need to be renewed after navigation or browser restart. The extension does not request broad `<all_urls>` access.
 - Browser activity and site approvals are visible and revocable in the extension.
 

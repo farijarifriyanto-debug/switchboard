@@ -3,13 +3,17 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { parse } from 'yaml'
 
 const workflow = parse(await readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'))
 const steps = workflow.jobs.release.steps
 const executable = steps.filter(s => ['Tag matches package.json', 'Package release', 'GitHub release', 'Publish to npm'].includes(s.name) || s.run === 'npm test')
 const root = await mkdtemp(path.join(tmpdir(), 'sbx-release-workflow-'))
-const stub = `#!${process.execPath}
+const gitPath = process.platform === 'win32' ? spawnSync('where.exe', ['git'], { encoding: 'utf8' }).stdout.split(/\r?\n/).find(Boolean) : undefined
+const bash = process.env.GIT_BASH || (gitPath ? path.join(path.dirname(path.dirname(gitPath)), 'bin', 'bash.exe') : 'bash')
+if (!existsSync(bash) && process.platform === 'win32') throw new Error(`Git Bash is required for release-workflow tests (looked for ${bash})`)
+const stub = `#!/usr/bin/env node
 import fs from 'node:fs'; import path from 'node:path';
 const args=process.argv.slice(2), tool=path.basename(process.argv[1]);
 fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify({tool,args})+'\\n');
@@ -29,8 +33,9 @@ async function scenario(name, extra = {}) {
   await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: '@botconnector/switchboard', version: '0.3.0', type: 'module' }))
   await writeFile(path.join(dir, 'CHANGELOG.md'), '# Changelog\n## 0.3.0\nFeature notes.\n## 0.2.0\nOld notes.\n')
   const log = path.join(dir, 'commands.jsonl')
-  const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', executable.map(s => s.run).join('\n')], {
-    cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, RELEASE_TAG: 'v0.3.0', GITHUB_REF_NAME: 'v0.3.0', GITHUB_REF: 'refs/tags/v0.3.0', GITHUB_SHA: 'release-sha', RELEASE_COMMIT: 'release-sha', GITHUB_REPOSITORY: 'owner/repo', RUNNER_TEMP: runner, GITHUB_OUTPUT: path.join(dir, 'outputs'), GITHUB_STEP_SUMMARY: path.join(dir, 'summary'), PACKAGE_FILE: path.join(runner, 'botconnector-switchboard-0.3.0.tgz'), COMMAND_LOG: log, PRIVATE_REPO: 'false', NODE_AUTH_TOKEN: '', ...extra },
+  const script = `export PATH="$PWD/bin:$PATH"\n${executable.map(s => s.run).join('\n')}`
+  const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script], {
+    cwd: dir, encoding: 'utf8', env: { ...process.env, RELEASE_TAG: 'v0.3.0', GITHUB_REF_NAME: 'v0.3.0', GITHUB_REF: 'refs/tags/v0.3.0', GITHUB_SHA: 'release-sha', RELEASE_COMMIT: 'release-sha', GITHUB_REPOSITORY: 'owner/repo', RUNNER_TEMP: runner, GITHUB_OUTPUT: path.join(dir, 'outputs'), GITHUB_STEP_SUMMARY: path.join(dir, 'summary'), PACKAGE_FILE: path.join(runner, 'botconnector-switchboard-0.3.0.tgz'), COMMAND_LOG: log, PRIVATE_REPO: 'false', NODE_AUTH_TOKEN: '', ...extra },
   })
   const calls = (await readFile(log, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
   const gh = calls.filter(c => c.tool === 'gh').map(c => c.args[1])
@@ -43,7 +48,7 @@ try {
   assert.ok(missing.calls.find(c => c.tool === 'gh' && c.args[1] === 'create').args.includes('--latest=false'))
   assert.ok(missing.calls.some(c => c.tool === 'gh' && c.args.includes('make_latest=legacy')), 'new releases use GitHub version/date selection for Latest')
   assert.equal(missing.calls.some(c => c.tool === 'npm' && c.args[0] === 'publish'), false)
-  assert.match(await readFile(path.join(missing.runner, 'botconnector-switchboard-0.3.0.tgz.sha256'), 'utf8'), /[a-f0-9]{64}  botconnector-switchboard-0.3.0.tgz/)
+  assert.match(await readFile(path.join(missing.runner, 'botconnector-switchboard-0.3.0.tgz.sha256'), 'utf8'), /[a-f0-9]{64} [ *]?botconnector-switchboard-0.3.0.tgz/)
 
   const existing = await scenario('existing-release', { EXISTS: 'yes' })
   assert.equal(existing.status, 0, existing.stderr)
@@ -90,4 +95,4 @@ try {
     assert.ok(!step.if || step.if === 'success()', 'publication respects preceding failures')
   }
   console.log('release-workflow: OK (missing token, assets, retries, publish failures, provenance, test/tag gates)')
-} finally { await rm(root, { recursive: true, force: true }) }
+} finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }

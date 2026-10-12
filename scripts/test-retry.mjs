@@ -24,6 +24,11 @@ async function runCase({ statuses, label }) {
   const server = http.createServer((req, res) => {
     const status = statuses[Math.min(calls, statuses.length - 1)]
     calls += 1
+    if (status === 'stream-overload') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.end(`data: ${JSON.stringify({ error: { message: 'Our servers are currently overloaded. Please try again later.' } })}\n\n`)
+      return
+    }
     if (status !== 200) {
       res.writeHead(status, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: { message: `mock ${status}` } }))
@@ -82,5 +87,13 @@ assert.equal(c.ok, false)
 assert.equal(c.calls, 4, 'C should try 1 + 3 retries')
 assert.equal(c.retries, 3)
 assert.match(c.error, /HTTP 503/)
+
+// A gateway can return overload inside a successful SSE response. It must be
+// retried before any assistant output is emitted.
+const d = await runCase({ statuses: ['stream-overload', 200], label: 'D streamed overload then 200' })
+assert.equal(d.ok, true, 'D should recover from a streamed overload')
+assert.equal(d.calls, 2, 'D should retry once')
+assert.equal(d.retries, 1, 'D should report its retry')
+assert.equal(d.content, 'ok')
 
 console.log('retry: OK')

@@ -262,23 +262,26 @@ export const webUi = {
           return await browserService.handleHttpRequest(req, res, route)
         }
         const extensionOrigin = String(req.headers.origin ?? '');
+        const requestedMethod = String(req.headers['access-control-request-method'] ?? '').toUpperCase();
         const companionRoute = route === '/api/chat' || route === '/api/state'
-          || /^\/api\/runs\/[^/]+\/cancel$/.test(route);
+          || /^\/api\/runs\/[^/]+\/cancel$/.test(route)
+          || (route === '/api/approvals' && (req.method === 'GET' || (req.method === 'OPTIONS' && requestedMethod === 'GET')))
+          || (/^\/api\/approvals\/[^/]+$/.test(route) && (req.method === 'POST' || (req.method === 'OPTIONS' && requestedMethod === 'POST')));
         const companionOrigin = companionRoute && /^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin);
         // OPTIONS preflight does not carry Authorization. Allow only the known
         // extension scheme to negotiate CORS, then require the bearer token
         // for every actual request.
         const isCompanionPreflight = companionOrigin && req.method === 'OPTIONS';
-        const isCompanionChat = companionOrigin
+        const isCompanionRequest = companionOrigin && req.method !== 'OPTIONS'
           && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '');
-        if (isCompanionChat || isCompanionPreflight) {
+        if (isCompanionRequest || isCompanionPreflight) {
           res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
           res.setHeader('Vary', 'Origin')
           res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
           res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
           if (req.method === 'OPTIONS') { res.writeHead(204); return void res.end() }
         }
-        if (tokenDigest && !authorized(req) && !isCompanionChat) {
+        if (tokenDigest && !authorized(req) && !isCompanionRequest) {
           // First visit: `/?token=...` trades the token for an HttpOnly cookie, then drops it from the URL.
           if (req.method === 'GET' && tokenMatches(url.searchParams.get('token'))) {
             url.searchParams.delete('token')
@@ -333,12 +336,14 @@ export const webUi = {
       // loopback; an operator who binds elsewhere on purpose keeps the Origin
       // and JSON content-type checks.
       const origin = String(req.headers.origin ?? '')
-      const isCompanionChat = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route))
+      const isCompanionRequest = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route)
+        || (route === '/api/approvals' && req.method === 'GET')
+        || (/^\/api\/approvals\/[^/]+$/.test(route) && req.method === 'POST'))
         && /^chrome-extension:\/\/[a-p]{32}$/.test(origin)
         && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '')
       const fenced = settingsGuard(req, { enforceHost: LOOPBACK_HOSTS.has(host.toLowerCase()) })
-      if (isCompanionChat && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
-        // A paired browser extension may access only these three endpoints.
+      if (isCompanionRequest && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
+        // A paired browser extension may access only its chat, state, run-cancel, and approval endpoints.
       } else if (fenced) return json(res, fenced.status, { error: fenced.error, hint: fenced.hint })
       if (route === '/api/browser-companion-setup/status' && req.method === 'GET') {
         res.setHeader('Cache-Control', 'no-store')
@@ -611,7 +616,7 @@ export const webUi = {
             models.map((m) => ({ ...liveModel(m), provider: 'default', providerName: 'Default (config)' }))
         return json(res, 200, {
           endpoint: ctx.llm.settings.baseURL,
-          model: ctx.llm.settings.defaultModel,
+          model: ctx.providers.default().model,
           default: ctx.providers.default(),
           providers: providerEntries.map((entry) => ({
             id: entry.id,
@@ -798,7 +803,7 @@ export const webUi = {
           if (!provider && splitProvider) provider = splitProvider
           model = splitModel || model
         }
-        const wantedModel = model || session?.model || ctx.llm.settings.defaultModel
+        const wantedModel = model || session?.model || ctx.providers.default().model
         const wantedProvider = provider || session?.provider
         // Capability lookup: persisted catalog first, live endpoint as the
         // fallback (spec §8 — works for registry and legacy setups alike).
@@ -828,7 +833,7 @@ export const webUi = {
         }
         const presetId = typeof body.preset === 'string' && body.preset ? body.preset : undefined
         if (presetId && !ctx.presets.get(presetId)) return json(res, 404, { error: `no preset "${presetId}"` })
-        const id = session?.id ?? ctx.sessions.create({ title: prompt.slice(0, 72), model, provider, ...(presetId ? { preset: presetId } : {}), projectRoot: ctx.workspace.root }).id
+        const id = session?.id ?? ctx.sessions.create({ title: prompt.slice(0, 72), model: model || wantedModel, provider,...(presetId ? { preset: presetId } : {}), projectRoot: ctx.workspace.root }).id
         if (runs.has(id)) return json(res, 409, { error: 'this session already has an active run' })
         // Model/provider choices are saved for future turns; past transcript entries remain untouched.
         if (session && model) session.model = model

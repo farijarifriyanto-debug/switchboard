@@ -28,7 +28,7 @@ The extension attempts to block actions targeting password, payment-card and fil
 
 Information is accessed only to provide the user-requested browser automation, permission controls, connection operation, troubleshooting/status and local activity history. Browser Companion does not collect browsing information for advertising, user profiling, sale or unrelated analytics.
 
-Users grant each external site using both an explicit Switchboard "Allow site" action and Chrome/Edge's native per-site permission prompt. The extension declares optional HTTP/HTTPS site patterns solely to support requesting these per-site grants when needed. It does not silently enable access to all websites. Denying a requested origin prevents the browser action. Revoking a site removes Switchboard consent and attempts to remove the optional browser permission. The existing local loopback connection does not require granting remote website access.
+Users grant each external website through one user-initiated Chrome/Edge native host permission flow. There is no separate Switchboard site allowlist gate. The extension declares optional HTTP/HTTPS site patterns solely to support requesting these per-site grants when needed. It does not silently enable access to all websites. Denying a requested origin prevents the browser action. Revoking a site removes the optional Chrome permission and clears any obsolete metadata. The existing local loopback connection does not require granting remote website access.
 
 The extension communicates directly with the authenticated Switchboard process over loopback HTTP/WebSocket connections (`127.0.0.1` or `localhost`) on the **same computer**. It does not itself send browsing data to a separate BotConnector analytics or advertising endpoint.
 
@@ -55,3 +55,14 @@ We use information from browser permissions and APIs only for the prominently di
 We may update this policy when material extension behavior changes; the current text will be published at this URL. To raise privacy concerns, request assistance with local-data removal or report a security issue, use the [Switchboard issue tracker](https://github.com/farijarifriyanto-debug/switchboard/issues). The publisher contact email shown in the Chrome Web Store listing is an additional public contact channel.
 
 **Related project documentation:** [Browser Companion README](./README.md).
+
+## Browser permissions
+
+Each permission the extension requests is used only for the browser tasks the user starts:
+
+- **debugger** is attached to a tab only while one approved action runs. It sends trusted clicks and key presses and captures screenshots, then detaches. It is not used to read other browser data.
+- **downloads** observes a download that the user approved and reports its file name and source. The file contents are not read.
+- **nativeMessaging** asks a small helper that the user installed on the same computer for the local pairing credential and the loopback address. The helper makes no network requests.
+- **notifications** tells the user that a site permission request is waiting.
+- **tabGroups** groups the tabs that Switchboard opens under one labeled group, and only those tabs can be closed by the agent.
+- **activeTab**, **scripting**, **tabs**, **storage**, **sidePanel** and **alarms** are used as described above: reading and acting on approved pages, remembering settings, showing the side panel, and reconnecting after the browser suspends the background worker.

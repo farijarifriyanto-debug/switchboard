@@ -24,8 +24,9 @@ assert.equal(withSkills(withSkills('base', '## Skills\nx'), ''), 'base', 'empty 
 const base = await mkdtemp(path.join(tmpdir(), 'sbx-skills-'))
 const ws = path.join(base, 'ws')
 const globalDir = path.join(base, 'global')
-const outside = path.join(base, 'secret.txt')
-await writeFile(outside, 'TOP SECRET').catch(() => {})
+const outside = path.join(base, 'outside')
+await mkdir(outside, { recursive: true })
+await writeFile(path.join(outside, 'secret.txt'), 'TOP SECRET')
 const skill = async (root, folder, text, files = {}) => {
   const dir = path.join(root, folder)
   await mkdir(dir, { recursive: true })
@@ -38,9 +39,9 @@ const skill = async (root, folder, text, files = {}) => {
 }
 const projectSkills = path.join(ws, '.switchboard', 'skills')
 await mkdir(ws, { recursive: true })
-await writeFile(outside, 'TOP SECRET')
+await writeFile(path.join(outside, 'secret.txt'), 'TOP SECRET')
 const deploy = await skill(projectSkills, 'deploy', '---\nname: deploy\ndescription: Ship the app safely.\n---\n# Deploy\nRun the checklist.', { 'scripts/check.sh': 'echo check', 'notes.md': 'remember' })
-await symlink(outside, path.join(deploy, 'leak.txt'))
+await symlink(outside, path.join(deploy, 'leak'), 'junction')
 await skill(projectSkills, 'shared', '---\ndescription: Project version wins.\n---\nproject body')
 await skill(globalDir, 'shared', '---\ndescription: Global version.\n---\nglobal body')
 await skill(globalDir, 'only-global', '---\nname: only-global\ndescription: Lives in the home dir.\n---\nglobal only')
@@ -98,7 +99,7 @@ try {
   assert.match(loaded, /- scripts\/check\.sh/)
   assert.equal(await ctx.tools.call('load_skill', { name: 'deploy', file: 'scripts/check.sh' }), 'echo check')
   assert.match(await ctx.tools.call('load_skill', { name: 'deploy', file: '../../../../../secret.txt' }), /escapes workspace/)
-  assert.match(await ctx.tools.call('load_skill', { name: 'deploy', file: 'leak.txt' }), /escapes workspace/, 'a link out of the skill folder is refused')
+  assert.match(await ctx.tools.call('load_skill', { name: 'deploy', file: 'leak/secret.txt' }), /escapes workspace/, 'a link out of the skill folder is refused')
   assert.match(await ctx.tools.call('load_skill', { name: 'nope' }), /no skill "nope"\. Available: deploy, only-global, shared/)
 
   // ---- system prompt section and /name invocation

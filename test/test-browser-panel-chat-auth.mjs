@@ -37,5 +37,34 @@ try{
  const evil=await fetch(url+'api/state',{headers:{origin:'https://evil.example',authorization:'Bearer '+bearer}});
  assert.equal(evil.status,401,'forged website origin not whitelisted by extension CORS exception');
  console.log('PASS browser web origin is rejected even if bridge bearer supplied');
+
+ const approvalWait=host.ctx.approvals.request('browser_type',{
+   selector:'#pesan', targetOrigin:'https://example.org',
+ },'extension-approval-test');
+ await new Promise(resolve=>setImmediate(resolve));
+ const pending=host.ctx.approvals.pending()[0];
+ assert.ok(pending,'test approval is pending before the extension decision');
+ const approvalPath='api/approvals/'+encodeURIComponent(pending.id);
+ const approvalPreflight=await fetch(url+approvalPath,{method:'OPTIONS',headers:{
+   origin, 'access-control-request-method':'POST',
+   'access-control-request-headers':'content-type,authorization',
+ }});
+ assert.equal(approvalPreflight.status,204,'paired extension approval preflight must be accepted');
+ assert.equal(approvalPreflight.headers.get('access-control-allow-origin'),origin);
+ const approvalList=await fetch(url+'api/approvals',{headers:{origin,authorization:'Bearer '+bearer}});
+ assert.equal(approvalList.status,200,'paired extension can read pending approvals');
+ assert.equal((await approvalList.json()).pending[0].id,pending.id);
+ const wrongBearer=await fetch(url+approvalPath,{method:'POST',headers:{
+   origin,authorization:'Bearer wrong', 'content-type':'application/json',
+ },body:JSON.stringify({decision:'approved'})});
+ assert.equal(wrongBearer.status,401,'approval decisions require the paired extension bearer');
+ assert.equal(host.ctx.approvals.pending()[0].id,pending.id,'bad bearer leaves the approval pending');
+ const approved=await fetch(url+approvalPath,{method:'POST',headers:{
+   origin,authorization:'Bearer '+bearer, 'content-type':'application/json',
+ },body:JSON.stringify({decision:'approved'})});
+ assert.equal(approved.status,200,'paired extension can settle an approval');
+ assert.equal((await approved.json()).decision,'approved');
+ assert.equal(await approvalWait,'approved');
+ console.log('PASS extension approval preflight, bearer-gated listing, and decision settlement');
 }finally{await host.dispose()}
 console.log('=== Direct side panel authentication tests PASSED ===');

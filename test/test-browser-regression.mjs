@@ -103,13 +103,13 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
 {
   assert.match(
     bgSource,
-    /approvedOrigins\.includes\(tabOrigin\)/i,
-    'Screenshot capture requires origin approval first',
+    /siteAccessGranted\(tabOrigin\)/i,
+    'Screenshot requires native Chrome host permission',
   )
   const agentScreenshot = bgSource.match(/case 'browser_screenshot':\s*\{([\s\S]*?)\n    \}/)?.[1]
   assert.ok(agentScreenshot, 'agent screenshot handler exists')
-  assert.match(agentScreenshot, /approvedOrigins\.includes\(siteOrigin\)/,
-    'agent-triggered screenshots reject unapproved site origins')
+  assert.match(agentScreenshot, /siteAccessGranted\(siteOrigin\)/,
+    'agent-triggered screenshots require native Chrome grant')
   assert.match(agentScreenshot, /screenshotWithUserGrant/,
     'agent screenshot uses activeTab permission guard')
   assert.match(agentScreenshot, /Screenshot denied/,
@@ -138,11 +138,13 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
 // Regression Test 8: Mode Enforcement
 // -----------------------------------------------------------------------------
 {
-  assert.match(
-    bgSource,
-    /permissionMode\s*===\s*'restricted'[\s\S]*?Blocked/i,
-    'Restricted mode blocks mutating actions',
-  )
+  assert.doesNotMatch(bgSource, /'restricted'/, 'restricted mode is removed (Claude in Chrome has Manual, Auto, Skip)')
+  assert.match(bgSource, /chrome\.permissions\.contains\(\{ origins: \[sitePattern\(origin\)\] \}\)/,
+    'Chrome native host grant is the site access decision')
+  assert.doesNotMatch(bgSource, /approvedOrigins = \[\]\)[\s\S]{0,100}return approvedOrigins\.includes\(origin\)/,
+    'legacy local origin allowlist cannot grant site access')
+  assert.match(bgSource, /releaseOneTimeGrants\(\)/,
+    'Allow this action ends with the tool call')
   console.log('✓ Regression Bug #8: Permission mode enforcement verified')
 }
 

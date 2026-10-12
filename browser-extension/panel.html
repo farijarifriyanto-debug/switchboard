@@ -219,6 +219,109 @@
       .brand-title {font-size:13px;}
     }
 
+    /* ===== Chat-only side panel (default). ?view=settings keeps the full layout. ===== */
+    .chat-bar { display: none; }
+    body.chat-only nav,
+    body.chat-only .tab-pane:not(#tab-overview),
+    body.chat-only #tab-overview > :not(.task-card),
+    body.chat-only .app-header,
+    body.chat-only .page-intro,
+    body.chat-only .context-bar,
+    body.chat-only #companion-badge,
+    body.chat-only #task-open-web,
+    body.chat-only .task-card .card-head,
+    body.chat-only #task-form > label,
+    body.chat-only #task-status,
+    body.chat-only #task-output { display: none !important; }
+
+    html { height: 100%; }
+    body.chat-only {
+      --ink: #14161a; --paper: #ffffff; --surface: #f4f5f7; --line: #e4e6eb;
+      --muted: #6b7280; --accent: #0e7f91; --ok: #2f9e6b; --warn: #c2410c;
+      height: 100%; margin: 0; overflow: hidden;
+      background: var(--paper); color: var(--ink);
+      font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    body.chat-only, body.chat-only * { box-sizing: border-box; }
+    body.chat-only .app-shell { height: 100vh; display: flex; flex-direction: column; padding: 0; }
+    body.chat-only #tab-overview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    body.chat-only .task-card { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 0; box-shadow: none; background: transparent; padding: 0; margin: 0; }
+
+    /* Top bar */
+    body.chat-only .chat-bar { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; height: 48px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); }
+    .chat-bar-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--ink); color: #fff; display: grid; place-items: center; flex: 0 0 auto; }
+    .chat-bar-title { font-weight: 650; font-size: 14px; letter-spacing: -0.01em; }
+    .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #c4c8d0; flex: 0 0 auto; }
+    .conn-dot.on { background: var(--ok); }
+    .bar-spacer { flex: 1; }
+    body.chat-only .bar-btn { width: 32px; height: 32px; min-height: 0; min-width: 0; padding: 0; border: 0 !important; border-radius: 8px; background: transparent !important; color: var(--muted) !important; display: grid; place-items: center; }
+    body.chat-only .bar-btn:hover:not(:disabled) { background: var(--surface) !important; color: var(--ink) !important; }
+    body.chat-only .bar-btn:disabled { opacity: .35; }
+
+    /* Empty state */
+    body.chat-only .chat-empty { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 24px 20px; }
+    body.chat-only .chat-empty[hidden] { display: none !important; }
+    .chat-empty-title { font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing: -0.02em; }
+    .chat-empty p { margin: 0; max-width: 36ch; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+    .chips { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
+    body.chat-only .chip { min-height: 0; padding: 8px 14px; border: 1px solid var(--line) !important; border-radius: 999px; background: var(--paper) !important; color: var(--ink) !important; font-size: 13px; font-weight: 500; text-align: left; }
+    body.chat-only .chip:hover { background: var(--surface) !important; }
+
+    /* Conversation */
+    body.chat-only .chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 16px 14px 8px; }
+    body.chat-only .chat-log:empty { display: none; }
+    body.chat-only .msg { max-width: 100%; word-break: break-word; }
+    body.chat-only .msg-user { align-self: flex-end; max-width: 88%; padding: 9px 14px; border-radius: 18px 18px 4px 18px; background: var(--surface); white-space: pre-wrap; }
+    body.chat-only .msg-agent { align-self: stretch; display: flex; flex-direction: column; gap: 10px; }
+    body.chat-only .msg-note { align-self: stretch; padding: 9px 12px; border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 13px; }
+    body.chat-only .msg-note.error { background: #fdf0ed; color: #9a3412; }
+    .answer { line-height: 1.65; }
+    .answer p { margin: 0 0 10px; }
+    .answer p:last-child, .answer ul:last-child, .answer ol:last-child { margin-bottom: 0; }
+    .answer ul, .answer ol { margin: 0 0 10px; padding-left: 20px; }
+    .answer li { margin: 2px 0; }
+    .answer a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .answer code { padding: 1px 5px; border-radius: 5px; background: var(--surface); font: 12.5px ui-monospace, Consolas, monospace; }
+    .answer pre { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface); overflow-x: auto; }
+    .answer pre code { padding: 0; background: none; }
+    .steps { font-size: 12.5px; color: var(--muted); }
+    .steps > summary { cursor: pointer; list-style: none; padding: 2px 0; user-select: none; }
+    .steps > summary::-webkit-details-marker { display: none; }
+    .steps > summary::after { content: " \203A"; display: inline-block; transition: transform .15s; }
+    .steps[open] > summary::after { transform: rotate(90deg); }
+    .step { display: flex; align-items: center; gap: 9px; padding: 3px 0 3px 2px; }
+    .step-dot { width: 7px; height: 7px; border-radius: 50%; background: #c4c8d0; flex: 0 0 auto; }
+    .step.running .step-dot { background: var(--accent); animation: sb-pulse 1s infinite ease-in-out; }
+    .step.done .step-dot { background: var(--ok); }
+    .step.failed .step-dot { background: var(--warn); }
+    .step.failed { color: #9a3412; }
+    .thinking { display: inline-flex; gap: 4px; padding: 4px 0; }
+    .thinking[hidden], .steps[hidden] { display: none; }
+    .thinking i { width: 6px; height: 6px; border-radius: 50%; background: #b6bbc5; animation: sb-pulse 1s infinite ease-in-out; }
+    .thinking i:nth-child(2) { animation-delay: .15s; }
+    .thinking i:nth-child(3) { animation-delay: .3s; }
+    @keyframes sb-pulse { 50% { opacity: .3; transform: scale(.75); } }
+    @media (prefers-reduced-motion: reduce) { .step-dot, .thinking i { animation: none !important; } }
+
+    /* Approval and site-request cards sit just above the composer */
+    body.chat-only #approval-banner, body.chat-only #site-request { margin: 0 12px 8px; padding: 12px 14px; border-radius: 14px; }
+    body.chat-only #approval-banner .row, body.chat-only #site-request .row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    /* Composer */
+    body.chat-only #task-form { flex: 0 0 auto; margin: 0 12px 12px; padding: 10px 10px 8px 14px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); box-shadow: 0 1px 2px rgba(20, 22, 26, .05); transition: border-color .12s, box-shadow .12s; }
+    body.chat-only #task-form:focus-within { border-color: #b9bec8; box-shadow: 0 0 0 3px rgba(14, 127, 145, .12); }
+    .tab-chip { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; margin: 0 0 8px; padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; }
+    .tab-chip[hidden] { display: none; }
+    .tab-chip span { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    body.chat-only #task-prompt { display: block; width: 100%; min-height: 24px; max-height: 160px; padding: 0; border: 0; outline: 0; box-shadow: none !important; background: transparent; color: var(--ink); font-size: 14px; line-height: 1.5; resize: none; }
+    body.chat-only #task-prompt::placeholder { color: #9aa0ab; }
+    body.chat-only .composer-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; }
+    .mode-wrap select { appearance: none; padding: 5px 26px 5px 12px; border: 0; border-radius: 999px; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; }
+    body.chat-only #task-send, body.chat-only #task-stop { flex: 0 0 34px; width: 34px; height: 34px; min-width: 34px; min-height: 34px; padding: 0; border: 0 !important; border-radius: 50%; font-size: 15px; line-height: 1; }
+    body.chat-only #task-send { background: var(--ink) !important; color: #fff !important; }
+    body.chat-only #task-stop { background: var(--surface) !important; color: var(--ink) !important; }
+    body.chat-only #task-send:disabled, body.chat-only #task-stop:disabled { display: none; }
+    body.chat-only #approval-banner .row, body.chat-only #site-request .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } body.chat-only #approval-banner button, body.chat-only #site-request button { min-height: 34px; padding: 6px 10px; border-radius: 10px; font-size: 12.5px; white-space: normal; } body.chat-only #btn-approve-once, body.chat-only #site-request-once { background: var(--ink) !important; border-color: var(--ink) !important; color: #fff !important; } body.chat-only #btn-reject, body.chat-only #site-request-deny { grid-column: 1 / -1; } .steps > summary::after { margin-left: 4px; }
   </style>
 </head>
 <body>
@@ -258,9 +361,10 @@
     <section id="site-request" role="region" aria-label="AI site permission request" hidden>
       <h2>Site access requested by Switchboard</h2>
       <p id="site-request-desc"></p>
-      <p>Chrome will ask for permission only for this site. No access is granted automatically.</p>
+      <p>Choose the scope, then confirm the site permission in Chrome. Switchboard does not keep a second site allowlist.</p>
       <div class="row">
-        <button id="site-request-allow">Allow site &amp; continue</button>
+        <button id="site-request-once">Allow this action</button>
+        <button id="site-request-allow">Always allow actions on this site</button>
         <button id="site-request-deny" class="secondary">Deny</button>
       </div>
       <p id="site-request-feedback" role="status"></p>
@@ -276,20 +380,46 @@
     </div>
 
     <nav aria-label="Browser companion sections">
-      <button class="active" data-tab="tab-overview">Overview</button>
-      <button data-tab="tab-tools">Inspector</button>
-      <button data-tab="tab-workflows">Workflows</button>
-      <button data-tab="tab-security">Permissions</button>
-      <button data-tab="tab-settings">Connection</button>
+      <button class="active" data-tab="tab-overview">Chat</button>
+      <button data-tab="tab-security">Izin</button>
+      <button data-tab="tab-settings">Pengaturan</button>
     </nav>
 
     <section id="tab-overview" class="tab-pane active">
       <section class="ui-card task-card">
+        <div class="chat-bar">
+          <span class="chat-bar-mark" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9m-3-3 3 3-3 3M20 17h-9m3-3-3 3 3 3M4 17h3M17 7h3"/></svg></span>
+          <span class="chat-bar-title">Switchboard</span>
+          <span id="conn-dot" class="conn-dot" role="img" aria-label="Terputus" title="Terputus"></span>
+          <span class="bar-spacer"></span>
+          <button id="chat-new" type="button" class="bar-btn" aria-label="Obrolan baru" title="Obrolan baru"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+          <button id="task-settings" type="button" class="bar-btn" aria-label="Pengaturan" title="Pengaturan">Pengaturan</button>
+        </div>
         <div class="card-head"><h2>Ask Switchboard</h2><span class="status-pill">AI + Chrome</span></div>
+        <div id="chat-empty" class="chat-empty">
+          <div class="chat-empty-title">Mau dikerjakan di browser?</div>
+          <p>Tulis instruksi. Switchboard membaca halaman dan bertindak hanya di situs yang sudah Anda izinkan.</p>
+          <div id="chat-chips" class="chips">
+            <button type="button" class="chip" data-prompt="Ringkas halaman yang sedang saya buka dalam lima poin.">Ringkas halaman ini</button>
+            <button type="button" class="chip" data-prompt="Isi formulir di halaman ini dengan data berikut: ">Isi formulir di halaman ini</button>
+            <button type="button" class="chip" data-prompt="Ambil semua nama paket dan harga di halaman ini, lalu buat tabel perbandingannya.">Bandingkan harga di halaman ini</button>
+          </div>
+        </div>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="task-form">
+          <div id="tab-chip" class="tab-chip" hidden>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-4.5 4-4.5 14 0 18M12 3c4.5 4 4.5 14 0 18"/></svg>
+            <span id="tab-chip-title"></span>
+          </div>
           <label for="task-prompt" style="margin-top:0">What should the agent do in your browser?</label>
-          <textarea id="task-prompt" rows="3" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>
-          <div class="row">
+          <textarea id="task-prompt" rows="1" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>
+          <div class="row composer-row">
+            <span class="mode-wrap"><select id="composer-mode" aria-label="Mode izin aksi" title="Manual: setujui tiap aksi. Auto: aksi diperiksa otomatis. Skip: tanpa pemeriksaan otomatis.">
+              <option value="manual">Manual</option>
+              <option value="auto" selected>Auto</option>
+              <option value="skip">Skip</option>
+            </select></span>
+            <span class="bar-spacer"></span>
             <button id="task-send" type="submit">Run in Chrome</button>
             <button id="task-stop" type="button" class="secondary" disabled>Stop</button>
             <button id="task-open-web" type="button" class="secondary">Full chat</button>
@@ -314,7 +444,7 @@
 
         <section class="ui-card" aria-label="Site permissions">
           <div class="card-head"><h2>Site permissions</h2><span id="overview-site-status" class="status-pill is-offline">Not approved</span></div>
-          <p id="overview-site-desc" class="card-note">Allow Switchboard to interact with the active webpage.</p>
+          <p id="overview-site-desc" class="card-note">Chrome controls whether Switchboard can access this site.</p>
           <div class="site-url-row"><span>Origin</span><strong id="overview-site-origin">No site selected</strong></div>
           <div class="card-buttons">
             <button id="overview-allow-btn">Allow this site</button>
@@ -388,20 +518,20 @@
 
   <!-- Permissions & Audit -->
   <div id="tab-security" class="tab-pane"><div class="panel-hint">Site permissions and agent activity stay under your control. Review permissions before granting access.</div>
-    <label for="permission-mode-select">Permission Mode</label>
+    <label for="permission-mode-select">Browser action mode</label>
     <select id="permission-mode-select">
-      <option value="ask_every_time">Use Switchboard tool approvals (recommended)</option>
-      <option value="auto_safe">Approved-site automation (actions audited)</option>
-      <option value="restricted">Read-only (no page modifications)</option>
+      <option value="manual">Manual — approve each browser action</option>
+      <option value="auto" selected>Auto — screen page content and each action</option>
+      <option value="skip">Skip — skip automatic checks</option>
     </select>
-    <p style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Sensitive credential and payment card fields are always strictly blocked in every mode.</p>
+    <p id="permission-mode-description" style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Auto checks page content and each browser action. Uncertain or protected actions may need your approval.</p>
 
     <div class="row" style="margin-bottom:10px">
-      <button id="allow-current-origin-btn" style="background:var(--success)">Allow Current Site Origin</button>
-      <button id="revoke-current-origin-btn" class="danger">Revoke Current Site</button>
+      <button id="allow-current-origin-btn" style="background:var(--success)">Allow Current Site in Chrome</button>
+      <button id="revoke-current-origin-btn" class="danger">Revoke Chrome Access</button>
     </div>
 
-    <label>Approved Origins</label>
+    <label>Chrome-granted Site Origins</label>
     <pre id="approved-origins-view">None</pre>
 
     <div class="row" style="margin-top:10px;margin-bottom:4px">

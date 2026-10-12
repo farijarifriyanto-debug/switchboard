@@ -1,6 +1,8 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema,ListToolsRequestSchema,ListResourcesRequestSchema,ReadResourceRequestSchema,ListResourceTemplatesRequestSchema,ListPromptsRequestSchema,GetPromptRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export function makeExtendedServer(options={}) {
   const full=!options.toolsOnly
@@ -23,4 +25,4 @@ export function makeExtendedServer(options={}) {
   }
   return server
 }
-if(process.argv[1]===new URL(import.meta.url).pathname){await makeExtendedServer({toolsOnly:process.argv.includes('--tools-only'),collision:process.argv.includes('--collision')}).connect(new StdioServerTransport())}
+if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){await makeExtendedServer({toolsOnly:process.argv.includes('--tools-only'),collision:process.argv.includes('--collision')}).connect(new StdioServerTransport())}
