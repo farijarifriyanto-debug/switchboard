@@ -515,7 +515,7 @@ Optional real-engine tests (not run by `npm test` on machines without uvx):
 npm run test:plugin-catalog
 SBX_TEST_OPENSANDBOX_KEY_FILE=/path/to/private-test-key npm run test:plugin-opensandbox
 SBX_TEST_PUPPETEER_PATH=/path/to/puppeteer npm run test:plugin-catalog-browser
-npm run test:plugin-local-opensandbox  # real Docker Engine required
+npm run test:plugin-local-opensandbox  # real Docker Engine; tests use public opensandbox/code-interpreter:latest by default
 SBX_TEST_PUPPETEER_PATH=/path/to/puppeteer npm run test:plugin-local-browser
 ```
 
