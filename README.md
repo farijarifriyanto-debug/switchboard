@@ -1,14 +1,22 @@
 # Switchboard
 
+[![npm](https://img.shields.io/npm/v/@botconnector/switchboard?label=@botconnector/switchboard)](https://www.npmjs.com/package/@botconnector/switchboard)
+[![npm downloads](https://img.shields.io/npm/dm/@botconnector/switchboard)](https://www.npmjs.com/package/@botconnector/switchboard)
+[![Node.js](https://img.shields.io/node/v/@botconnector/switchboard)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-botconnector.id-06305A)](https://botconnector.id/id/switchboard)
+
 **Browser Companion (Chrome/Edge):** The free, open-source extension connects
 approved browser tabs to the Switchboard agent running on your computer.
-[Browser Companion privacy policy](browser-extension/PRIVACY.md) ?
-[Installation and controls](browser-extension/README.md) ?
+[Browser Companion privacy policy](browser-extension/PRIVACY.md) ·
+[Installation and controls](browser-extension/README.md) ·
 [Security issues and support](https://github.com/farijarifriyanto-debug/switchboard/issues).
 Browser content requested by the agent may be sent by Switchboard to the AI
 model provider you configure; see the policy before enabling browser tools.
 
 An agent harness for **BotConnector**, where **everything is a plugin**.
+
+![Switchboard web console: agent exploring a project with Browse and Read tools](docs/console.webp)
 
 Switchboard is an independent, MIT-licensed implementation of the "everything is a
 plugin" harness idea, built on [Cordis](https://github.com/cordiverse/cordis)
