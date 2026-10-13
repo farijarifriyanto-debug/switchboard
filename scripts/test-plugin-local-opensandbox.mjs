@@ -49,7 +49,7 @@ try {
  console.log('LOCAL_DOCKER_LOOPBACK_AND_SECRET_STORE_PASS')
  let sandboxId
  try {
-  const created=await host.ctx.tools.callResult('mcp__opensandbox__sandbox_create',{image:'botconnector/opensandbox-code:20261012',resource:{cpu:'500m',memory:'512Mi'},timeout_seconds:100,ready_timeout_seconds:45})
+  const created=await host.ctx.tools.callResult('mcp__opensandbox__sandbox_create',{image:process.env.SBX_TEST_OPENSANDBOX_IMAGE||'botconnector/opensandbox-code:20261012',resource:{cpu:'500m',memory:'512Mi'},timeout_seconds:100,ready_timeout_seconds:45})
   assert.notEqual(created.isError,true,created.content)
   const data=created.structuredContent || JSON.parse(created.content)
   sandboxId=data.sandbox_id||data.id
