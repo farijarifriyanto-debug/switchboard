@@ -1,0 +1,53 @@
+name: Bug report
+description: Switchboard (sbx) tidak berfungsi sebagaimana mestinya
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happended
+    attributes:
+      label: What happened
+      description: Expected vs actual behaviour.
+      placeholder: "Ran `sbx run ...` and got ..."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Exact commands and config (no secrets).
+      placeholder: |
+        1. `npm i -g @botconnector/switchboard`
+        2. `sbx run "..." --approval off`
+        3. See error ...
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Output of `sbx doctor`, OS, Node version.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI / TUI
+        - Web console
+        - Agent loop / tools
+        - Plugins / MCP
+        - Browser Companion
+        - Channels (Telegram/Discord)
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I tried the latest release
+          required: true
+        - label: Logs contain no API keys or credentials
+          required: true
