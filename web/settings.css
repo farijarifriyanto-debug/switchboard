@@ -568,6 +568,10 @@ body[data-theme] .form-errors {
 .plugin-catalog-state { font-size:12px; color:var(--sb-alias-label-secondary, #666); margin:6px 0 0; }
 .plugin-catalog-setup { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .plugin-catalog-setup label { display:grid; gap:4px; font-size:12px; }
+.plugin-catalog-setup-block { margin-top:10px; }
+.plugin-catalog-mode-label { display:grid; gap:5px; font-size:12px; }
+.plugin-catalog-mode-label select { width:100%; padding:9px; background:var(--sb-alias-bg-overlay, #fff); color:inherit; border:1px solid var(--sb-alias-bg-skeleton, #ccc); border-radius:6px; font:inherit; }
+.plugin-catalog-private[hidden], .plugin-catalog-local[hidden] { display:none !important; }
 .plugin-catalog-setup input { min-width:0; width:100%; padding:9px; background:var(--sb-alias-bg-overlay, #fff); color:inherit; border:1px solid var(--sb-alias-bg-skeleton, #ccc); border-radius:6px; font:inherit; }
 @media(max-width:560px){.plugin-catalog-line{flex-wrap:wrap}.plugin-catalog-setup{grid-template-columns:1fr}}
 

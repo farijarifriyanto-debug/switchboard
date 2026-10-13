@@ -462,11 +462,28 @@ layer or standalone BotConnector WebApp is required.
 - **Semgrep** — official `semgrep==1.180.0` MCP, bootstrapped by `uvx` the first
   time you install it. It scans code locally; the store does not upload source
   code to BotConnector. Uses the official MCP tool schemas and results.
-- **OpenSandbox** — official `opensandbox-mcp==1.1.1` client. Supply a running
-  OpenSandbox server's **private** address and its API key (stored only in the
-  Switchboard credential store, never in the plugin registry). For a remote VPS,
-  use a securely authenticated tunnel or private Tailscale service. Do not
-  expose a raw sandbox API on the public internet.
+- **OpenSandbox** — official `opensandbox-mcp==1.1.1` client, with two
+  installation modes inside the *same* existing plugin card:
+  - **Local (Docker)** (default): requires Docker Desktop/Engine with Linux
+    containers already installed and running. Click Install once; Switchboard
+    creates a separate official digest-pinned OpenSandbox server container,
+    generates a random API key, exposes **only a 127.0.0.1 port**, saves
+    credentials in the private local credential store, and reconnects its MCP
+    tools automatically when Switchboard restarts. Uninstall removes the
+    *managed* Docker container, its configuration and its credential. The
+    server uses the official Docker backend (not gVisor on Windows); running
+    code remains a security risk. Its Docker-socket access makes the local
+    server a trusted component; do not allow untrusted people to use its key.
+  - **My private server**: supply an existing private OpenSandbox endpoint and
+    API key. Use a properly authenticated SSH tunnel or private Tailscale
+    connection for a remote server. The plugin never installs or removes your
+    separately managed private server.
+
+**BotConnector Cloud is not a prerequisite for either mode.** Local and private
+server usage runs on the user's own resources, does not call a BotConnector
+Cloud Compute provider and does not charge a BotConnector wallet. A separate
+managed Cloud offering remains disabled until customer isolation and real
+wallet accounting are verified. The hosting vendor is not assumed to be GIO.
 
 The catalog saves nonsecret selections in `~/.switchboard/installed-mcp.json`
 (mode 0600 on POSIX) and reloads them at the next start. While `sbx web` is
@@ -474,7 +491,7 @@ running, installed tools connect immediately, with no app restart. Removing a
 plugin also unregisters its tools immediately. Existing manually configured
 `mcp.servers` take precedence; the catalog does not modify them.
 
-**Website handoff (planned for the BotConnector website):** after the user has
+**Website handoff (live at https://botconnector.id/plugins):** after the user has
 Switchboard installed and `sbx web` running locally, a link to
 `http://127.0.0.1:7777/?plugin=semgrep` (or `?plugin=opensandbox`) opens the
 local console directly to the plugin catalog. A public website **cannot**
@@ -482,12 +499,15 @@ install code automatically: the operator must click **Install** in Switchboard.
 The website plugin-store page itself is not shipped by this repository. If the
 local console is not running, instruct the user to launch Switchboard first.
 
-**Current prerequisites / limits:** `uvx` must already be installed on the
-user's device; packaging the official uv runtime with Switchboard is future
-installer work. OpenSandbox needs a reachable private runtime and API key;
-per-user BotConnector Cloud sandbox provisioning and metering are **not** in
-this release. Existing official MCP tools are not wrapped/replaced. Do not
-claim global one-click parity before those dependencies and end-user QA pass.
+**Current prerequisites / limits:** the Windows x64 portable release bundles
+Node.js and uv/uvx; npm/source installations still need uvx. The local
+OpenSandbox option requires Docker Desktop / Docker Engine separately (Docker
+is not bundled with Switchboard), enough disk capacity to download the official
+server image, and a Linux container daemon. A private server needs a reachable
+private endpoint and key. The local Docker backend does **not** guarantee gVisor
+isolation or blocked outbound network access. Per-user BotConnector-managed
+Cloud provisioning and billing are **not** part of this release; do not claim
+clean-Windows readiness until Docker Desktop Windows E2E is verified.
 
 Optional real-engine tests (not run by `npm test` on machines without uvx):
 
@@ -495,6 +515,8 @@ Optional real-engine tests (not run by `npm test` on machines without uvx):
 npm run test:plugin-catalog
 SBX_TEST_OPENSANDBOX_KEY_FILE=/path/to/private-test-key npm run test:plugin-opensandbox
 SBX_TEST_PUPPETEER_PATH=/path/to/puppeteer npm run test:plugin-catalog-browser
+npm run test:plugin-local-opensandbox  # real Docker Engine required
+SBX_TEST_PUPPETEER_PATH=/path/to/puppeteer npm run test:plugin-local-browser
 ```
 
 ## MCP servers

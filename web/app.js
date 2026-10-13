@@ -2410,12 +2410,14 @@ function renderPluginsPanel(panel, data) {
         ? `<span class="status-value">Configured</span>`
         : `<button class="settings-btn small primary" type="button" data-action="catalog-install" data-id="${esc(plugin.id)}">Install</button>`
     const setup = !plugin.installed && plugin.id === 'opensandbox'
-      ? `<div class="plugin-catalog-setup"><label>Private endpoint <input class="catalog-endpoint" type="text" autocomplete="off" placeholder="127.0.0.1:18088" aria-label="OpenSandbox private endpoint"></label><label>API key <input class="catalog-key" type="password" autocomplete="off" placeholder="OpenSandbox API key" aria-label="OpenSandbox API key"></label></div>`
+      ? `<div class="plugin-catalog-setup-block"><label class="plugin-catalog-mode-label">Runtime <select class="catalog-mode" aria-label="OpenSandbox runtime"><option value="local">Local — Docker Desktop / Engine</option><option value="private">My private server</option></select></label>
+      <p class="plugin-catalog-local settings-note">Docker must be installed and running. Switchboard sets up OpenSandbox automatically on your computer, using a private localhost address and generated key.</p>
+      <div class="plugin-catalog-private" hidden><div class="plugin-catalog-setup"><label>Private endpoint <input class="catalog-endpoint" type="text" autocomplete="off" placeholder="127.0.0.1:18088" aria-label="OpenSandbox private endpoint"></label><label>API key <input class="catalog-key" type="password" autocomplete="off" placeholder="OpenSandbox API key" aria-label="OpenSandbox API key"></label></div></div></div>`
       : ''
     return `<article class="plugin-catalog-card" data-catalog-id="${esc(plugin.id)}">
       <div class="plugin-catalog-line"><div><b>${esc(plugin.name)}</b> <span class="status-value">v${esc(plugin.version)}</span>
       <p>${esc(plugin.description)}</p></div>${action}</div>
-      <p class="plugin-catalog-state">${active ? `${plugin.toolCount} tools connected` : plugin.installed ? esc(plugin.state) : 'Not installed'}</p>${setup}
+      <p class="plugin-catalog-state">${active ? `${plugin.mode === 'local' ? 'Local Docker · ' : ''}${plugin.toolCount} tools connected` : plugin.installed ? esc(plugin.state) : 'Not installed'}</p>${setup}
     </article>`
   }).join('')
   panel.innerHTML = `
@@ -2424,7 +2426,7 @@ function renderPluginsPanel(panel, data) {
       <p class="section-note">Official pinned MCP tools. Install once; tools are available to the current agent without reinstalling Switchboard.</p>
       ${settingsUi.catalogError ? `<p class="settings-empty">${esc(settingsUi.catalogError)}</p>` : ''}
       ${catalogHtml || '<p class="settings-empty">Loading plugin catalog…</p>'}
-      <p class="settings-note">For OpenSandbox, connect an existing private server; never expose its API port to the public internet. Installing either plugin uses the usual agent tool approvals.</p>
+      <p class="settings-note">OpenSandbox can run locally with Docker or connect to your private server. BotConnector-managed Cloud is separate and not enabled here. Both plugins use the normal agent tool approvals.</p>
     </div>
     <div class="settings-section">
       <h3>Capabilities</h3>
@@ -2498,8 +2500,9 @@ async function handleSettingsAction(action, element, event) {
     if (action === 'catalog-install') {
       const id = element.dataset.id
       const card = element.closest('[data-catalog-id]')
+      const mode = card?.querySelector('.catalog-mode')?.value || 'local'
       const body = id === 'opensandbox'
-        ? { id, endpoint: card?.querySelector('.catalog-endpoint')?.value?.trim(), apiKey: card?.querySelector('.catalog-key')?.value }
+        ? mode === 'local' ? { id, mode } : { id, mode, endpoint: card?.querySelector('.catalog-endpoint')?.value?.trim(), apiKey: card?.querySelector('.catalog-key')?.value }
         : { id }
       element.disabled = true
       element.textContent = 'Connecting…'
@@ -2837,6 +2840,16 @@ $('settings-dialog')?.addEventListener('click', (event) => {
 $('settings-dialog')?.addEventListener('change', (event) => {
   const target = event.target
   if (!(target instanceof HTMLElement)) return
+  if (target.matches('.catalog-mode')) {
+    const card = target.closest('[data-catalog-id]')
+    if (card) {
+      const local = card.querySelector('.plugin-catalog-local')
+      const remote = card.querySelector('.plugin-catalog-private')
+      if (local) local.hidden = target.value !== 'local'
+      if (remote) remote.hidden = target.value !== 'private'
+    }
+    return
+  }
   if (target.matches('[data-field]') && settingsUi.editing) {
     const field = target.dataset.field
     if (field === '_apiKey') settingsUi.editing.apiKeyDraft = target.value

@@ -100,7 +100,10 @@
     "test:browser-native-pair": "node test/test-browser-native-pair.mjs",
     "test:plugin-catalog": "node scripts/test-plugin-catalog.mjs",
     "test:plugin-opensandbox": "node scripts/test-plugin-opensandbox.mjs",
-    "test:plugin-catalog-browser": "node scripts/test-plugin-catalog-browser.mjs"
+    "test:plugin-catalog-browser": "node scripts/test-plugin-catalog-browser.mjs",
+    "test:plugin-local-opensandbox": "node scripts/test-plugin-local-opensandbox.mjs",
+    "test:plugin-local-browser": "node scripts/test-plugin-local-browser.mjs",
+    "test:plugin-local-guards": "node scripts/test-plugin-local-guards.mjs"
   },
   "engines": {
     "node": ">=20.11"

@@ -463,9 +463,9 @@ export const webUi = {
       }
       if (route === '/api/plugin-catalog/install' && req.method === 'POST') {
         const body = await readBody(req, 4096)
-        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['id', 'endpoint', 'apiKey'].includes(key))) return json(res, 400, { error: 'Unknown installation fields' })
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['id', 'mode', 'endpoint', 'apiKey'].includes(key))) return json(res, 400, { error: 'Unknown installation fields' })
         try {
-          const plugin = await ctx.pluginCatalog.install(body.id, { ...(body.endpoint !== undefined ? { endpoint: body.endpoint } : {}), ...(body.apiKey !== undefined ? { apiKey: body.apiKey } : {}) })
+          const plugin = await ctx.pluginCatalog.install(body.id, { ...(body.mode !== undefined ? { mode: body.mode } : {}), ...(body.endpoint !== undefined ? { endpoint: body.endpoint } : {}), ...(body.apiKey !== undefined ? { apiKey: body.apiKey } : {}) })
           res.setHeader('Cache-Control', 'no-store')
           return json(res, 200, { ok: true, plugin })
         } catch (error) {

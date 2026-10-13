@@ -8,6 +8,7 @@ import path from 'node:path'
 import { expandHome } from './session.js'
 import type { McpServerConfig } from '../config.js'
 import type { McpServiceApi } from '../plugins/mcp.js'
+import { startLocalSandbox, stopLocalSandbox, type ManagedLocal } from './local-opensandbox.js'
 
 export type CatalogId = 'semgrep' | 'opensandbox'
 const CATALOG: Record<CatalogId, { title: string; description: string; version: string }> = {
@@ -18,7 +19,7 @@ const IDS = ['semgrep', 'opensandbox'] as const
 const LOCAL_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4})$/i
 const TAILSCALE_HOST = /^100\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):([1-9][0-9]{0,4})$/
 const SECRET_ID = 'plugin.opensandbox'
-interface Installed { id: CatalogId; endpoint?: string }
+interface Installed { id: CatalogId; endpoint?: string; local?: ManagedLocal }
 interface RegistryFile { version: 1; installed: Installed[] }
 export interface CatalogItem {
   id: CatalogId
@@ -31,6 +32,7 @@ export interface CatalogItem {
   toolCount: number
   needsEndpoint: boolean
   credentialConfigured: boolean
+  mode?: 'local' | 'private' | 'not-installed'
 }
 
 export class PluginCatalogService extends Service {
@@ -52,8 +54,15 @@ export class PluginCatalogService extends Service {
         if (entry.id === 'opensandbox') {
           if (typeof entry.endpoint !== 'string') throw new Error('OpenSandbox endpoint is missing')
           this.validateEndpoint(entry.endpoint)
+          if (entry.local) {
+            const managed = entry.local as ManagedLocal
+            if (!/^[0-9a-f-]{36}$/i.test(managed.installId)
+                || !/^sbx-opensandbox-[0-9a-f]{12}$/.test(managed.containerName)
+                || !Number.isInteger(managed.port) || managed.port < 1 || managed.port > 65535
+                || entry.endpoint !== `127.0.0.1:${managed.port}`) throw new Error('Invalid managed OpenSandbox metadata')
+          }
         }
-        this.installed.set(entry.id, { id: entry.id, ...(entry.endpoint ? { endpoint: entry.endpoint } : {}) })
+        this.installed.set(entry.id, { id: entry.id, ...(entry.endpoint ? { endpoint: entry.endpoint } : {}), ...(entry.local ? { local: entry.local } : {}) })
       }
     } catch (error: any) {
       if (error?.code !== 'ENOENT') {
@@ -68,8 +77,9 @@ export class PluginCatalogService extends Service {
   setManualMcpNames(names: string[]): void { this.manual = new Set(names) }
 
   private get file(): string { return path.join(this.dir, 'installed-mcp.json') }
-  private key(): string | undefined {
-    return this.ctx.credentials.resolve({ id: SECRET_ID, apiKeyEnv: 'OPEN_SANDBOX_API_KEY' } as any)
+  private key(entry?: Installed): string | undefined {
+    // Managed-local keys must never be superseded by an unrelated provider env key.
+    return this.ctx.credentials.resolve({ id: SECRET_ID, ...(entry?.local ? {} : { apiKeyEnv: 'OPEN_SANDBOX_API_KEY' }) } as any)
   }
   private validateEndpoint(endpoint: string): string {
     if (typeof endpoint !== 'string' || endpoint.length > 100 || !/^[-.0-9A-Za-z:\[\]]+$/.test(endpoint)) throw new Error('Invalid OpenSandbox endpoint')
@@ -90,11 +100,11 @@ export class PluginCatalogService extends Service {
       env: { SEMGREP_MCP_DISABLE_TRACING: 'true', SEMGREP_SEND_METRICS: 'off' },
       toolCallTimeoutMs: 60_000,
     }
-    if (!entry.endpoint || !this.key()) return undefined
+    if (!entry.endpoint || !this.key(entry)) return undefined
     return {
       transport: 'stdio', command: 'uvx',
       args: ['--from', 'opensandbox-mcp==1.1.1', 'opensandbox-mcp', '--domain', entry.endpoint, '--protocol', 'http', '--use-server-proxy'],
-      env: { OPEN_SANDBOX_API_KEY: this.key()! }, toolCallTimeoutMs: 90_000,
+      env: { OPEN_SANDBOX_API_KEY: this.key(entry)! }, toolCallTimeoutMs: 90_000,
     }
   }
   /** The user's manually configured MCP entries remain authoritative. */
@@ -116,7 +126,9 @@ export class PluginCatalogService extends Service {
         installed: Boolean(state || this.installed.has(id)), managed: this.installed.has(id) && !this.manual.has(id),
         state: state?.state ?? (this.installed.has(id) ? 'needs-setup' : 'not-installed'),
         toolCount: state?.tools.length ?? 0,
-        needsEndpoint: id === 'opensandbox', credentialConfigured: id === 'opensandbox' ? Boolean(this.key()) : true,
+        needsEndpoint: id === 'opensandbox' && !this.installed.get(id)?.local,
+        credentialConfigured: id === 'opensandbox' ? Boolean(this.key(this.installed.get(id))) : true,
+        mode: id === 'opensandbox' ? this.installed.get(id)?.local ? 'local' : this.installed.has(id) ? 'private' : 'not-installed' : undefined,
       }
     })
   }
@@ -132,7 +144,7 @@ export class PluginCatalogService extends Service {
     await writeFile(tmp, JSON.stringify(doc, null, 2) + '\n', { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     await rename(tmp, this.file)
   }
-  async install(id: string, input: { endpoint?: unknown; apiKey?: unknown } = {}): Promise<CatalogItem> {
+  async install(id: string, input: { mode?: unknown; endpoint?: unknown; apiKey?: unknown } = {}): Promise<CatalogItem> {
     return this.serialized(async () => {
       if (!IDS.includes(id as CatalogId)) throw new Error('Unknown plugin ID')
       const name = id as CatalogId
@@ -146,10 +158,25 @@ export class PluginCatalogService extends Service {
       if (probe.error || probe.status !== 0) throw new Error('Install uv (uvx) first, then try again')
       let entry: Installed
       let savedKey = false
+      let createdLocal: ManagedLocal | undefined
       if (name === 'semgrep') {
         if (Object.keys(input).length) throw new Error('Semgrep does not need connection settings')
         entry = { id: name }
+      } else if (input.mode === 'local') {
+        if (Object.keys(input).some((key) => key !== 'mode')) throw new Error('Local OpenSandbox generates its own key and endpoint')
+        if (this.key({ id: name, local: { installId: '', containerName: '', port: 0 } })) throw new Error('An OpenSandbox credential already exists; remove it before installing a local runtime')
+        const provisioned = await startLocalSandbox(this.dir)
+        createdLocal = provisioned.managed
+        try {
+          await this.ctx.credentials.set(SECRET_ID, provisioned.apiKey)
+          savedKey = true
+        } catch (error) {
+          await stopLocalSandbox(this.dir, createdLocal)
+          throw error
+        }
+        entry = { id: name, endpoint: provisioned.endpoint, local: createdLocal }
       } else {
+        if (input.mode !== undefined && input.mode !== 'private') throw new Error('Unsupported OpenSandbox installation mode')
         const endpoint = this.validateEndpoint(String(input.endpoint ?? ''))
         if (typeof input.apiKey !== 'string' || !input.apiKey.trim()) throw new Error('OpenSandbox API key is required')
         if (this.key()) throw new Error('OpenSandbox credential already configured: remove it separately before replacing')
@@ -169,6 +196,10 @@ export class PluginCatalogService extends Service {
         }
         return this.list().find((p) => p.id === name)!
       } catch (error) {
+        if (createdLocal) {
+          try { await stopLocalSandbox(this.dir, createdLocal) }
+          catch { throw new Error('Local OpenSandbox installation failed; Docker cleanup also failed. Check the owned container before retrying.', { cause: error }) }
+        }
         if (savedKey) await this.ctx.credentials.remove(SECRET_ID).catch(() => {})
         throw error
       }
@@ -182,6 +213,14 @@ export class PluginCatalogService extends Service {
       const entry = this.installed.get(name)!
       const live = this.mcp
       await live?.removeServer(name)
+      if (entry.local) {
+        try { await stopLocalSandbox(this.dir, entry.local) }
+        catch (error) {
+          const cfg = this.config(entry)
+          if (cfg) await live?.addServer(name, cfg).catch(() => {})
+          throw error
+        }
+      }
       this.installed.delete(name)
       try { await this.persist() } catch (error) {
         this.installed.set(name, entry)
