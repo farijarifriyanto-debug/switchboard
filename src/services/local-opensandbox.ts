@@ -25,6 +25,9 @@ const docker = async (args: string[], timeout = 12000): Promise<string> => {
     const err = error as NodeJS.ErrnoException
     if (err.code === 'ENOENT') throw new Error('Docker Desktop / Docker Engine is required for Local OpenSandbox.')
     const stderr = String((error as { stderr?: string }).stderr ?? '')
+    if (/failed to connect to the docker API|dockerDesktopLinuxEngine|cannot connect to the docker daemon|is the docker daemon running/i.test(stderr)) {
+      throw new Error('Docker Desktop / Docker Engine is not running. Start Docker Desktop in Linux-container mode, then retry.')
+    }
     if (/no space left|not enough space/i.test(stderr)) throw new Error('Docker has insufficient disk space for OpenSandbox.')
     if (/permission denied|access is denied/i.test(stderr)) throw new Error('Docker permission denied. Check the current account permissions.')
     if (/manifest unknown|pull access denied/i.test(stderr)) throw new Error('The pinned OpenSandbox image is unavailable from the official registry.')

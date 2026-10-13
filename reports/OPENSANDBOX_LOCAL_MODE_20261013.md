@@ -31,6 +31,10 @@
 | Clean Windows portable + Docker Desktop | Windows Desktop installed; Docker Linux Engine currently stopped. No positive Windows UI/agent test; WSL2/port/volume/ACL differences not yet checked | Windows engine absent (Docker Desktop application installed but stopped), so no Windows positive E2E; Linux Docker Engine PASS | **NO-GO** public release |
 | BotConnector Cloud PAYG | Separate, disabled, no customer debit | Canonical policy and disabled `rate-card-UNVERIFIED.json`, candidate metering tests are not real wallet settlement | **NO-GO** Cloud activation |
 
+## Additional Windows source verification (12:2x WIB)
+
+The owner's Windows device reconnected. Without touching the existing dirty `C:\Users\farij\switchboard` repo, cloned this PR to `C:\Users\farij\switchboard-opensandbox-qa-20261013`; `npm ci`, TypeScript typecheck, and build all PASS. Windows Docker CLI 29.7.2 is installed but the Docker Desktop Linux Engine pipe does not exist, so the new Local mode correctly fails closed and creates no new local sandbox resources. **Real Semgrep MCP test on Windows fully PASS** (12 tools, real `semgrep_scan_with_custom_rule` finding, persistence after simulated host restart, uninstall, manual MCP precedence). These are source/native MCP tests, not a positive OpenSandbox Docker Desktop runtime E2E.
+
 ## Remaining release gate
 
 1. On a real Windows laptop with **Docker Desktop Linux containers**, install vNext Switchboard portable, visit BotConnector Plugin Store, click OpenSandbox, perform Install Local, verify actual Python code / sandbox cleanup, restart PC and confirm reconnect, and Remove. Check persisted Windows file ACL and Docker socket implications; do not only use Linux Chrome headless screenshots.
