@@ -1,0 +1,46 @@
+name: GitHub Trending Watch
+
+# Research-only. Runs in GitHub Actions, never on BotConnector production/VPS.
+on:
+  schedule:
+    - cron: '0 1 * * 1' # Monday 08:00 Asia/Jakarta (UTC+7)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/github-trending-watch.yml'
+      - 'scripts/github-trending-watch.mjs'
+      - 'test/github-trending-watch.test.mjs'
+      - 'docs/github-trending-watch-20261014.md'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test test/github-trending-watch.test.mjs
+
+  report:
+    needs: check
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Publish/update weekly GitHub watch issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/github-trending-watch.mjs
