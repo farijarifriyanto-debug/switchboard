@@ -68,3 +68,9 @@ Primary official references and previously reviewed 11 October 2026 notes are in
 ## Release gate
 
 **GO for the tested local browser-agent workflows, including Auto, explicit approval, recovery, multitab binding and reconnect.** This is not blanket GO for full feature parity or a Chrome Web Store release. An update to the public extension still needs independent real-site HTTPS allow-once/revoke, end-to-end vision (or explicit unsupported UI), and direct original-app behavior comparison where available. No site permission was silently granted, no production deployment performed.
+
+## Installed original-app metadata cross-check (read-only)
+
+On the owner's Windows Chrome **Default** profile, a locally installed extension manifest was identified as **Claude 1.0.100**, MV3, extension ID \`fcoeoabgfenejglbffodgkkbkcdhcgfn\`. Candidate Switchboard Browser Companion reports **0.4.3**, MV3. Both declare core browser automation permissions including \`sidePanel\`, \`debugger\`, \`tabs\` and \`tabGroups\`. Claude also declares \`webNavigation\`, \`declarativeNetRequestWithHostAccess\`, \`offscreen\`, \`unlimitedStorage\` and \`identity\`; Switchboard does not. These are **metadata differences**, not proof of missing user-visible behavior, and should **not** be copied blindly. Claude's own manifest has no static \`side_panel\` field despite declaring the permission, so absence of that field must not be misrepresented as absence of side-panel support.
+
+This inspection did **not** access Claude account data, conversation history, or operate the original Claude side panel. Consequently a direct, current UI-to-UI parity claim is **BELUM TERVERIFIKASI**. It remains a release gate separate from Switchboard's demonstrated QA workflows.
