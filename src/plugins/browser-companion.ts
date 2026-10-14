@@ -937,7 +937,22 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
             }
             toolCtx.browserPageBinding = page.binding
           }
-          if (toolCtx.browserPageBinding) await revalidateBinding(toolCtx)
+          if (toolCtx.browserPageBinding) {
+            if (spec.name === 'browser_dom_snapshot') {
+              // This read-only result was already captured and safety-screened
+              // in pageSnapshot(). A second page injection here would consume
+              // a new native one-action host grant and strand the same tool.
+              // Still reject tab switches or origin navigation before return.
+              const bound = toolCtx.browserPageBinding
+              const tabs: any = await service.executeOnBrowser('browser_tabs_list', {}, toolCtx)
+              const tab = Array.isArray(tabs?.tabs) ? tabs.tabs.find((item: any) => item.id === bound.tabId) : undefined
+              let origin = ''
+              try { origin = new URL(String(tab?.url || '')).origin } catch { /* fail closed below */ }
+              if (!tab || origin !== bound.origin) throw new Error('Browser tab changed after safety preflight; prepare the action again.')
+            } else {
+              await revalidateBinding(toolCtx)
+            }
+          }
           if (spec.name === 'browser_dom_snapshot') {
             const snapshot = toolCtx.browserPageBinding?.safeSnapshot
             if (!snapshot && service.isClientConnected()) throw new Error('Safe page snapshot is unavailable; the page was not passed to the agent.')
