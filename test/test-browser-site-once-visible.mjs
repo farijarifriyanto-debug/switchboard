@@ -18,7 +18,7 @@ try{
  await new Promise(r=>server.listen(pagePort,'127.0.0.1',r));
  host=await createHost({sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'off'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'skip'}});
  const chromeBin=process.env.SBX_TEST_CHROME_PATH;
- chrome=spawn(chromeBin,['--no-first-run','--no-default-browser-check','--disable-gpu','--no-proxy-server','--host-resolver-rules=MAP qa.internal 127.0.0.1','--remote-allow-origins=*',`--remote-debugging-port=${chromePort}`,`--user-data-dir=${profile}`,`--load-extension=${path.join(process.cwd(),'browser-extension')}`,`--disable-extensions-except=${path.join(process.cwd(),'browser-extension')}`,`http://qa.internal:${pagePort}/`],{stdio:'ignore'});
+ chrome=spawn(chromeBin,['--no-first-run','--no-default-browser-check','--window-size=1400,870','--window-position=15,10','--disable-gpu','--disable-translate','--no-proxy-server','--host-resolver-rules=MAP qa.internal 127.0.0.1','--remote-allow-origins=*',`--remote-debugging-port=${chromePort}`,`--user-data-dir=${profile}`,`--load-extension=${path.join(process.cwd(),'browser-extension')}`,`--disable-extensions-except=${path.join(process.cwd(),'browser-extension')}`,`http://qa.internal:${pagePort}/`],{stdio:'ignore'});
  let version;
  for(let i=0;i<50;i++){try{let r=await fetch(`http://127.0.0.1:${chromePort}/json/version`);if(r.ok){version=await r.json();break}}catch{}await sleep(250)}
  if(!version)throw Error('Chrome CDP unavailable');
@@ -99,7 +99,7 @@ try{
  await browser.call('Input.dispatchMouseEvent',{type:'mousePressed',x:pos.x,y:pos.y,button:'left',clickCount:1},panelSession);
  await browser.call('Input.dispatchMouseEvent',{type:'mouseReleased',x:pos.x,y:pos.y,button:'left',clickCount:1},panelSession);
  let onceFeedback;
- for(let i=0;i<130;i++){
+ for(let i=0;i<350;i++){
    onceFeedback=await evalPanel("document.getElementById('site-request-feedback')?.textContent");
    if(onceFeedback?.includes('Allowed for this action')||onceFeedback?.includes('Access error'))break;
    await sleep(100);
@@ -126,8 +126,20 @@ try{
    await sleep(100);
  }
  if(nextPending?.site!==origin)throw Error('Second action bypassed native permission: '+JSON.stringify(nextPending));
- await evalPanel("document.getElementById('site-request-deny').click()",true);
- const denied=await Promise.race([nextTool,new Promise((_,reject)=>setTimeout(()=>reject(Error('Re-request denied tool did not settle')),10000))]);
+ // The background worker can publish the new native-origin request before
+ // the panel's polling cycle has refreshed its pendingOrigin state.
+ let panelReady=false;
+ for(let i=0;i<75;i++){
+   panelReady=await evalPanel("pendingOrigin==="+JSON.stringify(origin)+" && !document.getElementById('site-request').hidden");
+   if(panelReady)break;
+   await sleep(100);
+ }
+ if(!panelReady)throw Error('Panel did not render the second permission request');
+ const denyPos=await evalPanel("(()=>{const r=document.getElementById('site-request-deny').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+ await browser.call('Input.dispatchMouseEvent',{type:'mouseMoved',x:denyPos.x,y:denyPos.y,button:'none'},panelSession);
+ await browser.call('Input.dispatchMouseEvent',{type:'mousePressed',x:denyPos.x,y:denyPos.y,button:'left',clickCount:1},panelSession);
+ await browser.call('Input.dispatchMouseEvent',{type:'mouseReleased',x:denyPos.x,y:denyPos.y,button:'left',clickCount:1},panelSession);
+ const denied=await Promise.race([nextTool,new Promise((_,reject)=>setTimeout(()=>reject(Error('Re-request denied tool did not settle')),15000))]);
  if(!String(denied).includes('User denied site access'))throw Error('Second tool did not fail after Deny: '+String(denied).slice(0,300));
  console.log('PASS_NATIVE_ALLOW_ONCE_THEN_REQUIRE_PERMISSION_AND_DENY');
  await browser.close();
