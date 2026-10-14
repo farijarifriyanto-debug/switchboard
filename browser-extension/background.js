@@ -405,6 +405,24 @@ async function capturePage(tab, options = {}) {
       const text = rawText.slice(0, max);
       const selection = String(window.getSelection() || '').slice(0, 4000);
 
+      // Keep HTML heading levels separate from the browser tab title. This
+      // prevents an agent from mistaking document.title for the page's H1.
+      // Extract within this SAME Chrome-granted DOM read (no second injection).
+      const headings = [];
+      for (const node of document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')) {
+        if (headings.length >= 24) break;
+        const rect = node.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const style = window.getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+        const content = String(node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        if (!content) continue;
+        const rank = node.getAttribute('aria-level');
+        const level = /^h[1-6]$/i.test(node.tagName) ? node.tagName.toLowerCase()
+          : (/^[1-6]$/.test(rank || '') ? 'h' + rank : 'heading');
+        headings.push({ level, text: content });
+      }
+
       // Interactive element catalog with stable reference tags (@e1, @e2, ...)
       const candidateElements = Array.from(
         document.querySelectorAll('a, button, input, textarea, select, [role="button"], [role="link"], [role="checkbox"], [onclick]')
@@ -474,7 +492,7 @@ async function capturePage(tab, options = {}) {
 
       // Simple hash for change detection & observation caching
       let hash = 0;
-      const hashStr = title + url + text.slice(0, 500) + elements.map(el => [el.ref, el.selector, el.tag, el.type, el.text, el.isSensitive, el.hrefOrigin].join(':')).join('|');
+      const hashStr = title + url + text.slice(0, 500) + headings.map(h => h.level + ':' + h.text).join('|') + elements.map(el => [el.ref, el.selector, el.tag, el.type, el.text, el.isSensitive, el.hrefOrigin].join(':')).join('|');
       for (let i = 0; i < hashStr.length; i++) {
         hash = ((hash << 5) - hash) + hashStr.charCodeAt(i);
         hash |= 0;
@@ -486,6 +504,7 @@ async function capturePage(tab, options = {}) {
         origin,
         text,
         selection,
+        headings,
         elements,
         hash: 'dom-' + Math.abs(hash).toString(16),
         elementCount: elements.length

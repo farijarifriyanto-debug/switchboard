@@ -105,6 +105,7 @@
     "test:browser-vision-agent-real": "node test/test-browser-agent-vision-real.mjs",
     "test:browser-vision-panel-real": "node test/test-browser-panel-vision-real.mjs",
     "test:browser-site-once-visible": "node test/test-browser-site-once-visible.mjs",
+    "test:browser-claude-parity-readonly": "node test/test-browser-claude-parity-readonly.mjs",
     "test:browser-screenshot-vision-real": "node test/test-browser-screenshot-vision-real.mjs",
     "test:browser-panel-terminal-visible": "node test/test-browser-panel-terminal-visible.mjs",
     "test:browser-site-deny-visible": "node test/test-browser-site-deny-visible.mjs",
