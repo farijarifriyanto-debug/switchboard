@@ -398,8 +398,18 @@ async function runBundledLocalCore(args: string[]): Promise<void> {
       : args
   const result = await new Promise<number>((resolve, reject) => {
     const child = spawn(process.execPath, [entry, ...originalArgs], { stdio: 'inherit', env: process.env })
-    child.once('error', reject)
-    child.once('close', (code, signal) => resolve(code ?? (signal ? 1 : 0)))
+    // `sbx local` owns the delegated process lifecycle. Forward Ctrl+C and
+    // SIGTERM instead of orphaning the original manager on Linux/macOS.
+    const onSigint = () => { if (!child.killed) child.kill('SIGINT') }
+    const onSigterm = () => { if (!child.killed) child.kill('SIGTERM') }
+    process.on('SIGINT', onSigint)
+    process.on('SIGTERM', onSigterm)
+    const cleanup = () => {
+      process.removeListener('SIGINT', onSigint)
+      process.removeListener('SIGTERM', onSigterm)
+    }
+    child.once('error', error => { cleanup(); reject(error) })
+    child.once('close', (code, signal) => { cleanup(); resolve(code ?? (signal ? 1 : 0)) })
   })
   if (result !== 0) process.exitCode = result
 }
