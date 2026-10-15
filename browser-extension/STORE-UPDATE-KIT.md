@@ -1,5 +1,7 @@
 # Chrome Web Store update kit — Switchboard Browser Companion
 
+> HISTORICAL 0.4.3 kit only. Current Chrome Store update is version 0.4.4. Use RELEASE-0.4.4.md and the new audited ZIP; never upload the 0.4.3 ZIP documented below.
+
 Dibuat 12 Oktober 2026 untuk pemilik akun developer. Chrome tidak mengizinkan extension (termasuk Claude in Chrome) mengendalikan dashboard Chrome Web Store, jadi pengunggahan dan "Submit for review" dilakukan manual oleh pemilik. Semua isian di bawah siap ditempel.
 
 ## Paket

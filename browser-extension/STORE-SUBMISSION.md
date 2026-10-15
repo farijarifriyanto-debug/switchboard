@@ -2,7 +2,9 @@
 
 ## Status
 
-**Update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
+> Update 15 October 2026: CURRENT candidate 0.4.4 for existing store item miehnbiiokkciokmepnhgmlhjpabbkna (installed store version 0.4.3). Use RELEASE-0.4.4.md for package SHA-256. Older version instructions below are historical.
+
+**Historical update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
 The Switchboard v0.4.0 GitHub Release includes manual installation ZIPs, not a real marketplace listing. This new candidate adds Bico icons and local Web UI installation detection and must be reviewed independently before marketplace submission.
 
