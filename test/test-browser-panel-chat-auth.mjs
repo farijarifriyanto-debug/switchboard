@@ -54,6 +54,22 @@ try{
  const approvalList=await fetch(url+'api/approvals',{headers:{origin,authorization:'Bearer '+bearer}});
  assert.equal(approvalList.status,200,'paired extension can read pending approvals');
  assert.equal((await approvalList.json()).pending[0].id,pending.id);
+ // Real MV3 Chrome can omit Origin on a CORS-exempt extension GET.
+ // Still require a paired bearer; do not generalize this to state/mutations.
+ const noOrigin=await fetch(url+'api/approvals',{headers:{authorization:'Bearer '+bearer}});
+ assert.equal(noOrigin.status,200,'paired read-only approvals listing works without Origin');
+ assert.equal((await noOrigin.json()).pending[0].id,pending.id);
+ const deniedNoOrigin=await fetch(url+'api/approvals',{headers:{authorization:'Bearer wrong'}});
+ assert.equal(deniedNoOrigin.status,401,'wrong bearer without Origin cannot list approvals');
+ const deniedWebsite=await fetch(url+'api/approvals',{headers:{origin:'https://evil.example',authorization:'Bearer '+bearer}});
+ assert.equal(deniedWebsite.status,401,'untrusted website cannot impersonate extension approval reader');
+ const deniedWrite=await fetch(url+approvalPath,{method:'POST',headers:{
+   authorization:'Bearer '+bearer,'content-type':'application/json'
+ },body:JSON.stringify({decision:'approved'})});
+ assert.equal(deniedWrite.status,401,'no-Origin write may not use the extension GET exception');
+ assert.equal(host.ctx.approvals.pending()[0].id,pending.id,'no-Origin write did not approve');
+ console.log('PASS MV3 Origin-less GET accepts paired bearer only; no POST bypass');
+
  const wrongBearer=await fetch(url+approvalPath,{method:'POST',headers:{
    origin,authorization:'Bearer wrong', 'content-type':'application/json',
  },body:JSON.stringify({decision:'approved'})});

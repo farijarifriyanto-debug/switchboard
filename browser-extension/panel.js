@@ -653,14 +653,15 @@ $('task-open-web').addEventListener('click', () => {
   void chrome.tabs.create({ url: 'http://127.0.0.1:7777/' });
 });
 $('task-stop').addEventListener('click', async () => {
-  if (activeTaskSession && companionToken) {
-    await fetch('http://127.0.0.1:7777/api/runs/' + encodeURIComponent(activeTaskSession) + '/cancel', {
-      method: 'POST', headers: { authorization: 'Bearer ' + companionToken }
-    }).catch(() => {});
-  }
+  const sessionToCancel = activeTaskSession;
   activeTask?.abort();
   taskStatus('Stopped.');
   note('Dihentikan.');
+  if (sessionToCancel && companionToken) {
+    await fetch('http://127.0.0.1:7777/api/runs/' + encodeURIComponent(sessionToCancel) + '/cancel', {
+      method: 'POST', headers: { authorization: 'Bearer ' + companionToken }
+    }).catch(() => {});
+  }
 });
 // Enter sends; Shift+Enter adds a line.
 $('task-prompt').addEventListener('keydown', event => {
@@ -862,6 +863,8 @@ $('task-form').addEventListener('submit', async event => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let reachedTerminalEvent = false;
+    let sawFatalEvent = false;
     while (true) {
       const chunk = await reader.read();
       if (chunk.done) break;
@@ -902,17 +905,35 @@ $('task-form').addEventListener('submit', async event => {
           msg.thinking.hidden = true;
           msg.answer.innerHTML = formatReply(msg.text);
         }
-        if (item.type === 'final') {
+        if (item.type === 'final' && !sawFatalEvent) {
+          reachedTerminalEvent = true;
           msg.text = item.content || msg.text || 'Selesai tanpa jawaban tertulis.';
           msg.answer.innerHTML = formatReply(msg.text);
-          taskStatus(item.stopReason === 'error' ? 'Failed.' : 'Completed.');
+          taskStatus(item.stopReason === 'step_limit' ? 'Stopped at step limit.' : item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
-        if (item.type === 'error') note('Terjadi galat: ' + String(item.message || item.error || 'tidak diketahui'), 'error');
+        if (item.type === 'error') {
+          reachedTerminalEvent = true;
+          sawFatalEvent = true;
+          taskStatus('Failed.');
+          note('Terjadi galat: ' + String(item.message || item.error || 'tidak diketahui'), 'error');
+        }
+        if (item.type === 'cancelled') {
+          reachedTerminalEvent = true;
+          sawFatalEvent = true;
+          taskStatus('Stopped.');
+        }
         log.scrollTop = log.scrollHeight;
       }
     }
+    if (!reachedTerminalEvent && !activeTask.signal.aborted) {
+      taskStatus('Failed.');
+      note('Koneksi tugas berakhir sebelum hasil akhir diterima.', 'error');
+    }
   } catch (error) {
-    if (error?.name !== 'AbortError') note('Gagal: ' + String(error?.message || error), 'error');
+    if (error?.name !== 'AbortError') {
+      taskStatus('Failed.');
+      note('Gagal: ' + String(error?.message || error), 'error');
+    }
   } finally {
     clearInterval(approvalPoll);
     msg.thinking.remove();

@@ -739,10 +739,36 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
       disabled: Boolean(el?.disabled),
       isSensitive: Boolean(el?.isSensitive),
     }))
+    // Preserve heading levels and visible control labels *inside the same
+    // untrusted content screened by browserSafety*. Previously only flat
+    // body text survived; models confused the browser tab title with the H1
+    // and incorrectly attributed heading text to a button.
+    const headingLines = (Array.isArray(raw.headings) ? raw.headings : [])
+      .slice(0, 24)
+      .map((item: any) => ({
+        level: typeof item?.level === 'string' && /^(?:h[1-6]|heading)$/.test(item.level) ? item.level : 'heading',
+        text: typeof item?.text === 'string' ? item.text.replace(/\s+/g, ' ').slice(0, 160) : '',
+      }))
+      .filter((item: any) => item.text)
+      .map((item: any) => '- <' + item.level + '> ' + item.text)
+    const controlLines = rawElements
+      .filter((item: any) => !item?.isSensitive && typeof item?.text === 'string' && item.text.trim())
+      .slice(0, 40)
+      .map((item: any) => '- <' + String(item?.tag || 'control').slice(0, 24)
+        + '> ' + JSON.stringify(String(item.text).replace(/\s+/g, ' ').slice(0, 100)))
+    const visibleText = typeof raw.text === 'string' ? raw.text.slice(0, 4000) : ''
+    const semanticText = [
+      'Visible HTML headings (distinct from the browser tab title):',
+      ...headingLines,
+      'Visible interactive controls (HTML element → visible label):',
+      ...controlLines,
+      'Visible page body text:',
+      visibleText,
+    ].join('\n').slice(0, 6000)
     const projection = {
       title: typeof raw.title === 'string' ? raw.title.slice(0, 200) : '',
       origin,
-      text: typeof raw.text === 'string' ? raw.text.slice(0, 6000) : '',
+      text: semanticText,
       elements,
     }
     if (!projection.text.trim() && elements.length === 0 && service.currentMode !== 'skip') throw new Error('Browser page snapshot contained no visible page context.')
@@ -937,7 +963,22 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
             }
             toolCtx.browserPageBinding = page.binding
           }
-          if (toolCtx.browserPageBinding) await revalidateBinding(toolCtx)
+          if (toolCtx.browserPageBinding) {
+            if (spec.name === 'browser_dom_snapshot') {
+              // This read-only result was already captured and safety-screened
+              // in pageSnapshot(). A second page injection here would consume
+              // a new native one-action host grant and strand the same tool.
+              // Still reject tab switches or origin navigation before return.
+              const bound = toolCtx.browserPageBinding
+              const tabs: any = await service.executeOnBrowser('browser_tabs_list', {}, toolCtx)
+              const tab = Array.isArray(tabs?.tabs) ? tabs.tabs.find((item: any) => item.id === bound.tabId) : undefined
+              let origin = ''
+              try { origin = new URL(String(tab?.url || '')).origin } catch { /* fail closed below */ }
+              if (!tab || origin !== bound.origin) throw new Error('Browser tab changed after safety preflight; prepare the action again.')
+            } else {
+              await revalidateBinding(toolCtx)
+            }
+          }
           if (spec.name === 'browser_dom_snapshot') {
             const snapshot = toolCtx.browserPageBinding?.safeSnapshot
             if (!snapshot && service.isClientConnected()) throw new Error('Safe page snapshot is unavailable; the page was not passed to the agent.')

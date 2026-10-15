@@ -268,7 +268,13 @@ export const webUi = {
           || /^\/api\/runs\/[^/]+\/cancel$/.test(route)
           || (route === '/api/approvals' && (req.method === 'GET' || (req.method === 'OPTIONS' && requestedMethod === 'GET')))
           || (/^\/api\/approvals\/[^/]+$/.test(route) && (req.method === 'POST' || (req.method === 'OPTIONS' && requestedMethod === 'POST')));
-        const companionOrigin = companionRoute && /^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin);
+        // Chrome can omit Origin on an extension-initiated, credentialed GET.
+        // Permit that narrow read-only approval listing with the *paired* bearer.
+        // Never extend the exception to mutations or foreign Origin headers.
+        const pairedNoOriginApprovalRead = route === '/api/approvals' && req.method === 'GET'
+          && !extensionOrigin && Boolean(browserService?.currentToken);
+        const companionOrigin = companionRoute
+          && (/^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin) || pairedNoOriginApprovalRead);
         // OPTIONS preflight does not carry Authorization. Allow only the known
         // extension scheme to negotiate CORS, then require the bearer token
         // for every actual request.
@@ -276,7 +282,7 @@ export const webUi = {
         const isCompanionRequest = companionOrigin && req.method !== 'OPTIONS'
           && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '');
         if (isCompanionRequest || isCompanionPreflight) {
-          res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
+          if (extensionOrigin) res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
           res.setHeader('Vary', 'Origin')
           res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
           res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -340,7 +346,8 @@ export const webUi = {
       const isCompanionRequest = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route)
         || (route === '/api/approvals' && req.method === 'GET')
         || (/^\/api\/approvals\/[^/]+$/.test(route) && req.method === 'POST'))
-        && /^chrome-extension:\/\/[a-p]{32}$/.test(origin)
+        && (/^chrome-extension:\/\/[a-p]{32}$/.test(origin)
+          || (!origin && route === '/api/approvals' && req.method === 'GET'))
         && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '')
       const fenced = settingsGuard(req, { enforceHost: LOOPBACK_HOSTS.has(host.toLowerCase()) })
       if (isCompanionRequest && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
