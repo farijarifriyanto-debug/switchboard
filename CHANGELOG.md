@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.2
+
+- Bundle the original, pinned BotConnector Local Core in the same @botconnector/switchboard npm installation and Windows portable bundle, with no second model manager and no automatic GGUF downloads.
+- Add `sbx local` and `sbx local status` to access the upstream model manager and runtime checks; retain the established `sbx web` entry point.
+- Integrate explicitly selected local models into the existing Settings > Models panel, with loopback-only inference and fail-closed safeguards against Cloud fallback.
+- Verify Windows native GGUF text inference and initial vision OCR, npm global installation, portable fresh-profile smoke, and Node 20/22 GitHub CI. Model-specific vision accuracy and full browser-agent GGUF parity remain experimental.
+- Improve local Core CLI process shutdown and provide npm tarball acceptance tests.
+
 ## 0.4.1
 
 - Add an official pinned MCP plugin catalog for Semgrep and OpenSandbox to the existing Switchboard Plugins & MCP panel. Installing, reconnecting, and removal reuse the standard MCP bridge and approval policy.

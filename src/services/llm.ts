@@ -1,6 +1,7 @@
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import { buildRequest, parseStream } from '../llm/adapters.js'
+import { BOTCONNECTOR_LOCAL_PROVIDER, localCoreURL } from './botconnector-local.js'
 import type { AdapterRequest, ProviderProfile } from '../llm/adapters.js'
 import type {
   AgentMessage,
@@ -178,7 +179,7 @@ export class LLMService extends Service {
    * Client errors (400, 401, 403, 404, ...) are returned immediately: retrying
    * them would only burn quota.
    */
-  private async fetchWithRetry(request: AdapterRequest, controller: AbortController, signal?: AbortSignal, sessionId?: string, retryCap?: number): Promise<Response> {
+  private async fetchWithRetry(request: AdapterRequest, controller: AbortController, signal?: AbortSignal, sessionId?: string, retryCap?: number, localOnly = false): Promise<Response> {
     const maxRetries = Math.min(Math.max(0, this.settings.retries ?? 0), retryCap ?? Infinity)
     const base = this.settings.retryDelayMs ?? 500
     const cap = this.settings.retryMaxDelayMs ?? 8000
@@ -193,6 +194,8 @@ export class LLMService extends Service {
           headers: request.headers,
           body: JSON.stringify(request.body),
           signal: controller.signal,
+          // Loopback-only local requests must not follow a redirect to Cloud.
+          redirect: localOnly ? 'error' : 'follow',
         })
         if (res.ok || !isRetryableStatus(res.status)) return res
         retryableStatus = true
@@ -234,8 +237,24 @@ export class LLMService extends Service {
       extraBody: this.settings.extraBody,
       contextCatalogUrl: this.settings.contextCatalogUrl,
     }
-    if (!providers) return legacy
-    const entry = providers.get(providerId || 'default')
+    if (!providers) {
+      if (providerId === BOTCONNECTOR_LOCAL_PROVIDER) throw new Error('BotConnector Local is not connected. Reconnect your local model; Cloud fallback is disabled.')
+      return legacy
+    }
+    // When the user selects local as the default, even an agent without an
+    // explicit per-session provider must NOT resolve to the legacy Cloud URL.
+    const chosen = providerId || (
+      providers.default().provider === 'local-botconnector' ? 'local-botconnector' : 'default'
+    )
+    const entry = providers.get(chosen)
+    // A missing/reconfigured LOCAL profile must never resolve to the default
+    // Cloud credentials or endpoint. Check at request time, including after
+    // disconnect/hot-apply, without creating a second permission gate.
+    if (chosen === BOTCONNECTOR_LOCAL_PROVIDER) {
+      if (!entry || entry.protocol !== 'openai-chat' || entry.baseURL !== localCoreURL() + '/v1') {
+        throw new Error('BotConnector Local provider is missing or no longer points at the local runtime. Reconnect the model; Cloud fallback is disabled.')
+      }
+    }
     if (!entry) return legacy
     if (entry.id === 'default') {
       // Virtual default: same config block + credential precedence
@@ -326,6 +345,11 @@ export class LLMService extends Service {
     const first = { ...(opts.provider ? { provider: opts.provider } : {}), model: this.resolveModel(opts.model) }
     const seen = new Set([label(first)])
     const chain = [first]
+    const providerRegistry = this.ctx.get('providers', false)
+    const effectiveProvider = opts.provider || providerRegistry?.default().provider
+    // A local selection is a privacy boundary: never send failed local
+    // prompts, tool arguments or screenshots to configured Cloud fallbacks.
+    if (effectiveProvider === 'local-botconnector') return chain
     for (const f of this.settings.fallbacks ?? []) {
       const t = { ...((f.provider ?? opts.provider) ? { provider: (f.provider ?? opts.provider) as string } : {}), model: f.model || first.model }
       if (!seen.has(label(t))) {
@@ -360,7 +384,7 @@ export class LLMService extends Service {
 
     let ttftMs = 0
     try {
-      const res = await this.fetchWithRetry(request, controller, opts.signal, opts.sessionId, retryCap)
+      const res = await this.fetchWithRetry(request, controller, opts.signal, opts.sessionId, retryCap, profile.id === BOTCONNECTOR_LOCAL_PROVIDER)
       // The adapter parses the wire format per protocol into the same events
       // the console has always seen; `tool_call` events arrive before `done`.
       const events = parseStream(res, profile)

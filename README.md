@@ -79,6 +79,46 @@ npm run build
 
 Requirements: Node.js >= 20.11.
 
+### Optional AI lokal (npm and Windows portable)
+
+The standard `npm install -g @botconnector/switchboard` installation now includes
+the **original BotConnector Local Core** and its model manager, pinned to source
+commit `1aa37824ea5d6bcd35f499c892a68cecfa695660`. No separate model-manager
+installation is required. Runtime binaries and large GGUF models remain optional
+and are **never downloaded automatically**.
+
+```sh
+sbx local          # Open the original BotConnector Local model manager
+sbx local status   # Read-only original runtime status
+sbx local --help   # Original BotConnector CLI; get/runtime/load commands remain available
+sbx web            # In Settings > Models, refresh and choose a running local model
+```
+
+Use BotConnector's original manager to select/install a compatible backend and
+model explicitly. Switchboard's existing local adapter connects only to
+`127.0.0.1:11435` (unless its local port is explicitly configured) and refuses
+a hidden Cloud fallback.
+
+#### Windows portable (alternative installation)
+
+The Windows portable ZIP now contains the **original BotConnector Local Core** (MIT,
+source commit pinned and recorded in `local-core/SOURCE-REVISION.txt`) in the same
+extracted installation as Switchboard; no second BotConnector installation is
+required. Large GGUF models and hardware-dependent `llama.cpp` binaries are **not**
+preinstalled and are downloaded only when explicitly selected.
+
+1. Extract the entire ZIP; open `Manage-Local-AI.cmd` to run BotConnector's **original**
+   local model manager (not a second Switchboard model manager). Install a supported
+   backend/model and start a local GGUF model there.
+2. Open `Start-Switchboard.cmd`, then **Settings → Models → AI Lokal → Periksa ulang →
+   Gunakan model lokal**. Switchboard connects only to the loopback model endpoint.
+3. Use `Check-Local-AI.cmd` for a read-only status check. When a model stops,
+   local mode fails visibly instead of silently sending prompts to Cloud.
+
+Both npm and the portable ZIP reuse the same original Core, model storage and
+runtime ownership rules. See `docs/local-ai-p2-windows-20261015.md` for Windows
+QA evidence and outstanding release gates.
+
 ## Safety defaults
 
 Switchboard gives a model a shell and your files, so it asks before it acts:

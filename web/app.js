@@ -2054,6 +2054,8 @@ const settingsUi = {
   catalogPlugins: null,
   catalogError: '',
   catalogLoading: false,
+  localCore: null,
+  localCoreLoading: false,
 }
 
 async function settingsJson(pathname, options = {}) {
@@ -2115,12 +2117,27 @@ async function loadPluginCatalog() {
   }
 }
 
+async function refreshLocalCore() {
+  if (settingsUi.localCoreLoading) return
+  settingsUi.localCoreLoading = true
+  if (settingsUi.tab === 'models') renderSettingsPanel()
+  try {
+    settingsUi.localCore = await settingsJson('/api/settings/local-core')
+  } catch (error) {
+    settingsUi.localCore = { running: false, reason: error.message, models: [] }
+  } finally {
+    settingsUi.localCoreLoading = false
+    if (settingsUi.tab === 'models') renderSettingsPanel()
+  }
+}
+
 async function openSettings(tab) {
   if (tab) settingsUi.tab = tab
   const dialog = $('settings-dialog')
   renderSettingsTabs()
   if (dialog && !dialog.open) dialog.showModal()
   await loadSettings()
+  if (settingsUi.tab === 'models') void refreshLocalCore()
 }
 
 async function loadSettings() {
@@ -2207,6 +2224,24 @@ function catalogProviderIds(models) {
 }
 
 function renderModelsPanel(panel, data) {
+  const local = settingsUi.localCore
+  const localModels = local?.models || []
+  const localStatus = settingsUi.localCoreLoading ? 'Memeriksa runtime lokal…'
+    : local?.running ? 'Model lokal ditemukan pada perangkat ini.'
+    : (local?.reason || 'Pilih Periksa ulang untuk mendeteksi BotConnector Local.')
+  const localSection = [
+    '<div class="settings-section">',
+    '<h3>AI Lokal — BotConnector</h3>',
+    '<p class="section-note">Buka pengelola BotConnector Local untuk memasang dan menjalankan model GGUF. Dalam paket portable Windows, jalankan Manage-Local-AI.cmd di folder Switchboard. Model tidak diunduh otomatis.</p>',
+    '<p class="settings-note" role="status">' + esc(localStatus) + '</p>',
+    local?.running ? '<div class="default-row"><div class="settings-field"><label for="local-core-model">Model lokal</label>'
+      + '<select id="local-core-model">' + localModels.map((m) => '<option value="' + esc(m.id) + '">' + esc(m.id) + '</option>').join('')
+      + '</select></div><button class="settings-btn primary" type="button" data-action="local-core-connect">Gunakan model lokal</button></div>' : '',
+    '<button class="settings-btn ghost" type="button" data-action="local-core-refresh" '
+      + (settingsUi.localCoreLoading ? 'disabled' : '') + '>Periksa ulang</button>',
+    '<p class="settings-note">Hanya 127.0.0.1; tidak memakai Cloud sebagai fallback. Jika runtime meminta autentikasi, atur BOTCONNECTOR_LOCAL_API_KEY pada komputer.</p>',
+    '</div>',
+  ].join('')
   const providers = data.providers || []
   const fallback = data.default || { provider: 'default', model: '' }
   const models = state.models || []
@@ -2221,6 +2256,7 @@ function renderModelsPanel(panel, data) {
       .map((model) => `<option value="${esc(model.id)}" ${model.id === selected ? 'selected' : ''}>${esc(model.id)}</option>`)
       .join('')
   panel.innerHTML = `
+    ${localSection}
     <div class="settings-section">
       <h3>Default model</h3>
       <p class="section-note">Used for new runs when the session has no model of its own.</p>
@@ -2495,6 +2531,22 @@ function startProviderEdit(mode, entry) {
 async function handleSettingsAction(action, element, event) {
   const editing = settingsUi.editing
   try {
+    if (action === 'local-core-refresh') {
+      await refreshLocalCore()
+      return
+    }
+    if (action === 'local-core-connect') {
+      const model = document.getElementById('local-core-model')?.value
+      if (!model) throw new Error('Pilih model lokal yang sedang berjalan.')
+      element.disabled = true
+      try {
+        await settingsRequest('/api/settings/local-core/connect', 'POST', { model })
+        await refreshSettings()
+        await refreshLocalCore()
+        settingsToast('AI Lokal terhubung: ' + model)
+      } finally { element.disabled = false }
+      return
+    }
     if (action === 'catalog-install') {
       const id = element.dataset.id
       const card = element.closest('[data-catalog-id]')
@@ -2827,6 +2879,7 @@ $('settings-dialog')?.addEventListener('click', (event) => {
     renderSettingsTabs()
     renderSettingsPanel()
     if (settingsUi.tab === 'plugins') void loadPluginCatalog()
+    if (settingsUi.tab === 'models') void refreshLocalCore()
     return
   }
   const button = event.target.closest('[data-action]')

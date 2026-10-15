@@ -45,7 +45,15 @@ jobs:
           & "$($root.FullName)/runtime/uvx.exe" --version
           if ($LASTEXITCODE -ne 0) { throw 'Bundled uvx cannot start' }
           if (-not (Test-Path "$($root.FullName)/Start-Switchboard.cmd")) { throw 'Launcher missing' }
-          Write-Host 'PORTABLE_WINDOWS_QA_PASS'
+          if (-not (Test-Path "$($root.FullName)/Manage-Local-AI.cmd")) { throw 'Local model manager launcher missing' }
+          if (-not (Test-Path "$($root.FullName)/Check-Local-AI.cmd")) { throw 'Local runtime status launcher missing' }
+          if (-not (Test-Path "$($root.FullName)/local-core/LICENSE")) { throw 'Bundled BotConnector Local license missing' }
+          if (-not (Test-Path "$($root.FullName)/local-core/dist/web/index.html")) { throw 'Bundled original model manager UI missing' }
+          $coreRev = (Get-Content "$($root.FullName)/local-core/SOURCE-REVISION.txt" -Raw).Trim()
+          if ($coreRev -notmatch '1aa37824ea5d6bcd35f499c892a68cecfa695660') { throw 'Unpinned original Core revision' }
+          & "$($root.FullName)/runtime/node.exe" "$($root.FullName)/local-core/bin/botconnector.mjs" --help
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled original BotConnector Local CLI cannot start' }
+          Write-Host 'PORTABLE_WINDOWS_QA_PASS_WITH_PINNED_LOCAL_CORE'
       - uses: actions/upload-artifact@v4
         with:
           name: switchboard-portable-win64

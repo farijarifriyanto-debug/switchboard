@@ -32,6 +32,9 @@ Commands:
   doctor             Run diagnostics (config, host, endpoint, key, data dir)
   tools              List registered tools
   models             List models advertised by the endpoint
+  local              Open the ORIGINAL BotConnector Local model manager (localhost)
+  local status       Check the original Local Core runtime (no model downloads)
+  local <args...>     Forward native commands to bundled original BotConnector CLI
   metrics            Show per-model latency collected this session
   ci [name] [--list] Run local workflows from .switchboard/workflows/
   help               Show this help
@@ -380,7 +383,44 @@ export async function runCiCommand(args: Args, config: SwitchboardConfig): Promi
   if (failed) process.exitCode = 1
 }
 
+/** Delegate to the pinned original Core. Never fork its model manager or fetch models here. */
+async function runBundledLocalCore(args: string[]): Promise<void> {
+  const entry = fileURLToPath(new URL('../vendor/botconnector-local-core/bin/botconnector.mjs', import.meta.url))
+  try {
+    await fs.access(entry)
+  } catch {
+    throw new Error('Original BotConnector Local Core is missing from this installation. Reinstall Switchboard.')
+  }
+  const originalArgs = args.length === 0 || args[0] === 'manage'
+    ? ['ui', '--ui-port', '32100', ...(args[0] === 'manage' ? args.slice(1) : [])]
+    : args[0] === 'status'
+      ? ['runtime', 'status', '--json', ...args.slice(1)]
+      : args
+  const result = await new Promise<number>((resolve, reject) => {
+    const child = spawn(process.execPath, [entry, ...originalArgs], { stdio: 'inherit', env: process.env })
+    // `sbx local` owns the delegated process lifecycle. Forward Ctrl+C and
+    // SIGTERM instead of orphaning the original manager on Linux/macOS.
+    const onSigint = () => { if (!child.killed) child.kill('SIGINT') }
+    const onSigterm = () => { if (!child.killed) child.kill('SIGTERM') }
+    process.on('SIGINT', onSigint)
+    process.on('SIGTERM', onSigterm)
+    const cleanup = () => {
+      process.removeListener('SIGINT', onSigint)
+      process.removeListener('SIGTERM', onSigterm)
+    }
+    child.once('error', error => { cleanup(); reject(error) })
+    child.once('close', (code, signal) => { cleanup(); resolve(code ?? (signal ? 1 : 0)) })
+  })
+  if (result !== 0) process.exitCode = result
+}
+
 async function main(): Promise<void> {
+  // Handle the original Local Core commands before interpreting Switchboard options.
+  // This preserves the Core's CLI, installer choices, ownership locks and model store.
+  if (process.argv[2] === 'local') {
+    await runBundledLocalCore(process.argv.slice(3))
+    return
+  }
   const args = parseArgs(process.argv.slice(2))
   if (args.command === 'version') {
     const pkg = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'))

@@ -1,0 +1,36 @@
+/* Styling for the portable-only UI bolt-ons injected by web-bridge.js
+   (Quit control, first-run modal). Kept in an external stylesheet rather
+   than inline styles/style.cssText: the shared renderer's CSP is
+   style-src 'self', which blocks inline styles by design, and loosening it
+   just for these two small additions isn't worth weakening that boundary
+   for the whole page. */
+#bcQuitBtn { margin-top: 8px; opacity: .75; }
+#bcQuitConfirm { margin-top: 6px; font-size: 12px; }
+#bcQuitConfirm .bc-msg { opacity: .8; margin-bottom: 4px; }
+#bcQuitConfirm button { margin-right: 6px; }
+
+#bcFirstRun {
+  position: fixed; inset: 0; background: rgba(4,6,10,.85); z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+}
+#bcFirstRun .bc-card {
+  background: #0d1117; border: 1px solid #232a35; border-radius: 10px;
+  padding: 28px; max-width: 480px; width: 90%;
+}
+#bcFirstRun h2 { margin: 0 0 4px; font-size: 20px; }
+#bcFirstRun .bc-sub { margin: 0 0 16px; opacity: .7; }
+#bcFirstRun .bc-specs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px;
+  font-size: 13px; margin-bottom: 18px;
+}
+#bcFirstRun .bc-specs span { opacity: .6; }
+#bcFirstRun .bc-choose-label { margin: 0 0 6px; font-weight: 600; }
+#bcFirstRun .bc-explain { margin: 0 0 14px; font-size: 12px; opacity: .7; line-height: 1.5; }
+#bcFirstRun .bc-choices { display: flex; flex-direction: column; gap: 8px; }
+#bcFirstRun .bc-choices button { padding: 10px; }
+#bcFirstRun .bc-note { margin: 14px 0 0; font-size: 11px; opacity: .5; }
+
+.bc-stopped-overlay {
+  display: flex; align-items: center; justify-content: center; height: 100vh;
+  font: 15px system-ui, sans-serif; color: #ccc; background: #080b10;
+}

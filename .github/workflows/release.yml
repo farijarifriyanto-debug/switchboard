@@ -54,6 +54,15 @@ jobs:
           filename="$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP" --silent)"
           echo "path=$RUNNER_TEMP/$filename" >> "$GITHUB_OUTPUT"
           (cd "$RUNNER_TEMP" && sha256sum "$filename" > "$filename.sha256")
+      - name: Verify shipped npm tarball includes working original Local Core
+        shell: bash
+        env:
+          PACKAGE_FILE: ${{ steps.package.outputs.path }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-local-release-qa"
+          npm install --prefix "$RUNNER_TEMP/npm-local-release-qa" --ignore-scripts --no-audit --no-fund "$PACKAGE_FILE"
+          SBX_NPM_PACKAGE_ROOT="$RUNNER_TEMP/npm-local-release-qa/node_modules/@botconnector/switchboard" node scripts/test-npm-local-core.mjs
+
       - name: Package Chrome and Edge Browser Companion
         run: |
           node scripts/package-extension.mjs

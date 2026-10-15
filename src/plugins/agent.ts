@@ -200,9 +200,18 @@ export const agentLoop = {
         activeRuns.set(session.id, runToken)
         let endEmitted = false // final | step-limit final | epilogue already yielded
         try {
-          const runModel = ctx.llm.resolveModel(options.model ?? session.model)
-          // Provider chain (spec §7): per-run override > session > config default.
-          const runProvider = options.provider ?? session.provider
+          // Provider registry is optional in this plugin injection contract.
+          // Resolve it safely for channel clients using the agent without it.
+          const defaultSelection = ctx.get('providers', false)?.default()
+          const localDefault = !options.provider && !session.provider && defaultSelection?.provider === 'local-botconnector'
+          const runModel = ctx.llm.resolveModel(options.model ?? session.model ?? (localDefault ? defaultSelection?.model : undefined))
+          // Explicit runs/sessions override the default. A selected LOCAL
+          // default must never fall through to the legacy Cloud provider.
+          const runProvider = options.provider ?? session.provider ?? (localDefault ? defaultSelection.provider : undefined)
+          // A small GGUF context must reserve space for tool schemas and the next
+          // completion. This is an inference envelope, not a new browser mode,
+          // permission gate, model manager, or runtime configuration.
+          const localBrowser = runProvider === 'local-botconnector' && (presetId === 'browser' || session.preset === 'browser')
           const runMaxSteps = options.maxSteps ?? maxSteps
           const exclude = options.excludeTools ?? []
           // Per-turn assembly: runSystem is the base (replaces the closure reference).
@@ -278,7 +287,7 @@ export const agentLoop = {
 
               // Fold old history into a summary before it has to be dropped.
               const compaction = ctx.get('compaction', false)
-              if (compaction?.shouldCompact(session.id, session.messages, maxPromptTokens)) {
+              if (!localBrowser && compaction?.shouldCompact(session.id, session.messages, maxPromptTokens)) {
                 const outcome = await compaction.compact(session.id, { model, provider: runProvider, signal: controller.signal })
                 if (outcome.ok) {
                   ctx.logger('agent-loop').info('compacted %c messages (~%c -> ~%c tokens)', outcome.summarized, outcome.before, outcome.after)
@@ -289,9 +298,11 @@ export const agentLoop = {
               }
 
               // Keep the prompt inside the context window.
-              const trimmed = trimMessages(session.messages, { maxPromptTokens, keepRecent })
+              const promptBudget = localBrowser ? Math.min(maxPromptTokens, 1_700) : maxPromptTokens
+              const recentBudget = localBrowser ? Math.min(keepRecent, 2) : keepRecent
+              const trimmed = trimMessages(session.messages, { maxPromptTokens: promptBudget, keepRecent: recentBudget })
               if (trimmed.dropped > 0) {
-                const notice = `trimmed ${trimmed.dropped} older message(s) to fit ~${maxPromptTokens} tokens`
+                const notice = `trimmed ${trimmed.dropped} older message(s) to fit ~${promptBudget} tokens`
                 ctx.logger('agent-loop').info('%c', notice)
                 yield { type: 'notice', notice }
               }
@@ -313,7 +324,7 @@ export const agentLoop = {
                 provider: runProvider,
                 messages: modelMessages,
                 temperature: config.temperature,
-                maxTokens: config.maxTokens,
+                maxTokens: localBrowser ? Math.min(config.maxTokens ?? 192, 192) : config.maxTokens,
                 signal: controller.signal,
                 exclude,
               })
@@ -446,9 +457,10 @@ export const agentLoop = {
                     }
                   }
                 }
-                if (result.length > maxToolResultChars) {
-                  const kept = result.slice(0, maxToolResultChars)
-                  result = `${kept}\n…[truncated ${result.length - maxToolResultChars} chars]`
+                const resultCap = localBrowser ? Math.min(maxToolResultChars, 1_400) : maxToolResultChars
+                if (result.length > resultCap) {
+                  const kept = result.slice(0, resultCap)
+                  result = `${kept}\n…[truncated ${result.length - resultCap} chars]`
                 }
                 const durationMs = Date.now() - startedAt
 
