@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-- P2 Windows portable candidate bundles pinned BotConnector Local Core original CLI,
-  model manager and runtime management in the same ZIP (optional GGUF download).
-  The existing Switchboard Models tab detects and selects the live loopback model;
-  local selection never silently falls back to Cloud.
-- Real Windows local vision OCR and Chrome Browser Companion agent tasks tested;
-  native GGUF Qwen3 browser agent still needs context/RAM evaluation. See
-  `docs/local-ai-p2-windows-20261015.md`. No public release yet.
+## 0.4.2
+
+- Bundle the original, pinned BotConnector Local Core in the same @botconnector/switchboard npm installation and Windows portable bundle, with no second model manager and no automatic GGUF downloads.
+- Add `sbx local` and `sbx local status` to access the upstream model manager and runtime checks; retain the established `sbx web` entry point.
+- Integrate explicitly selected local models into the existing Settings > Models panel, with loopback-only inference and fail-closed safeguards against Cloud fallback.
+- Verify Windows native GGUF text inference and initial vision OCR, npm global installation, portable fresh-profile smoke, and Node 20/22 GitHub CI. Model-specific vision accuracy and full browser-agent GGUF parity remain experimental.
+- Improve local Core CLI process shutdown and provide npm tarball acceptance tests.
 
 ## 0.4.1
 
