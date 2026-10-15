@@ -32,6 +32,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Original BotConnector Local Core (MIT)
+
+The npm and Windows portable distributions include the unmodified original
+BotConnector Local Core model manager and runtime-management source pinned to
+`1aa37824ea5d6bcd35f499c892a68cecfa695660`.
+Its MIT license is included alongside the bundled source at
+`vendor/botconnector-local-core/LICENSE` (npm) or `local-core/LICENSE` (portable).
+Model weights and hardware-specific llama.cpp binaries are not bundled.
+
 ## Dependencies
 
 Runtime dependencies keep their own licences (see `package-lock.json`): notably Cordis (MIT),

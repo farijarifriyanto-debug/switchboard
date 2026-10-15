@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- P2 Windows portable candidate bundles pinned BotConnector Local Core original CLI,
+  model manager and runtime management in the same ZIP (optional GGUF download).
+  The existing Switchboard Models tab detects and selects the live loopback model;
+  local selection never silently falls back to Cloud.
+- Real Windows local vision OCR and Chrome Browser Companion agent tasks tested;
+  native GGUF Qwen3 browser agent still needs context/RAM evaluation. See
+  `docs/local-ai-p2-windows-20261015.md`. No public release yet.
+
 ## 0.4.1
 
 - Add an official pinned MCP plugin catalog for Semgrep and OpenSandbox to the existing Switchboard Plugins & MCP panel. Installing, reconnecting, and removal reuse the standard MCP bridge and approval policy.

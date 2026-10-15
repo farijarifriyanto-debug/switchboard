@@ -47,6 +47,14 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: npm tarball and original Local Core fresh-profile E2E
+        shell: bash
+        run: |
+          archive="$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP" --silent)"
+          mkdir -p "$RUNNER_TEMP/npm-local-qa"
+          npm install --prefix "$RUNNER_TEMP/npm-local-qa" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP/$archive"
+          SBX_NPM_PACKAGE_ROOT="$RUNNER_TEMP/npm-local-qa/node_modules/@botconnector/switchboard" node scripts/test-npm-local-core.mjs
+
       - name: Package contents
         run: npm pack --dry-run
 

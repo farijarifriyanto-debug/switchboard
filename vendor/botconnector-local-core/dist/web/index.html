@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+  <title>BotConnector AI</title>
+  <link rel="stylesheet" href="desktop.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">◇</span><div><strong>BotConnector AI</strong><small>Local + cloud runtime</small></div></div>
+    <nav>
+      <button class="active" data-view="home">⌂ <span data-i18n="nav.home">Home</span></button>
+      <button data-view="chat">◌ <span data-i18n="nav.chat">Chat</span></button>
+      <button data-view="discover">⌕ <span data-i18n="nav.discover">Discover</span></button>
+      <button data-view="installed">▣ <span data-i18n="nav.installed">Installed</span></button>
+      <button data-view="downloads">⇩ <span data-i18n="nav.downloads">Downloads</span><b class="nav-badge" id="downloadBadge" hidden>0</b></button>
+      <button data-view="cloud">☁ <span data-i18n="nav.cloud">Cloud</span></button>
+      <button data-view="runtime">⌘ <span data-i18n="nav.runtime">Runtime</span></button>
+      <button data-view="developer">⌁ <span data-i18n="nav.developer">Developer</span></button>
+      <button data-view="mcp">⚒ <span data-i18n="nav.mcp">Tools / MCP</span></button>
+    </nav>
+    <div class="side-bottom">
+      <div class="device-mini"><i></i><div><b id="sideDevice">Detecting…</b><span id="sideMemory">—</span></div></div>
+      <button data-view="settings">⚙ <span data-i18n="nav.settings">Settings</span></button>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div><h1 id="pageTitle">Home</h1><p id="pageSub">Runtime, models, and local API state</p></div>
+      <div class="top-actions"><span class="runtime-pill" id="runtimeStatus"><i></i> Runtime stopped</span><span class="technical-badge">BETA 0.5</span></div>
+    </header>
+
+    <section id="view-home" class="view active-view">
+      <div class="metric-grid">
+        <article><span>LOCAL RUNTIME</span><strong id="homeRuntime">Stopped</strong><small id="homeRuntimeSub">No process</small></article>
+        <article><span>INSTALLED MODELS</span><strong id="homeInstalled">0</strong><small id="homeInstalledSub">0 GB on disk</small></article>
+        <article><span>DOWNLOADS</span><strong id="homeDownloads">0</strong><small id="homeDownloadsSub">No active jobs</small></article>
+        <article><span>LOCAL API</span><strong>127.0.0.1:11435</strong><small>/v1/chat/completions</small></article>
+      </div>
+
+      <div class="two-col top-gap">
+        <article class="panel">
+          <div class="panel-head"><div><span class="kicker">DEVICE</span><h2>Hardware detected by the desktop runtime</h2></div><button class="ghost" data-view="settings">Settings</button></div>
+          <div class="spec-table" id="specTable"></div>
+          <p class="technical-note">Compatibility is an estimate. Exact memory use depends on quantization, context length, KV cache, backend, and model architecture.</p>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><span class="kicker">MODEL STORAGE</span><h2>Local model directory</h2></div></div>
+          <code class="path-box" id="modelsDirHome">—</code>
+          <div class="status-list">
+            <div><span>Hugging Face access</span><b id="hfStatus">Public repositories only</b></div>
+            <div><span>Managed llama.cpp</span><b id="managedStatusHome">Not installed</b></div>
+            <div><span>Network exposure</span><b>localhost only</b></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="section-head top-gap"><div><span class="kicker">LIVE RECOMMENDATIONS</span><h2>Models that fit this machine</h2><p>Ranked from live Hugging Face GGUF metadata and current RAM/VRAM.</p></div><button class="ghost" data-view="discover">Open Discover</button></div>
+      <div id="homeRecommendations" class="model-list"><div class="empty">Loading Hugging Face metadata…</div></div>
+    </section>
+
+    <section id="view-chat" class="view">
+      <div class="chat-grid">
+        <article class="panel chat-panel">
+          <div class="panel-head"><div><span class="kicker">LOCAL INFERENCE</span><h2>Chat</h2><p id="chatRuntimeLabel">Start a local model before sending messages.</p></div><button class="ghost" id="clearChat">Clear</button></div>
+          <div id="chatMessages" class="chat-messages"><div class="empty">No messages.</div></div>
+          <div class="attachment-line" id="attachmentLine" hidden></div>
+          <div class="chat-compose">
+            <textarea id="chatInput" rows="3" placeholder="Message the local model…"></textarea>
+            <div class="compose-actions"><button class="ghost" id="attachImage">＋ Image</button><button class="primary" id="chatSend">Send</button></div>
+          </div>
+          <div class="inline-status" id="chatNotice"></div>
+        </article>
+        <article class="panel session-panel">
+          <span class="kicker">SESSION</span><h3>Request configuration</h3>
+          <label>Temperature <output id="tempValue">0.7</output><input id="temperature" type="range" min="0" max="2" step="0.1" value="0.7"></label>
+          <dl class="technical-dl"><div><dt>Protocol</dt><dd>OpenAI-compatible Chat Completions</dd></div><div><dt>Streaming</dt><dd>Enabled</dd></div><div><dt>Transport</dt><dd>localhost HTTP</dd></div><div><dt>Images</dt><dd>Requires multimodal model + projector</dd></div></dl>
+          <p class="technical-note">Tool calling depends on the model chat template and runtime support. BotConnector Core executes only its explicit allowlisted calculator; arbitrary local tools are never executed.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="view-discover" class="view">
+      <div class="section-head"><div><span class="kicker">HUGGING FACE</span><h2>Discover GGUF models</h2><p>Live search. Model capabilities are derived from Hub task metadata and tags; file sizes are fetched when a model is opened.</p></div><span id="discoverCount" class="count-pill">—</span></div>
+      <div class="filter-panel">
+        <div class="cap-row">
+          <button class="active" data-cap="all">All</button><button data-cap="chat">Chat</button><button data-cap="tools">Tools</button><button data-cap="vision">Vision</button><button data-cap="coding">Coding</button><button data-cap="reasoning">Reasoning</button><button data-cap="embeddings">Embeddings</button><button data-cap="audio">Audio</button>
+        </div>
+        <div class="search-row"><input id="discoverSearch" placeholder="Model name, publisher, or Hugging Face repo…"><button class="ghost" id="discoverClear">Clear</button><button class="primary" id="discoverSearchBtn">Search Hugging Face</button></div>
+        <div class="tab-row"><button class="active" data-discover-tab="trending">Trending / search results</button><button data-discover-tab="recommended">Recommended for this PC</button></div>
+      </div>
+      <div class="inline-status" id="discoverStatus">Loading trending GGUF repositories…</div>
+      <div id="discoverModels" class="model-list"></div>
+      <div class="technical-note boxed"><b>Capability labels are metadata-based.</b> “Vision”, “Tools”, or “Audio” does not guarantee that a specific GGUF quantization has every required projector/template. Open the model details before downloading.</div>
+    </section>
+
+    <section id="view-installed" class="view">
+      <div class="section-head"><div><span class="kicker">LOCAL STORAGE</span><h2>Installed models</h2><p>GGUF files found in the configured model directory.</p></div><button class="ghost" id="refreshInstalled">Refresh</button></div>
+      <div id="installedModels" class="model-list"></div>
+    </section>
+
+    <section id="view-downloads" class="view">
+      <div class="section-head"><div><span class="kicker">MODEL TRANSFER</span><h2>Downloads</h2><p>Downloads are written to <code>.part</code> files first. Starting the same quantization again reuses the partial file through HTTP Range requests when supported.</p></div></div>
+      <div id="downloadJobs" class="download-list"></div>
+    </section>
+
+    <section id="view-cloud" class="view">
+      <div class="section-head"><div><span class="kicker">CLOUD ROUTER</span><h2>Hosted models (POC)</h2><p>Multi-provider routing with exact-model identity. Prompts sent to a cloud provider leave this device; local models never do.</p></div><span class="count-pill" id="cloudStatusPill">CHECKING…</span></div>
+      <div class="two-col">
+        <article class="panel">
+          <div class="panel-head"><div><span class="kicker">PROVIDER CREDENTIALS</span><h3>API keys</h3></div></div>
+          <div id="cloudProviders" class="model-list"><div class="empty">Loading…</div></div>
+          <p class="technical-note">Keys are encrypted with Windows safeStorage and never displayed again after entry. The renderer only receives configured/not-configured state.</p>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><span class="kicker">PROVIDER HEALTH</span><h3>Live state</h3></div><button class="ghost" id="cloudRefresh">Refresh</button></div>
+          <div id="cloudHealth" class="status-list"><div><span>Loading…</span><b>—</b></div></div>
+          <div class="button-row top-gap-small"><button class="ghost" id="cloudRefreshModels">Refresh model catalog</button></div>
+          <div id="cloudCatalogInfo" class="inline-status">Catalog not refreshed yet.</div>
+        </article>
+      </div>
+      <div class="two-col top-gap">
+        <article class="panel">
+          <div class="panel-head"><div><span class="kicker">MODEL CATALOG</span><h3>Cloud models</h3></div><span class="count-pill" id="cloudModelCount">0</span></div>
+          <div id="cloudModels" class="model-list"><div class="empty">Open the catalog via “Refresh model catalog”.</div></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><span class="kicker">POC BUDGET &amp; USAGE</span><h3>Usage ledger</h3></div></div>
+          <div id="cloudBudget" class="status-list"></div>
+          <div id="cloudUsage" class="inline-status">No cloud usage recorded yet.</div>
+        </article>
+      </div>
+      <div class="technical-note boxed"><b>Privacy:</b> cloud requests send prompts to the selected provider (Nebius/Together). Usage metadata is stored locally; prompt/completion bodies are not logged by default. Commercial launch is not approved — no billing exists.</div>
+    </section>
+
+    <section id="view-runtime" class="view">
+      <div class="two-col">
+        <article class="panel">
+          <span class="kicker">MANAGED RUNTIME</span><h2>llama.cpp</h2><p>Install an official Windows release from ggml-org/llama.cpp. The app does not compile llama.cpp.</p>
+          <label>Backend<select id="runtimeBackend"><option value="auto">Auto</option><option value="vulkan">Vulkan</option><option value="cuda12">CUDA 12</option><option value="cuda13">CUDA 13</option><option value="cpu">CPU</option><option value="rocm">ROCm</option></select></label>
+          <div class="button-row"><button class="ghost" id="checkRuntime">Check latest</button><button class="primary" id="installRuntime">Install / update</button></div>
+          <div id="runtimeInstallInfo" class="inline-status">No check performed.</div>
+          <div class="progress-wrap" id="runtimeProgress" hidden><div><span id="runtimeProgressLabel">Downloading…</span><b id="runtimeProgressPct">0%</b></div><progress id="runtimeProgressBar" max="100" value="0"></progress></div>
+          <dl class="technical-dl"><div><dt>Managed binary</dt><dd id="managedBinary">Not installed</dd></div><div><dt>Source</dt><dd>github.com/ggml-org/llama.cpp/releases</dd></div></dl>
+        </article>
+        <article class="panel">
+          <span class="kicker">CURRENT PROCESS</span><h2>Local server</h2>
+          <dl class="technical-dl"><div><dt>Status</dt><dd id="runtimeDetailStatus">Stopped</dd></div><div><dt>Model</dt><dd id="runtimeDetailModel">—</dd></div><div><dt>Endpoint</dt><dd>http://127.0.0.1:11435</dd></div><div><dt>Context</dt><dd><input id="runtimeContext" type="number" min="1024" step="1024" value="8192"></dd></div></dl>
+          <div class="button-row"><button class="danger" id="stopRuntime">Stop runtime</button></div>
+        </article>
+      </div>
+      <article class="panel top-gap"><div class="panel-head"><div><span class="kicker">RUNTIME LOG</span><h3>llama-server output</h3></div><button class="ghost" id="refreshLogs">Refresh</button></div><pre id="runtimeLogs" class="log-box">No runtime log.</pre></article>
+      <details class="panel top-gap"><summary>Manual binary / GGUF launch</summary><div class="manual-grid"><label>llama-server.exe<div class="input-with-button"><input id="manualBinary"><button id="pickBinary">Browse</button></div></label><label>Model GGUF<div class="input-with-button"><input id="manualModel"><button id="pickModel">Browse</button></div></label></div><button class="primary" id="manualStart">Start manual runtime</button><div id="manualStatus" class="inline-status"></div></details>
+    </section>
+
+    <section id="view-developer" class="view">
+      <div class="section-head"><div><span class="kicker">DEVELOPER INTERFACE</span><h2>Local API</h2><p>BotConnector starts llama-server on loopback. OpenAI-compatible endpoints are provided by llama.cpp.</p></div></div>
+      <div class="two-col">
+        <article class="panel"><h3>Chat Completions</h3><pre class="code-box">POST http://127.0.0.1:11435/v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "local-model",
+  "messages": [{"role":"user","content":"Hello"}],
+  "stream": true
+}</pre></article>
+        <article class="panel"><h3>Runtime behavior</h3><dl class="technical-dl"><div><dt>Bind address</dt><dd>127.0.0.1</dd></div><div><dt>Default port</dt><dd>11435</dd></div><div><dt>Tool calls</dt><dd>Requires compatible template; app starts server with --jinja</dd></div><div><dt>Multimodal</dt><dd>Requires model + mmproj when applicable</dd></div><div><dt>Embeddings</dt><dd>Runtime started with --embeddings</dd></div></dl></article>
+        <article class="panel"><h3>Anthropic Messages (native)</h3><pre class="code-box">POST http://127.0.0.1:11435/v1/messages
+Content-Type: application/json
+
+{
+  "model": "local-model",
+  "max_tokens": 256,
+  "messages": [{"role":"user","content":"Hello"}]
+}</pre></article>
+        <article class="panel"><h3>Responses API (native)</h3><pre class="code-box">POST http://127.0.0.1:11435/v1/responses
+Content-Type: application/json
+
+{
+  "model": "local-model",
+  "input": "Hello",
+  "max_output_tokens": 256
+}</pre></article>
+        <article class="panel"><h3>Embeddings (embedding model only)</h3><pre class="code-box">POST http://127.0.0.1:11435/v1/embeddings
+Content-Type: application/json
+
+{
+  "model": "local-embed",
+  "input": ["first sentence", "second sentence"]
+}</pre></article>
+      </div>
+    </section>
+
+    <section id="view-mcp" class="view">
+      <div class="section-head"><div><span class="kicker">BOTCONNECTOR CORE</span><h2>Tools / MCP</h2><p>Configure safe stdio MCP servers. Values are persisted by the main process; environment fields are references only.</p></div><span class="count-pill" id="mcpCount">0 servers</span></div>
+      <div class="two-col">
+        <article class="panel">
+          <div class="panel-head"><div><span class="kicker">SERVER CONFIGURATION</span><h3 id="mcpFormTitle">Add server</h3></div><button class="ghost" id="mcpReset">Clear</button></div>
+          <input id="mcpId" type="hidden">
+          <label>Name<input id="mcpName" placeholder="Calculator fixture"></label>
+          <label>Transport<select id="mcpTransport"><option value="stdio">stdio</option></select></label>
+          <label>Executable / command<input id="mcpCommand" placeholder="node.exe or an explicit executable path"></label>
+          <label>Arguments<textarea id="mcpArgs" rows="3" placeholder="One argument per line"></textarea></label>
+          <label>Environment variable references<textarea id="mcpEnvRefs" rows="2" placeholder="Optional names only, one per line (for example API_TOKEN)"></textarea></label>
+          <div class="two-col"><label>Startup timeout (ms)<input id="mcpTimeout" type="number" min="250" max="30000" step="250" value="5000"></label><label>Permission default<select id="mcpPermission"><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label></div>
+          <label>Allowed tools<input id="mcpAllowedTools" placeholder="calculator, one per comma"></label>
+          <label>Provenance / notes<textarea id="mcpNotes" rows="2" placeholder="Why this server is trusted and what it exposes"></textarea></label>
+          <label class="check"><input id="mcpEnabled" type="checkbox" checked> Enabled</label>
+          <div class="button-row"><button class="primary" id="mcpSave">Save server</button><button class="ghost" id="mcpTestForm">Test connection</button></div>
+          <div class="inline-status" id="mcpFormStatus">Default permission is Ask. Only explicitly allowlisted tools can be invoked.</div>
+        </article>
+        <article class="panel"><div class="panel-head"><div><span class="kicker">CONFIGURED SERVERS</span><h3>Runtime connections</h3></div><button class="ghost" id="mcpRefresh">Refresh</button></div><div id="mcpServers" class="model-list"><div class="empty">No MCP servers configured.</div></div></article>
+      </div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <div class="two-col">
+        <article class="panel"><span class="kicker">STORAGE</span><h2>Models directory</h2><code class="path-box" id="settingsModelsDir">—</code><button class="ghost top-gap-small" id="pickModelsDir">Change directory</button><p class="technical-note">Changing the directory does not move existing files automatically.</p></article>
+        <article class="panel"><span class="kicker">HUGGING FACE</span><h2>Access token</h2><input type="password" id="hfTokenInput" placeholder="hf_…"><div class="button-row"><button class="primary" id="saveHfToken">Save encrypted token</button><button class="ghost" id="clearHfToken">Remove</button></div><div id="hfTokenNote" class="inline-status">Public repositories do not require a token.</div><p class="technical-note">The token is encrypted using Electron/Windows safeStorage before persistence. A token is required for gated repositories you are authorized to access.</p></article>
+        <article class="panel"><span class="kicker">INTERFACE</span><h2>Language</h2><select id="languageSelect"><option value="system">System default</option><option value="en">English</option><option value="id">Bahasa Indonesia</option></select><p class="technical-note">Technical model metadata remains in its source language.</p></article>
+        <article class="panel"><span class="kicker">LOCAL API</span><h2>Require authentication</h2><label class="check"><input type="checkbox" id="apiAuthToggle"> Require Bearer token for local API (off by default)</label><div class="button-row"><button class="primary" id="genApiToken">Generate token</button><button class="ghost" id="clearApiToken">Remove token</button></div><div id="apiTokenNote" class="inline-status">No token configured.</div><p class="technical-note">When enabled, the runtime starts with --api-key and clients must send Authorization: Bearer. The token is encrypted with Windows safeStorage and shown only once. LAN serving stays disabled; bind remains 127.0.0.1.</p></article>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modelModal" hidden>
+  <div class="modal">
+    <button class="modal-close" id="closeModal">×</button>
+    <div id="modelModalBody"><div class="empty">Loading model metadata…</div></div>
+  </div>
+</div>
+<script src="i18n.js"></script>
+<script src="web-bridge.js"></script>
+<script src="desktop.js"></script>
+</body>
+</html>

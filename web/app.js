@@ -2232,7 +2232,7 @@ function renderModelsPanel(panel, data) {
   const localSection = [
     '<div class="settings-section">',
     '<h3>AI Lokal — BotConnector</h3>',
-    '<p class="section-note">Jalankan atau instal model GGUF melalui aplikasi BotConnector. Switchboard hanya menghubungkan model yang sudah aktif di komputer ini.</p>',
+    '<p class="section-note">Buka pengelola BotConnector Local untuk memasang dan menjalankan model GGUF. Dalam paket portable Windows, jalankan Manage-Local-AI.cmd di folder Switchboard. Model tidak diunduh otomatis.</p>',
     '<p class="settings-note" role="status">' + esc(localStatus) + '</p>',
     local?.running ? '<div class="default-row"><div class="settings-field"><label for="local-core-model">Model lokal</label>'
       + '<select id="local-core-model">' + localModels.map((m) => '<option value="' + esc(m.id) + '">' + esc(m.id) + '</option>').join('')

@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
 const localModel=process.env.SBX_LOCAL_MODEL||'botconnector-fast:latest';
+const useLocalCore=process.env.SBX_USE_BOTCONNECTOR_LOCAL_CORE==='1';
 const localBaseURL=process.env.SBX_LOCAL_BASE_URL||'http://127.0.0.1:11666/v1';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const port=async()=>{const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p};
@@ -18,7 +19,13 @@ let host,chrome,server;
 try{
  server=http.createServer((_req,res)=>{res.writeHead(200,{'Content-Type':'text/html'});res.end('<html><head><title>Switchboard Real Chrome Test</title></head><body><button id="counter" onclick="this.textContent=\'Clicks: \'+(Number(this.dataset.n||0)+1);this.dataset.n=Number(this.dataset.n||0)+1">Clicks: 0</button><h1>Chrome DOM test</h1></body></html>')});
  await new Promise(r=>server.listen(pagePort,'127.0.0.1',r));
- host=await createHost({llm:{baseURL:localBaseURL,apiKey:'ollama',defaultModel:localModel,retries:0,timeoutMs:100000},agent:{maxSteps:5,maxTokens:512,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'skip'}});
+ host=await createHost({llm:{baseURL:useLocalCore?'http://127.0.0.1:65534/v1':localBaseURL,apiKey:useLocalCore?undefined:'ollama',defaultModel:useLocalCore?'unreachable-default':localModel,retries:0,timeoutMs:100000,...(useLocalCore?{fallbacks:[{provider:'default',model:'unreachable-default'}]}:{})},agent:{maxSteps:5,maxTokens:512,temperature:0},tools:{shell:{disabled:true}},settings:{dir:path.join(profile,'settings')},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'skip'}});
+ if(useLocalCore){
+   const {connectBotConnectorLocal}=await import('../dist/services/botconnector-local.js');
+   const local=await connectBotConnectorLocal(host.ctx.providers,localModel);
+   if(local.provider!=='local-botconnector')throw Error('Failed to select local-core provider');
+   console.log('P2_BOTCONNECTOR_LOCAL_CORE_PROVIDER_SELECTED');
+ }
  const chromeBin=process.env.SBX_TEST_CHROME_PATH; if(!chromeBin)throw Error('Set SBX_TEST_CHROME_PATH to Chrome for Testing chrome.exe');
  chrome=spawn(chromeBin,['--no-first-run','--no-default-browser-check','--disable-gpu','--remote-allow-origins=*',`--remote-debugging-port=${chromePort}`,`--user-data-dir=${profile}`,`--load-extension=${path.join(process.cwd(),'browser-extension')}`,`--disable-extensions-except=${path.join(process.cwd(),'browser-extension')}`,`http://127.0.0.1:${pagePort}/`],{stdio:'ignore'});
  let version;
@@ -55,8 +62,21 @@ try{
  const connected=await evalSw('bridgeStatus().connected');
  if(!connected||!host.ctx.browserCompanion.isClientConnected())throw Error('Local backend WebSocket not connected');
  console.log('PASS authenticated real Chrome background WebSocket connects to Switchboard');
- await evalSw(`chrome.storage.local.set({approvedOrigins:['http://127.0.0.1:${pagePort}'],permissionMode:'skip'})`);
+ // Only select an EXISTING action mode: do not fake site grants through
+ // historical approvedOrigins; Chrome's native host permission remains authority.
+ await evalSw("chrome.storage.local.set({permissionMode:'skip'})");
  await sleep(300);
+ // Focus the actual QA HTTP tab, not Chrome's transient new-tab/start page.
+ // This changes only tab activation, never host permissions.
+ const qaTab=(await browser.call('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url.startsWith('http://127.0.0.1:'+pagePort+'/'));
+ if(!qaTab)throw Error('QA tab not present in real Chrome target list');
+ await browser.call('Target.activateTarget',{targetId:qaTab.targetId});
+ const known=await evalSw('chrome.tabs.query({})');
+ console.log('QA_CHROME_TAB_COUNT='+known.length+' TARGETS='+known.map(t=>({id:t.id,active:t.active,url:t.url?.slice(0,65)})).map(JSON.stringify).join(';'));
+ const actual=known.find(t=>t.url?.startsWith('http://127.0.0.1:'+pagePort+'/'));
+ if(actual){await evalSw('chrome.tabs.update('+actual.id+',{active:true})');}
+ await sleep(650);
+ await evalSw('syncBrowserState()');
  const state=host.ctx.browserCompanion.getActiveTab();
  console.log('Active tab reported by Chrome extension: '+(state?.url?.startsWith('http://127.0.0.1:')?'LOCAL_HTTP_TAB':'NONE'));
  const dom=await host.ctx.tools.call('browser_dom_snapshot',{});
@@ -68,8 +88,10 @@ try{
  if(!String(after).includes('Clicks: 1'))throw Error('DOM did not change after click: '+String(after).slice(0,320));
  console.log('PASS agent browser_click modified actual Chrome DOM and readback confirmed');
   console.log('PASS_REAL_CHROME_EXTENSION_WORKER_E2E');
+ if(process.env.SBX_BROWSER_ONLY==='1') console.log('PASS_VISIBLE_BROWSER_ONLY_NO_MODEL_INFERENCE');
+ else {
  console.log('=== Starting local model AI -> browser, no cloud ===');
- const aiSession=host.ctx.sessions.create({title:'QA local AI browser test',preset:'browser',model:localModel});
+ const aiSession=host.ctx.sessions.create({title:'QA local AI browser test',preset:'browser',model:localModel,...(useLocalCore?{provider:'local-botconnector'}:{})});
  const modelEvents=[], modelTools=[], modelErrors=[];
  const ac=new AbortController();
  const kill=setTimeout(()=>ac.abort(),100000);
@@ -77,7 +99,7 @@ try{
  try{
    for await (const ev of host.ctx.agent.stream(
      'On the active local Chrome test tab, click #counter exactly once, then call browser_dom_snapshot. State the button counter number in your final answer. Do not navigate, write files or use shell.',
-     aiSession.id,{preset:'browser',maxSteps:5,signal:ac.signal}
+     aiSession.id,{preset:'browser',maxSteps:5,signal:ac.signal,...(useLocalCore?{provider:'local-botconnector'}:{})}
    )){
      if(modelEvents.length<35) modelEvents.push({type:ev.type,name:ev.name||ev.tool||ev.toolName});
      if(ev.type==='tool'||ev.type==='tool_call')modelTools.push(String(ev.name||ev.tool||ev.toolName||''));
@@ -94,6 +116,7 @@ try{
  console.log('LOCAL_AI_VERIFIED_COUNTER_2='+changed);
  if(modelErrors.length||!changed||!modelTools.some(x=>x.includes('browser_click')))throw Error('Local AI did not autonomously click and verify the real Chrome DOM');
  console.log('PASS_LOCAL_AI_TO_VISIBLE_CHROME_E2E');
+ }
  await browser.close();
 }catch(e){console.error('FAIL_REAL_CHROME_EXTENSION_WORKER_E2E:',e.message);process.exitCode=1}
 finally{
