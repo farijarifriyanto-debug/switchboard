@@ -235,7 +235,12 @@ export class LLMService extends Service {
       contextCatalogUrl: this.settings.contextCatalogUrl,
     }
     if (!providers) return legacy
-    const entry = providers.get(providerId || 'default')
+    // When the user selects local as the default, even an agent without an
+    // explicit per-session provider must NOT resolve to the legacy Cloud URL.
+    const chosen = providerId || (
+      providers.default().provider === 'local-botconnector' ? 'local-botconnector' : 'default'
+    )
+    const entry = providers.get(chosen)
     if (!entry) return legacy
     if (entry.id === 'default') {
       // Virtual default: same config block + credential precedence
@@ -326,6 +331,11 @@ export class LLMService extends Service {
     const first = { ...(opts.provider ? { provider: opts.provider } : {}), model: this.resolveModel(opts.model) }
     const seen = new Set([label(first)])
     const chain = [first]
+    const providerRegistry = this.ctx.get('providers', false)
+    const effectiveProvider = opts.provider || providerRegistry?.default().provider
+    // A local selection is a privacy boundary: never send failed local
+    // prompts, tool arguments or screenshots to configured Cloud fallbacks.
+    if (effectiveProvider === 'local-botconnector') return chain
     for (const f of this.settings.fallbacks ?? []) {
       const t = { ...((f.provider ?? opts.provider) ? { provider: (f.provider ?? opts.provider) as string } : {}), model: f.model || first.model }
       if (!seen.has(label(t))) {

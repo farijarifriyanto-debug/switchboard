@@ -12,6 +12,7 @@ import { SettingsError } from '../services/settings-error.js'
 import type { PluginCatalogService } from '../services/plugin-catalog.js'
 import { expandHome } from '../services/session.js'
 import { PROTOCOLS } from '../services/providers.js'
+import { discoverBotConnectorLocal, connectBotConnectorLocal } from '../services/botconnector-local.js'
 import { listModels as discoverModels } from '../llm/discovery.js'
 import type { ProviderProfile } from '../llm/adapters.js'
 import { evaluateSchedules, getRun, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, saveScheduleState } from '../ci/index.js'
@@ -991,6 +992,18 @@ export const webUi = {
             account: false,
           },
         })
+      }
+
+      // Local Core only exposes inference on loopback. Runtime installation,
+      // model downloads, ownership and lifecycle stay in BotConnector Local.
+      // Both paths use the existing settings security/CSRF guard.
+      if (route === '/api/settings/local-core' && req.method === 'GET') {
+        return json(res, 200, await discoverBotConnectorLocal())
+      }
+      if (route === '/api/settings/local-core/connect' && req.method === 'POST') {
+        const body = await readBody(req)
+        const connected = await connectBotConnectorLocal(ctx.providers, body.model)
+        return json(res, 200, connected)
       }
 
       // ---------------------------------------------------------- providers

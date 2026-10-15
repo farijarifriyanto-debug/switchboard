@@ -200,9 +200,12 @@ export const agentLoop = {
         activeRuns.set(session.id, runToken)
         let endEmitted = false // final | step-limit final | epilogue already yielded
         try {
-          const runModel = ctx.llm.resolveModel(options.model ?? session.model)
-          // Provider chain (spec §7): per-run override > session > config default.
-          const runProvider = options.provider ?? session.provider
+          const defaultSelection = ctx.providers.default()
+          const localDefault = !options.provider && !session.provider && defaultSelection.provider === 'local-botconnector'
+          const runModel = ctx.llm.resolveModel(options.model ?? session.model ?? (localDefault ? defaultSelection.model : undefined))
+          // Explicit runs/sessions override the default. A selected LOCAL
+          // default must never fall through to the legacy Cloud provider.
+          const runProvider = options.provider ?? session.provider ?? (localDefault ? defaultSelection.provider : undefined)
           const runMaxSteps = options.maxSteps ?? maxSteps
           const exclude = options.excludeTools ?? []
           // Per-turn assembly: runSystem is the base (replaces the closure reference).
