@@ -200,9 +200,11 @@ export const agentLoop = {
         activeRuns.set(session.id, runToken)
         let endEmitted = false // final | step-limit final | epilogue already yielded
         try {
-          const defaultSelection = ctx.providers.default()
-          const localDefault = !options.provider && !session.provider && defaultSelection.provider === 'local-botconnector'
-          const runModel = ctx.llm.resolveModel(options.model ?? session.model ?? (localDefault ? defaultSelection.model : undefined))
+          // Provider registry is optional in this plugin injection contract.
+          // Resolve it safely for channel clients using the agent without it.
+          const defaultSelection = ctx.get('providers', false)?.default()
+          const localDefault = !options.provider && !session.provider && defaultSelection?.provider === 'local-botconnector'
+          const runModel = ctx.llm.resolveModel(options.model ?? session.model ?? (localDefault ? defaultSelection?.model : undefined))
           // Explicit runs/sessions override the default. A selected LOCAL
           // default must never fall through to the legacy Cloud provider.
           const runProvider = options.provider ?? session.provider ?? (localDefault ? defaultSelection.provider : undefined)
