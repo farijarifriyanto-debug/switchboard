@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing GitHub Release tag
+        description: Release tag (v0.4.x), or QA branch; branch checks skip release upload
         required: true
         type: string
 permissions:
@@ -64,6 +64,7 @@ jobs:
           path: ${{ runner.temp }}/bc-release/*
           if-no-files-found: error
       - name: Publish portable asset to same GitHub Release
+        if: startsWith(inputs.release_tag || github.ref_name, 'v')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag || github.ref_name }}
