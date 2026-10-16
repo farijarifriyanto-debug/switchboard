@@ -7,6 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { createHost } from './index.js'
+import { bundledBotConnectorCore } from './services/botconnector-core-location.js'
 import { describeToolCall } from './services/approval.js'
 import { formatUsage } from './services/usage.js'
 import { formatUndo } from './services/undo.js'
@@ -385,7 +386,7 @@ export async function runCiCommand(args: Args, config: SwitchboardConfig): Promi
 
 /** Delegate to the pinned original Core. Never fork its model manager or fetch models here. */
 async function runBundledLocalCore(args: string[]): Promise<void> {
-  const entry = fileURLToPath(new URL('../vendor/botconnector-local-core/bin/botconnector.mjs', import.meta.url))
+  const entry = path.join(bundledBotConnectorCore(), 'bin', 'botconnector.mjs')
   try {
     await fs.access(entry)
   } catch {

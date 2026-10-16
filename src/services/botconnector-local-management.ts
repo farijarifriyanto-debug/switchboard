@@ -5,25 +5,26 @@
  */
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import net from 'node:net'
 import { SettingsError } from './settings-error.js'
+import { bundledBotConnectorCore } from './botconnector-core-location.js'
+const coreRoot = bundledBotConnectorCore()
 const requireCore = createRequire(import.meta.url)
-const { Store } = requireCore('../../vendor/botconnector-local-core/runtime/store.cjs') as {
+const { Store } = requireCore(path.join(coreRoot, 'runtime/store.cjs')) as {
   Store: new(dir: string) => { load(): unknown; get(key: string): string }
 }
-const { scanInstalled } = requireCore('../../vendor/botconnector-local-core/runtime/installed.cjs') as {
+const { scanInstalled } = requireCore(path.join(coreRoot, 'runtime/installed.cjs')) as {
   scanInstalled: (root: string) => Promise<Array<{
     path:string;name:string;repoId:string|null;quant:string|null;
     size:number;capabilities?:Record<string,boolean>;projector?:string|null
   }>>
 }
-const { findExisting } = requireCore('../../vendor/botconnector-local-core/webui/single-instance.cjs') as {
+const { findExisting } = requireCore(path.join(coreRoot, 'webui/single-instance.cjs')) as {
   findExisting:(lockFile:string)=>Promise<{pid:number;port:number}|null>
 }
-const managerCli = fileURLToPath(new URL('../../vendor/botconnector-local-core/bin/botconnector.mjs', import.meta.url))
+const managerCli = path.join(coreRoot, 'bin', 'botconnector.mjs')
 const uiDataDir=path.join(process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local'),'BotConnector AI')
 const lockFile=path.join(uiDataDir,'ui.lock')
 const storeDir=path.join(process.env.APPDATA || path.join(os.homedir(),'AppData','Roaming'),'botconnector-ai-local-cloud')

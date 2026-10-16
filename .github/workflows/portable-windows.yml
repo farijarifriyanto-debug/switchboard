@@ -42,6 +42,10 @@ jobs:
           $root = Get-ChildItem $test -Directory | Select-Object -First 1
           & "$($root.FullName)/runtime/node.exe" "$($root.FullName)/app/dist/cli.js" --version
           if ($LASTEXITCODE -ne 0) { throw 'Bundled Node app cannot start' }
+          $env:SBX_PORTABLE_ROOT = $root.FullName
+          & "$($root.FullName)/runtime/node.exe" scripts/test-portable-core-layout.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Portable sibling Core import or original CLI failed' }
+          Remove-Item Env:SBX_PORTABLE_ROOT
           & "$($root.FullName)/runtime/uvx.exe" --version
           if ($LASTEXITCODE -ne 0) { throw 'Bundled uvx cannot start' }
           if (-not (Test-Path "$($root.FullName)/Start-Switchboard.cmd")) { throw 'Launcher missing' }
