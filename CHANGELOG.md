@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.3
+
+- Improve browser Auto safety checks with compact local-model verdicts and fail-closed prompt-injection quarantine; preserve Chrome site permissions.
+- Add hardware-informed AI Lokal model recommendations using the original BotConnector Local Core catalog and hardware probes.
+- Separate installed GGUF from running GGUF; add explicit Plug/Unplug and launch of original Local Core download/runtime manager without automatic downloads.
+- Fix Settings panel navigation clipping on desktop and mobile; suppress inappropriate Browser Companion onboarding banner.
+- Add npmjs stable release checks, one-click manual update and opt-in automatic update every six hours, with no forced restart and no silent updates of Windows portable installations.
+
 ## 0.4.2
 
 - Bundle the original, pinned BotConnector Local Core in the same @botconnector/switchboard npm installation and Windows portable bundle, with no second model manager and no automatic GGUF downloads.

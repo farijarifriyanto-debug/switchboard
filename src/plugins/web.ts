@@ -12,7 +12,10 @@ import { SettingsError } from '../services/settings-error.js'
 import type { PluginCatalogService } from '../services/plugin-catalog.js'
 import { expandHome } from '../services/session.js'
 import { PROTOCOLS } from '../services/providers.js'
-import { discoverBotConnectorLocal, connectBotConnectorLocal } from '../services/botconnector-local.js'
+import { discoverBotConnectorLocal, connectBotConnectorLocal, BOTCONNECTOR_LOCAL_PROVIDER } from '../services/botconnector-local.js'
+import { installedBotConnectorModels, openBotConnectorLocalManager } from '../services/botconnector-local-management.js'
+import { SwitchboardUpdateService } from '../services/switchboard-updates.js'
+import { recommendBotConnectorLocal } from '../services/botconnector-local-recommendations.js'
 import { listModels as discoverModels } from '../llm/discovery.js'
 import type { ProviderProfile } from '../llm/adapters.js'
 import { evaluateSchedules, getRun, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, saveScheduleState } from '../ci/index.js'
@@ -218,6 +221,9 @@ export const webUi = {
       chrome: verifiedBrowserStoreUrl('chrome', process.env.SWITCHBOARD_CHROME_WEB_STORE_URL),
       edge: verifiedBrowserStoreUrl('edge', process.env.SWITCHBOARD_EDGE_ADDONS_URL),
     }
+    // npmjs stable release channel; status checks are cached and never mutate
+    // an installation. Installing a verified release requires an explicit click.
+    const releaseWatcher = SwitchboardUpdateService.create()
     const port = config.port ?? 7777
     const root = config.dir ?? fileURLToPath(new URL('../../web/', import.meta.url))
     const ciEnabled = config.ci?.enabled === true
@@ -994,11 +1000,45 @@ export const webUi = {
         })
       }
 
+      if (route === '/api/settings/updates/status' && req.method === 'GET') {
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, await (await releaseWatcher).status({force:url.searchParams.get('refresh') === '1'}))
+      }
+      if (route === '/api/settings/updates/install' && req.method === 'POST') {
+        // Must not take an arbitrary package, version or registry URL from a client.
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, await (await releaseWatcher).install())
+      }
+      if (route === '/api/settings/updates/automatic' && req.method === 'POST') {
+        const body = await readBody(req, 1024)
+        if (typeof body?.enabled !== 'boolean' || Object.keys(body).some(key => key !== 'enabled')) {
+          return json(res, 400, {error:'Only a boolean enabled flag is supported.'})
+        }
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, await (await releaseWatcher).configure(body.enabled))
+      }
+
       // Local Core only exposes inference on loopback. Runtime installation,
       // model downloads, ownership and lifecycle stay in BotConnector Local.
       // Both paths use the existing settings security/CSRF guard.
       if (route === '/api/settings/local-core' && req.method === 'GET') {
         return json(res, 200, await discoverBotConnectorLocal())
+      }
+      if (route === '/api/settings/local-core/recommendations' && req.method === 'GET') {
+        return json(res, 200, await recommendBotConnectorLocal())
+      }
+      if (route === '/api/settings/local-core/installed' && req.method === 'GET') {
+        return json(res, 200, await installedBotConnectorModels())
+      }
+      if (route === '/api/settings/local-core/manager/open' && req.method === 'POST') {
+        return json(res, 200, await openBotConnectorLocalManager())
+      }
+      if (route === '/api/settings/local-core/disconnect' && req.method === 'POST') {
+        const active = ctx.sessions.list().filter(session => session.provider === BOTCONNECTOR_LOCAL_PROVIDER)
+        if (active.length) return json(res, 409, { error: 'Model ini masih digunakan oleh sesi aktif. Lepaskan model dari sesi tersebut terlebih dahulu; runtime tidak dihentikan.' })
+        const provider = ctx.providers.get(BOTCONNECTOR_LOCAL_PROVIDER)
+        if (provider) await ctx.providers.remove(BOTCONNECTOR_LOCAL_PROVIDER)
+        return json(res, 200, { plugged: false, runtimeStopped: false })
       }
       if (route === '/api/settings/local-core/connect' && req.method === 'POST') {
         const body = await readBody(req)

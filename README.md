@@ -68,6 +68,27 @@ ever holds the answer and the conversation history never leaks chain-of-thought.
 npm install -g @botconnector/switchboard   # provides the `sbx` command
 ```
 
+### Auto-update (npmjs)
+
+When running `sbx web` from a global npm installation, open **Settings > General >
+Pembaruan Switchboard**. It checks the official stable npmjs release automatically
+(every 6 hours while Switchboard runs), or immediately with **Cek pembaruan**.
+Choose **Pasang versi ...** to install a verified newer version without manually
+entering npm commands. Optionally enable **Instal otomatis rilis npm stabil** once
+to let Switchboard install new official releases in the background.
+
+Auto-install is **off by default** to protect existing local hotfixes and custom
+changes. Enabling it permits npm to replace those files. Packages are selected by
+exact stable version from the official `@botconnector/switchboard` npmjs metadata;
+no arbitrary registry or URL is accepted, and npm lifecycle scripts are disabled.
+Switchboard does **not** forcibly restart a running chat: after a successful update,
+restart `sbx web` when you are ready to activate the new code. Settings, chats,
+BotConnector Local Core model files and browser permissions are outside the npm
+package. Windows portable ZIPs are **not** updated by the npm updater; install a
+new portable ZIP separately. Chrome/Edge store extensions use their browsers'
+normal extension update mechanism. Network or installation errors leave the
+running process intact and are reported in the Settings panel.
+
 From source:
 
 ```sh
@@ -111,7 +132,7 @@ preinstalled and are downloaded only when explicitly selected.
    local model manager (not a second Switchboard model manager). Install a supported
    backend/model and start a local GGUF model there.
 2. Open `Start-Switchboard.cmd`, then **Settings → Models → AI Lokal → Periksa ulang →
-   Gunakan model lokal**. Switchboard connects only to the loopback model endpoint.
+   Plug / Hubungkan**. Switchboard connects only to the loopback model endpoint.
 3. Use `Check-Local-AI.cmd` for a read-only status check. When a model stops,
    local mode fails visibly instead of silently sending prompts to Cloud.
 

@@ -2946,8 +2946,9 @@ body[data-theme] {
 
 /* Browser Companion onboarding: neutral and compact, only in Browser preset. */
 .companion-onboarding {
-  border-bottom: 1px solid var(--sb-alias-border-default, #e4e7ec);
-  background: var(--sb-alias-surface-secondary, #f8f9fb);
+  border-bottom: 1px solid var(--sb-alias-border-l2);
+  background: var(--sb-alias-bg-layer-2);
+  color: var(--sb-alias-label-primary);
   padding: 12px 22px;
   display: flex;
   align-items: center;
@@ -2994,3 +2995,15 @@ body[data-theme] {
 @media (max-width: 560px) {
   .companion-onboarding { padding: 10px 14px; align-items: flex-start; }
 }
+
+/* Hardware-aware Local Core choices: read-only recommendations in existing Models panel. */
+.local-recommendations { display: grid; gap: 8px; margin: 12px 0; }
+.local-recommendation {
+  padding: 12px; border: 1px solid var(--sb-alias-border-l2);
+  border-radius: var(--sb-radius-sm);
+  background: var(--sb-alias-bg-layer-2);
+  color: var(--sb-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+.local-recommendation strong { display: block; font-weight: 600; }
+.local-recommendation .settings-note { margin: 5px 0 0; }

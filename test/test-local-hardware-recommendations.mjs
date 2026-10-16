@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict'
+import {recommendForHardware,recommendBotConnectorLocal} from '../dist/services/botconnector-local-recommendations.js'
+const mock = (ramGb,freeRamGb,nvidia=[]) => ({
+  platform:'win32',arch:'x64',cpu:'QA CPU <script>alert(1)</script>',logicalCores:8,ramGb,freeRamGb,nvidia
+})
+const memoryStarved = recommendForHardware(mock(8,1.5))
+assert.ok(memoryStarved.recommendations.every(x=>x.fit!=='no' && x.memory==='free-ram-first'))
+assert.ok(memoryStarved.recommendations.every(x=>x.id!=='qwen2.5-coder-14b-instruct'))
+const cpuOnly = recommendForHardware(mock(32,9))
+assert.deepEqual(cpuOnly.recommendations.map(r=>r.role),['starter','browser','coding','vision'])
+assert.equal(cpuOnly.recommendations.find(r=>r.role==='browser').id,'qwen3-4b')
+assert.equal(cpuOnly.recommendations.find(r=>r.role==='coding').id,'qwen2.5-coder-7b-instruct')
+assert.equal(cpuOnly.recommendations.find(r=>r.role==='vision').id,'gemma-3-4b-it')
+assert.ok(cpuOnly.recommendations.every(x=>x.quant && x.estimatedRamGb>0 && x.cpuHint))
+const weakCpu=recommendForHardware({...mock(32,24),logicalCores:4})
+const fastCpu=recommendForHardware({...mock(32,24),logicalCores:16})
+assert.match(weakCpu.recommendations.find(x=>x.role==='coding').cpuHint,/berat/i)
+assert.match(fastCpu.recommendations.find(x=>x.role==='coding').cpuHint,/sedang/i)
+
+assert.ok(cpuOnly.recommendations.every(x=>!x.id.endsWith('-cloud')))
+const withNvidia=recommendForHardware(mock(64,48,[{name:'NVIDIA Example',memoryGb:24}]))
+assert.equal(withNvidia.hardware.nvidia[0].memoryGb,24)
+assert.ok(withNvidia.recommendations.every(r=>r.memory==='fits-now'))
+const own=await recommendBotConnectorLocal()
+assert.ok(own.hardware.ramGb>0 && own.hardware.logicalCores>0)
+assert.equal(own.source,'Pinned BotConnector Local Core hardware and model catalog')
+assert.ok(own.recommendations.length>=3)
+console.log('LOCAL_HARDWARE_RECOMMENDATIONS_CORE_REUSE_PASS')
+console.log('LOCAL_HARDWARE_RECOMMENDATIONS_NO_AUTOMATIC_INSTALL_PASS')
+console.log('LOCAL_HARDWARE_RECOMMENDATIONS_LOW_MEMORY_GUARD_PASS')
