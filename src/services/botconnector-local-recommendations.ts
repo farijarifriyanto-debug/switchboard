@@ -5,7 +5,10 @@
  * authoritative; Switchboard only presents task-specific selections.
  */
 import { createRequire } from 'node:module'
+import path from 'node:path'
+import { bundledBotConnectorCore } from './botconnector-core-location.js'
 
+const coreRoot = bundledBotConnectorCore()
 const requireCore = createRequire(import.meta.url)
 type Hardware = {
   platform: string; arch: string; cpu: string; logicalCores: number
@@ -18,11 +21,11 @@ type CoreModel = {
   min_ram_gb: number; recommended_ram_gb: number
 }
 type Fit = { level: 'great' | 'ok' | 'warn' | 'no'; label: string; reason: string }
-const firstRun = requireCore('../../vendor/botconnector-local-core/tui/first-run.cjs') as {
+const firstRun = requireCore(path.join(coreRoot, 'tui/first-run.cjs')) as {
   recommend(): Promise<{hardware: Hardware; recommendation: {model: CoreModel} | null}>
   catalog(): CoreModel[]
 }
-const { assess } = requireCore('../../vendor/botconnector-local-core/runtime/recommend.cjs') as {
+const { assess } = requireCore(path.join(coreRoot, 'runtime/recommend.cjs')) as {
   assess(model: CoreModel, hardware: Hardware): Fit
 }
 

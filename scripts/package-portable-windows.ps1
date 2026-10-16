@@ -139,7 +139,7 @@ Switchboard portable — Windows x64
 3. Optional Local AI (included in this ONE portable ZIP): double-click Manage-Local-AI.cmd.
    This starts the ORIGINAL BotConnector Local manager at 127.0.0.1. Choose a
    compatible runtime and download/start GGUF models there, on user request only.
-   Switchboard Settings > Models > AI Lokal > Periksa ulang > Gunakan model lokal.
+   Switchboard Settings > Models > AI Lokal > Periksa ulang > Plug / Hubungkan.
    Check-Local-AI.cmd shows current runtime health. No model is downloaded silently.
 4. Open Settings > Plugins & MCP to install Semgrep or link a private OpenSandbox.
 

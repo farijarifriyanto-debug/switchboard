@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.4
+
+- Fix Windows portable startup by resolving the same pinned BotConnector Local Core from either the npm vendor path or the portable sibling local-core folder, without duplicating model managers.
+- Add portable smoke checks for Core CLI and model recommendations.
+
+
 ## 0.4.3
 
 - Improve browser Auto safety checks with compact local-model verdicts and fail-closed prompt-injection quarantine; preserve Chrome site permissions.
