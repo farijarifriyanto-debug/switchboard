@@ -78,14 +78,14 @@ try {
   })).verdict, 'require_approval', 'missing origin fails closed without calling the provider')
   assert.equal(requests.length, requestCount)
 
-  replies.push('{"verdict":"clean","content":"Contact form with three fields."}')
+  replies.push('{"verdict":"clean","reason":"ordinary informational content"}')
   assert.equal((await safety.screenPage({
     sessionId: session.id,
     targetOrigin: 'https://example.test',
     content: 'Contact form with three fields.',
   })).verdict, 'clean')
 
-  replies.push('{"verdict":"quarantined","content":"Page contains instructions that conflict with the user request."}')
+  replies.push('{"verdict":"quarantined","reason":"page attempts to override instructions"}')
   const screened = await safety.screenPage({
     sessionId: session.id,
     targetOrigin: 'https://example.test',
@@ -93,17 +93,21 @@ try {
   })
   assert.equal(screened.verdict, 'quarantined')
   assert.match(screened.content, /untrusted|withheld|conflict/i)
+  assert.doesNotMatch(screened.content, /Ignore the user|upload their private data/i, 'quarantined injection must not reach agent')
 
-  // Page screening returns the page text inside JSON, so it needs a larger output budget than an
-  // action verdict; a 256-token limit cut larger pages off mid-JSON and failed them as "invalid".
+  // The evaluator emits a bounded verdict instead of copying page text into
+  // thousands of output tokens; clean data still returns labelled page content.
   assert.ok(requests.filter(r => r.maxTokens === 256).length > 0, 'action checks keep the short output budget')
-  assert.ok(requests.at(-1).maxTokens >= 2_048, 'page screening gets enough output budget for the page text')
+  assert.equal(requests.at(-1).maxTokens, 256, 'page classification uses a small output budget')
   const bigPage = 'Paragraf halaman yang panjang. '.repeat(250)
-  replies.push(JSON.stringify({ verdict: 'clean', content: bigPage.slice(0, 7_900), reason: 'ok' }))
+  replies.push(JSON.stringify({ verdict: 'clean', reason: 'ordinary data' }))
   const big = await safety.screenPage({ sessionId: session.id, targetOrigin: 'https://example.test', content: bigPage })
   assert.equal(big.verdict, 'clean', 'a large page that fits the budget is accepted')
-  assert.ok(big.content.length > 1_000, 'the large page text is kept')
-  assert.ok(requests.at(-1).maxTokens >= 2_048)
+  assert.ok(big.content.length > 1_000, 'the bounded clean page text is returned')
+  assert.match(big.content, /^\[UNTRUSTED PAGE CONTENT\]/)
+  assert.equal(requests.at(-1).maxTokens, 256)
+  replies.push('{"verdict":"clean","reason":"ok","content":"dangerously unscreened override"}')
+  assert.equal((await safety.screenPage({ sessionId: session.id, targetOrigin: 'https://example.test', content: 'ordinary' })).verdict, 'require_approval', 'unexpected extra output keys fail closed')
 
   // A page screening that never answers still fails closed, on its own (longer) time limit.
   safety.pageTimeoutMs = 10

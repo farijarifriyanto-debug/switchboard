@@ -34,12 +34,13 @@
   const setVisible = (element, show) => { element.hidden = !show; };
 
   function render() {
-    frame.hidden = !visible();
-    if (frame.hidden) return;
-
     const connected = server?.connected === true;
     const connectedHere = connected && installed &&
       server?.connectedExtensionOrigin === 'chrome-extension://' + installedExtensionId;
+    // Onboarding is only needed while setting up or recovering the bridge.
+    // Once the Companion in this browser is connected, do not consume chat space.
+    frame.hidden = !visible() || connectedHere;
+    if (frame.hidden) return;
     const available = server?.bridgeReady === true;
     const store = /Edg\//.test(navigator.userAgent) ? server?.storeUrls?.edge : server?.storeUrls?.chrome;
     install.removeAttribute('href');

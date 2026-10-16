@@ -2056,6 +2056,14 @@ const settingsUi = {
   catalogLoading: false,
   localCore: null,
   localCoreLoading: false,
+  localInstalled: [],
+  localInstalledError: '',
+  localRecommendations: null,
+  localRecommendationsLoading: false,
+  localRecommendationsError: '',
+  updateStatus: null,
+  updateLoading: false,
+  updateError: '',
 }
 
 async function settingsJson(pathname, options = {}) {
@@ -2122,7 +2130,14 @@ async function refreshLocalCore() {
   settingsUi.localCoreLoading = true
   if (settingsUi.tab === 'models') renderSettingsPanel()
   try {
-    settingsUi.localCore = await settingsJson('/api/settings/local-core')
+    const [live, installed] = await Promise.allSettled([
+      settingsJson('/api/settings/local-core'),
+      settingsJson('/api/settings/local-core/installed'),
+    ])
+    settingsUi.localCore = live.status === 'fulfilled' ? live.value
+      : { running: false, models: [], reason: live.reason?.message || 'Runtime tidak tersedia.' }
+    settingsUi.localInstalled = installed.status === 'fulfilled' ? installed.value.models || [] : []
+    settingsUi.localInstalledError = installed.status === 'rejected' ? installed.reason?.message || 'Gagal membaca daftar model terpasang.' : ''
   } catch (error) {
     settingsUi.localCore = { running: false, reason: error.message, models: [] }
   } finally {
@@ -2131,13 +2146,49 @@ async function refreshLocalCore() {
   }
 }
 
+async function loadLocalRecommendations() {
+  if (settingsUi.localRecommendationsLoading) return
+  settingsUi.localRecommendationsLoading = true
+  settingsUi.localRecommendationsError = ''
+  if (settingsUi.tab === 'models') renderSettingsPanel()
+  try {
+    settingsUi.localRecommendations = await settingsJson('/api/settings/local-core/recommendations')
+  } catch (error) {
+    settingsUi.localRecommendationsError = error.message || 'Tidak dapat membaca rekomendasi perangkat.'
+  } finally {
+    settingsUi.localRecommendationsLoading = false
+    if (settingsUi.tab === 'models') renderSettingsPanel()
+  }
+}
+
+async function loadUpdateStatus(force = false) {
+  if (settingsUi.updateLoading) return
+  settingsUi.updateLoading = true
+  settingsUi.updateError = ''
+  try {
+    settingsUi.updateStatus = await settingsJson('/api/settings/updates/status' + (force ? '?refresh=1' : ''))
+  } catch (error) {
+    settingsUi.updateError = error.message || 'Tidak dapat memeriksa pembaruan npmjs.'
+  } finally {
+    settingsUi.updateLoading = false
+    if (settingsUi.tab === 'general') renderSettingsPanel()
+  }
+}
+
+// Automatically check on the first visit, then every six hours while the
+// operator console is open. No installation/restart is triggered by polling.
+setInterval(() => { if (!document.hidden) void loadUpdateStatus() }, 6 * 60 * 60 * 1000)
+
 async function openSettings(tab) {
   if (tab) settingsUi.tab = tab
   const dialog = $('settings-dialog')
   renderSettingsTabs()
   if (dialog && !dialog.open) dialog.showModal()
+  const body = dialog?.querySelector('.settings-body')
+  if (body) body.scrollTop = 0
   await loadSettings()
   if (settingsUi.tab === 'models') void refreshLocalCore()
+  if (settingsUi.tab === 'general') void loadUpdateStatus()
 }
 
 async function loadSettings() {
@@ -2178,7 +2229,25 @@ function renderGeneralPanel(panel, data) {
   const general = data.general || {}
   const storage = general.storage || {}
   const modes = (data.supported && data.supported.approvalModes) || ['off', 'risky', 'all']
+  const update = settingsUi.updateStatus
+  const updateLine = update?.restartRequired ? 'Pembaruan ' + update.installedVersion + ' telah dipasang. Tutup dan buka kembali Switchboard saat pekerjaan selesai.'
+    : update?.available ? 'Pembaruan v' + update.latest + ' tersedia (versi ini v' + update.current + ').'
+      : update?.latest ? 'Sudah terbaru menurut npmjs (v' + update.current + ').'
+        : 'Memeriksa rilis npmjs resmi…'
   panel.innerHTML = `
+    <div class="settings-section">
+      <h3>Pembaruan Switchboard</h3>
+      <p class="section-note">Pemeriksaan otomatis setiap 6 jam dari npmjs. Hanya rilis stabil resmi, tidak otomatis memasang kode dari branch GitHub.</p>
+      <p class="settings-note" role="status">${esc(updateLine)}</p>
+      <label class="update-auto-toggle"><input type="checkbox" data-action="updates-automatic" ${update?.automatic ? 'checked' : ''} ${update?.installType !== 'npm-global' ? 'disabled' : ''}> Instal otomatis rilis npm stabil saat tersedia (aktifkan sekali)</label>
+      ${update?.installType === 'development-or-portable' ? '<p class="settings-note">Instalasi ini bukan npm global; updater tidak akan mengubah folder kode atau portable.</p>' : ''}
+      ${settingsUi.updateError || update?.error ? `<p class="settings-note" role="alert">${esc(settingsUi.updateError || update.error)}</p>` : ''}
+      <div class="local-core-actions">
+        <button class="settings-btn ghost" type="button" data-action="updates-check" ${settingsUi.updateLoading ? 'disabled' : ''}>${settingsUi.updateLoading ? 'Memeriksa…' : 'Cek pembaruan'}</button>
+        ${update?.installable ? '<button class="settings-btn primary" type="button" data-action="updates-install">Pasang versi ' + esc(update.latest) + '</button>' : ''}
+      </div>
+      <p class="settings-note">Mode otomatis akan memasang rilis stabil yang lebih baru di latar belakang. Konfigurasi, model lokal, dan sesi berada di luar paket. Hotfix yang belum dirilis dapat tertimpa; versi baru aktif setelah Switchboard direstart, tanpa menghentikan chat otomatis.</p>
+    </div>
     <div class="settings-section">
       <h3>Operator</h3>
       <div class="settings-field">
@@ -2224,22 +2293,58 @@ function catalogProviderIds(models) {
 }
 
 function renderModelsPanel(panel, data) {
+  const recs = settingsUi.localRecommendations
+  const hardware = recs?.hardware
+  const roleLabels = { starter: 'Chat ringan', browser: 'Agen browser / tools', coding: 'Coding', vision: 'Vision' }
+  const recSection = [
+    '<h4>Rekomendasi AI sesuai perangkat</h4>',
+    '<p class="settings-note">Menggunakan deteksi hardware dan katalog asli BotConnector Local Core. Hanya memberi saran, tidak memasang model.</p>',
+    '<button class="settings-btn ghost" type="button" data-action="local-core-recommend" '
+      + (settingsUi.localRecommendationsLoading ? 'disabled' : '') + '>'
+      + (settingsUi.localRecommendationsLoading ? 'Memeriksa spesifikasi…' : 'Cek model yang cocok untuk laptop ini') + '</button>',
+    settingsUi.localRecommendationsError ? '<p class="settings-note status-error" role="alert">' + esc(settingsUi.localRecommendationsError) + '</p>' : '',
+    hardware ? '<p class="settings-note"><strong>' + esc(hardware.cpu) + '</strong> · '
+      + esc(hardware.logicalCores) + ' thread · RAM ' + esc(hardware.ramGb) + ' GB ('
+      + esc(hardware.freeRamGb) + ' GB tersedia). '
+      + (hardware.nvidia.length ? 'NVIDIA: ' + esc(hardware.nvidia.map(g => g.name).join(', ')) : 'NVIDIA dedicated tidak terdeteksi; CPU tersedia.')
+      + '</p>' : '',
+    recs?.recommendations?.length ? '<div class="local-recommendations">' + recs.recommendations.map(rec =>
+      '<div class="local-recommendation"><strong>' + esc(roleLabels[rec.role] || rec.role) + ': ' + esc(rec.name) + '</strong>'
+      + '<p class="settings-note">' + esc(rec.quant) + ' · ~' + esc(rec.downloadGb) + ' GB unduhan · ~' + esc(rec.estimatedRamGb)
+      + ' GB estimasi RAM · ' + esc(rec.fitLabel)
+      + (rec.memory === 'fits-now' ? ' · cocok dengan RAM tersedia' : ' · kosongkan RAM terlebih dahulu') + '</p>'
+      + '<p class="settings-note">' + esc(rec.cpuHint) + '. ' + esc(rec.note) + '</p></div>').join('') + '</div>' : '',
+    recs ? '<p class="settings-note">Gunakan <code>sbx local</code> untuk memilih, mengunduh, dan menjalankan model. Setelah aktif, klik Periksa ulang lalu Gunakan model lokal. GPU terintegrasi dan dukungan tools/vision harus diuji pada runtime asli.</p>' : '',
+  ].join('')
   const local = settingsUi.localCore
   const localModels = local?.models || []
+  const installed = settingsUi.localInstalled || []
+  const plugged = data.default?.provider === 'local-botconnector'
   const localStatus = settingsUi.localCoreLoading ? 'Memeriksa runtime lokal…'
     : local?.running ? 'Model lokal ditemukan pada perangkat ini.'
     : (local?.reason || 'Pilih Periksa ulang untuk mendeteksi BotConnector Local.')
   const localSection = [
     '<div class="settings-section">',
     '<h3>AI Lokal — BotConnector</h3>',
-    '<p class="section-note">Buka pengelola BotConnector Local untuk memasang dan menjalankan model GGUF. Dalam paket portable Windows, jalankan Manage-Local-AI.cmd di folder Switchboard. Model tidak diunduh otomatis.</p>',
+    '<p class="section-note">Model yang berjalan, model terpasang, dan model untuk diunduh adalah hal berbeda. Pengelola BotConnector Local asli menangani unduhan serta menjalankan atau menghentikan runtime.</p>',
     '<p class="settings-note" role="status">' + esc(localStatus) + '</p>',
-    local?.running ? '<div class="default-row"><div class="settings-field"><label for="local-core-model">Model lokal</label>'
-      + '<select id="local-core-model">' + localModels.map((m) => '<option value="' + esc(m.id) + '">' + esc(m.id) + '</option>').join('')
-      + '</select></div><button class="settings-btn primary" type="button" data-action="local-core-connect">Gunakan model lokal</button></div>' : '',
-    '<button class="settings-btn ghost" type="button" data-action="local-core-refresh" '
-      + (settingsUi.localCoreLoading ? 'disabled' : '') + '>Periksa ulang</button>',
+    '<p class="settings-note"><strong>Plug ke Switchboard:</strong> ' + (plugged ? 'Terhubung' : 'Terlepas') + '. Unplug hanya memutus koneksi Switchboard, bukan mematikan proses model milik aplikasi lain.</p>',
+    local?.running ? '<div class="local-core-controls"><div class="settings-field"><label for="local-core-model">Model yang sedang berjalan (' + localModels.length + ')</label>'
+      + '<select id="local-core-model">' + localModels.map((m) => '<option value="' + esc(m.id) + '" title="' + esc(m.id) + '">' + esc(m.id.split(/[\\/]/).pop()) + '</option>').join('')
+      + '</select></div><button class="settings-btn primary" type="button" data-action="local-core-connect">Plug / Hubungkan</button></div>' : '',
+    '<div class="local-core-actions">',
+    '<button class="settings-btn ghost" type="button" data-action="local-core-disconnect" ' + (!plugged ? 'disabled' : '') + '>Unplug / Lepas</button>',
+    '<button class="settings-btn ghost" type="button" data-action="local-core-manager">Kelola &amp; Download model</button>',
+    '<button class="settings-btn ghost" type="button" data-action="local-core-refresh" ' + (settingsUi.localCoreLoading ? 'disabled' : '') + '>Periksa ulang</button>',
+    '</div>',
+    '<p class="settings-note"><strong>Model GGUF terpasang (' + installed.length + ')</strong> — yang belum berjalan harus dijalankan melalui pengelola Core sebelum bisa di-Plug.</p>',
+    settingsUi.localInstalledError ? '<p class="settings-note" role="alert">' + esc(settingsUi.localInstalledError) + '</p>' : '',
+    installed.length ? '<ul class="local-installed-list">' + installed.map(m => '<li><strong>' + esc((m.repoId || m.name) + (m.quant ? ' @ ' + m.quant : ''))
+      + '</strong><small>' + esc(m.sizeMb) + ' MB · ' + (localModels.some(row => row.id === m.id) ? 'Sedang berjalan' : 'Terpasang, belum berjalan')
+      + (m.chat ? (m.tools ? ' · tools' : ' · tools belum terverifikasi') : ' · bukan model chat')
+      + (m.vision ? ' · vision' : '') + '</small></li>').join('') + '</ul>' : '<p class="settings-note">Belum ada model GGUF yang terpasang.</p>',
     '<p class="settings-note">Hanya 127.0.0.1; tidak memakai Cloud sebagai fallback. Jika runtime meminta autentikasi, atur BOTCONNECTOR_LOCAL_API_KEY pada komputer.</p>',
+    recSection,
     '</div>',
   ].join('')
   const providers = data.providers || []
@@ -2531,8 +2636,55 @@ function startProviderEdit(mode, entry) {
 async function handleSettingsAction(action, element, event) {
   const editing = settingsUi.editing
   try {
+    if (action === 'updates-check') {
+      await loadUpdateStatus(true)
+      return
+    }
+    if (action === 'updates-install') {
+      const target = settingsUi.updateStatus?.latest
+      if (!settingsUi.updateStatus?.installable || !target) throw new Error('Belum ada rilis resmi yang siap dipasang.')
+      if (!window.confirm('Pasang Switchboard v' + target + ' dari npmjs? Perubahan lokal yang belum masuk rilis dapat tertimpa. Chat akan tetap berjalan pada proses lama sampai Anda me-restart Switchboard.')) return
+      element.disabled = true
+      try {
+        settingsToast('Memasang Switchboard v' + target + ' dari npmjs. Tunggu hingga selesai.')
+        settingsUi.updateStatus = await settingsRequest('/api/settings/updates/install', 'POST')
+        renderSettingsPanel()
+        settingsToast('Pembaruan terpasang. Restart Switchboard setelah pekerjaan selesai untuk mengaktifkannya.')
+      } finally { element.disabled = false }
+      return
+    }
     if (action === 'local-core-refresh') {
       await refreshLocalCore()
+      return
+    }
+    if (action === 'local-core-recommend') {
+      await loadLocalRecommendations()
+      return
+    }
+    if (action === 'local-core-manager') {
+      // Open only on the explicit button click; the original Core serves search,
+      // download progress and model runtime controls on loopback.
+      const tab = window.open('about:blank', '_blank')
+      if (tab) tab.opener = null
+      element.disabled = true
+      try {
+        const result = await settingsRequest('/api/settings/local-core/manager/open', 'POST')
+        if (!/^http:\/\/127\.0\.0\.1:\d{4,5}\/$/.test(result.url)) throw new Error('Alamat pengelola tidak valid.')
+        if (tab) tab.location.replace(result.url)
+        else settingsToast('Izinkan pop-up lokal kemudian buka: ' + result.url)
+      } catch (error) {
+        if (tab && !tab.closed) tab.close()
+        throw error
+      } finally { element.disabled = false }
+      return
+    }
+    if (action === 'local-core-disconnect') {
+      element.disabled = true
+      try {
+        await settingsRequest('/api/settings/local-core/disconnect', 'POST')
+        await refreshSettings()
+        settingsToast('Unplug berhasil: Switchboard tidak lagi memilih Core sebagai default; runtime tetap berjalan.')
+      } finally { element.disabled = false }
       return
     }
     if (action === 'local-core-connect') {
@@ -2543,7 +2695,7 @@ async function handleSettingsAction(action, element, event) {
         await settingsRequest('/api/settings/local-core/connect', 'POST', { model })
         await refreshSettings()
         await refreshLocalCore()
-        settingsToast('AI Lokal terhubung: ' + model)
+        settingsToast('Plug berhasil: ' + model.split(/[\\/]/).pop() + '. Runtime tetap dikelola BotConnector Local.')
       } finally { element.disabled = false }
       return
     }
@@ -2877,9 +3029,12 @@ $('settings-dialog')?.addEventListener('click', (event) => {
   if (tabButton) {
     settingsUi.tab = tabButton.dataset.settingsTab
     renderSettingsTabs()
+    const body = $('settings-dialog')?.querySelector('.settings-body')
+    if (body) body.scrollTop = 0
     renderSettingsPanel()
     if (settingsUi.tab === 'plugins') void loadPluginCatalog()
     if (settingsUi.tab === 'models') void refreshLocalCore()
+    if (settingsUi.tab === 'general') void loadUpdateStatus()
     return
   }
   const button = event.target.closest('[data-action]')
@@ -2890,6 +3045,19 @@ $('settings-dialog')?.addEventListener('click', (event) => {
 $('settings-dialog')?.addEventListener('change', (event) => {
   const target = event.target
   if (!(target instanceof HTMLElement)) return
+  if (target.dataset.action === 'updates-automatic') {
+    const enabled = Boolean(target.checked)
+    if (enabled && !window.confirm('Aktifkan pemasangan otomatis dari npmjs? Setiap rilis stabil dapat menggantikan hotfix lokal yang belum dipublikasikan. Restart tidak otomatis.')) {
+      target.checked = false
+      return
+    }
+    target.disabled = true
+    void settingsRequest('/api/settings/updates/automatic', 'POST', { enabled })
+      .then(status => { settingsUi.updateStatus = status; renderSettingsPanel(); settingsToast(enabled ? 'Auto-update aktif untuk rilis npm berikutnya.' : 'Auto-update dimatikan.') })
+      .catch(error => { target.checked = !enabled; settingsToast(error.message || 'Gagal mengubah preferensi update.') })
+      .finally(() => { target.disabled = false })
+    return
+  }
   if (target.matches('[data-field]') && settingsUi.editing) {
     const field = target.dataset.field
     if (field === '_apiKey') settingsUi.editing.apiKeyDraft = target.value

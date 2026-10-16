@@ -10,11 +10,14 @@ import http from 'node:http'
 import WebSocket from 'ws'
 import {createHost} from '../dist/index.js'
 import {connectBotConnectorLocal} from '../dist/services/botconnector-local.js'
-for(const key of ['SBX_LOCAL_LLAMA_SERVER','SBX_LOCAL_GGUF','SBX_LOCAL_MMPROJ','SBX_TEST_CHROME_PATH']) if(!process.env[key]) throw Error('Missing '+key)
+// Reuse an existing original BotConnector-managed model when requested;
+// never launch a second llama-server on an already loaded, RAM-limited laptop.
+const reuseRunningCore=process.env.SBX_USE_RUNNING_LOCAL_CORE==='1'
+for(const key of (reuseRunningCore?['SBX_TEST_CHROME_PATH']:['SBX_LOCAL_LLAMA_SERVER','SBX_LOCAL_GGUF','SBX_LOCAL_MMPROJ','SBX_TEST_CHROME_PATH'])) if(!process.env[key]) throw Error('Missing '+key)
 const alloc=async()=>{const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms))
-const llamaPort=await alloc(),chromePort=await alloc(),pagePort=await alloc()
-const secret=randomBytes(32).toString('hex')
+const llamaPort=reuseRunningCore?Number(process.env.SWITCHBOARD_LOCAL_CORE_PORT||11435):await alloc(),chromePort=await alloc(),pagePort=await alloc()
+const secret=reuseRunningCore?'':randomBytes(32).toString('hex')
 const dir=await mkdtemp(path.join(tmpdir(),'sbx-p2-vision-'))
 let server,proc,chrome,ws,host,log=''
 const pending=new Map();let n=0

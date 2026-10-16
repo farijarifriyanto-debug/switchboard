@@ -20,8 +20,11 @@ for (const f of [cli, path.join(core,'bin','botconnector.mjs'), path.join(core,'
 assert.equal((await readFile(path.join(core,'SOURCE-REVISION.txt'),'utf8')).trim(), expected)
 const profile = await mkdtemp(path.join(tmpdir(),'sbx-npm-localcore-'))
 const appdata = path.join(profile,'AppData','Roaming')
-await mkdir(appdata,{recursive:true})
-const env = {...process.env, APPDATA: appdata, USERPROFILE: profile, HOME: profile, XDG_DATA_HOME: path.join(profile,'data'), XDG_CONFIG_HOME: path.join(profile,'config')}
+const localappdata = path.join(profile,'AppData','Local')
+await Promise.all([mkdir(appdata,{recursive:true}), mkdir(localappdata,{recursive:true})])
+// Core's Windows UI single-instance lock lives in LOCALAPPDATA, not APPDATA.
+// Isolate both roots so QA never touches a real user's running model manager.
+const env = {...process.env, APPDATA: appdata, LOCALAPPDATA: localappdata, USERPROFILE: profile, HOME: profile, XDG_DATA_HOME: path.join(profile,'data'), XDG_CONFIG_HOME: path.join(profile,'config')}
 const sleep = ms => new Promise(r=>setTimeout(r,ms))
 async function call(args) {
   return await new Promise((resolve,reject)=>{
