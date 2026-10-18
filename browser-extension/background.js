@@ -400,6 +400,7 @@ async function withDebugger(tabId, run) {
     if (!/already attached/i.test(errorMessage(error))) throw error;
   }
   try {
+    await chrome.debugger.sendCommand(target, 'Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
     return await run(target);
   } finally {
     if (attached) {

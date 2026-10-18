@@ -25,6 +25,9 @@ The unpublished source version hardens local trust boundaries:
   pairing/status/`connected` payloads), so `sbx web --port <n>` keeps the panel's Ask, approvals
   and Stop working without a hardcoded 7777. Loopback `http:` origins only; older servers keep
   the visible fallback.
+- `withDebugger` enables CDP focus emulation (`Emulation.setFocusEmulationEnabled`) before
+  dispatching trusted mouse/key events, preventing silent no-op clicks or key presses when the
+  bound agent tab is in the background or the browser window is unfocused/occluded on Windows.
 - Trace session keys reject path traversal.
 - Unattended automations refuse shell/credential-capable presets unless `allowUnattended: true`.
 - Documentation and manifest versions are checked by `scripts/test-docs-consistency.mjs`.
@@ -65,16 +68,38 @@ The unpublished source version hardens local trust boundaries:
   `browser_screenshot` require explicit approval in every mode (`autoConfirmActions` → `require_approval`,
   `browser-companion.ts:829,977,1084`), but the test's approval allowlist omitted it and would reject a
   legitimate screenshot approval as "Unexpected approval"; the allowlist now includes `browser_screenshot`.
-- Not verified: a Chrome Web Store-installed 0.4.5 update (store remains 0.4.4), Edge, a real
-  HTTPS native site-grant prompt, and every historical Claude in Chrome parity scenario. This is
-  why the release gate below is still closed.
+- Real Microsoft Edge `155.0.4283.45` (`msedge.exe`), unpacked extension from this source (2026-10-18):
+  after enabling `Emulation.setFocusEmulationEnabled` in `withDebugger` (`browser-extension/background.js`,
+  locked by `test-browser-cdp.mjs`), all six real-browser E2E suites **PASS** in Edge on dynamic ports:
+  `test-browser-claude-parity-readonly.mjs` (`PASS_SWITCHBOARD_ORIGINAL_CLAUDE_SAME_READONLY_FIXTURE`,
+  `h1: "QA-BICO-731", button: "Ready"`), `test-browser-panel-real-ai-skip-e2e.mjs`
+  (`PASS_FULL_PANEL_REAL_AI_SKIP_BROWSER_FINAL_E2E`, `REAL_CHROME_DOM {"label":"Clicks: 1","n":"1"}`,
+  multi-tab bound context + reconnect without duplicate action),
+  `test-browser-panel-stop-real-ai-e2e.mjs` (`PASS_REAL_PANEL_STOP_BACKEND_CANCEL_NO_BROWSER_WRITE`),
+  `test-browser-panel-long-local-e2e.mjs` (`PASS_LONG_REAL_AI_AUTO_PANEL_SIX_TOOLS_RECOVERY`, five
+  operator approvals resolved from `@eN` refs, `REAL_CHROME_DOM {"label":"Clicks: 1","n":"1","name":"Bico","city":"Bandung"}`),
+  `test-browser-panel-vision-real.mjs` (`PASS_REAL_SIDE_PANEL_AUTO_SCREENSHOT_VISION_ANSWER` with
+  `agnes-3.0-flash`, `SATURN 42` + `blue`, `approvals: 1`), and `test-browser-site-deny-visible.mjs`
+  (`PASS_REAL_CHROME_DENY_FAIL_CLOSED_NO_GRANT_NO_MUTATION`).
+- Real native site-grant prompt (`chrome.permissions.request`) for both HTTP (`http://qa.internal:<port>`)
+  and real HTTPS (`https://botconnector.id`) in both Chrome for Testing `155.0.8059.79` and Microsoft
+  Edge `155.0.4283.45` (2026-10-18): `test-browser-site-once-visible.mjs` **PASS** across all four
+  runs (Chrome HTTP, Edge HTTP, Chrome HTTPS, Edge HTTPS) — verified `PASS_REAL_CHROME_HOST_PERMISSION_ABSENT`,
+  `PASS_REAL_CHROME_SITE_PERMISSION_REQUIRED`, clicking `#site-request-once` in the side panel,
+  accepting the native browser permission dialog (`Allow` / `Izinkan`) via Windows UI Automation
+  (`InvokePattern`), `PASS_VISIBLE_CHROME_NATIVE_ALLOW_ONCE_RESUMES_TOOL`,
+  `PASS_VISIBLE_CHROME_NATIVE_ONE_TIME_GRANT_REVOKED`, and
+  `PASS_NATIVE_ALLOW_ONCE_THEN_REQUIRE_PERMISSION_AND_DENY`.
+- Not verified: a Chrome Web Store-installed 0.4.5 update (store remains 0.4.4 until submitted), a
+  Microsoft Edge Add-ons store listing, and manual side-by-side comparison of every historical Claude
+  in Chrome scenario on the owner's daily profile.
 
 ## Release gate
 
 Public beta/production remains **NO-GO** until the owner explicitly authorizes npm publish, a
 version tag/GitHub Release and Web Store submission. The 0.4.5 source is merged to
-`origin/master` (2026-10-18, owner-authorized push; nothing published). The six audit blockers
-now have automated and real-Chrome evidence — including the cloud vision QA part of
-`test-browser-panel-vision-real.mjs` (verified 2026-10-18 with the free BotConnector-gateway model
-`agnes-3.0-flash`) — but store-update, Edge, HTTPS site-grant and complete Claude in Chrome parity
-checks are still outside this evidence set.
+`origin/master` (2026-10-18, owner-authorized push; nothing published). The six audit blockers,
+cloud vision QA (`test-browser-panel-vision-real.mjs`), unpacked Microsoft Edge `155.0.4283.45` E2E,
+and the native HTTP/HTTPS site-grant prompt (`test-browser-site-once-visible.mjs` in Chrome and Edge)
+now have automated and real-browser evidence; store-installed 0.4.5 update, Edge Add-ons store listing,
+and manual owner-profile Claude in Chrome comparison remain outside automated evidence.

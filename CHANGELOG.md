@@ -8,6 +8,7 @@
 - Make the paired browser companion token browser-scoped: it cannot start shell-capable chats, settle non-browser approvals, or change the action mode through extension status updates.
 - Require browser selectors to exist in the current snapshot; screenshots and downloads always require explicit approval; pairing uses mutual HMAC challenge-response with AES-GCM token delivery; trace session keys reject path traversal.
 - Let the side panel discover the console origin advertised by the paired server (`webOrigin`), so `sbx web --port <n>` keeps Ask, approvals and Stop working without a hardcoded 7777; loopback `http:` origins only, with a visible fallback for older servers.
+- Enable CDP focus emulation (`Emulation.setFocusEmulationEnabled`) inside `withDebugger` so `browser_click` and `browser_key` reliably deliver trusted mouse and key events in Chrome and Microsoft Edge even when the bound agent tab is in the background or the browser window is unfocused/occluded on Windows.
 - Refuse shell/credential-capable presets in unattended automations unless `allowUnattended: true`; verify documentation and extension manifest versions against `package.json` in tests.
 
 ## 0.4.4

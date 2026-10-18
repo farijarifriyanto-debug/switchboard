@@ -92,7 +92,7 @@ const wait = () => new Promise(r => setTimeout(r, 35));
 {
   const r = await run("handleToolExecution('browser_click', { selector: '#go' })");
   assert.equal(r.ok, true);
-  assert.deepEqual(log.debugger.map(e => e[0]), ['attach', 'Input.dispatchMouseEvent', 'Input.dispatchMouseEvent', 'Input.dispatchMouseEvent', 'detach']);
+  assert.deepEqual(log.debugger.map(e => e[0]), ['attach', 'Emulation.setFocusEmulationEnabled', 'Input.dispatchMouseEvent', 'Input.dispatchMouseEvent', 'Input.dispatchMouseEvent', 'detach']);
   const pressed = log.debugger.find(e => e[0] === 'Input.dispatchMouseEvent' && e[1].type === 'mousePressed');
   assert.deepEqual([pressed[1].x, pressed[1].y], [10, 20], 'click lands on the element center');
   assert.equal(r.result.point, undefined, 'point is internal and not returned to the agent');
