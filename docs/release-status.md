@@ -6,7 +6,7 @@ Historical QA and release notes remain useful as evidence but do not override th
 | Delivery | Version | Status | Evidence / note |
 |---|---|---|---|
 | npm `@botconnector/switchboard` | **0.4.4** | Published; `latest` | `npm view @botconnector/switchboard version dist-tags` on 2026-10-18 |
-| Source / working tree | **0.4.5** | Unpublished security candidate | Based on `origin/master` `c636b00` (v0.4.4); not merged, tagged or published |
+| Source / working tree | **0.4.5** | Unpublished security candidate | Merged to `origin/master` on 2026-10-18 (source pushed); not tagged or published |
 | Chrome Web Store Browser Companion | **0.4.4** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`, observed at 0.4.4; update 0.4.5 **not submitted** |
 | Microsoft Edge Add-ons | **unknown** | Unverified | No verified listing/version evidence; do not invent a store URL |
 | GitHub Release | **v0.4.4** | Published | Existing release; 0.4.5 is not a GitHub release |
@@ -45,13 +45,24 @@ The unpublished source version hardens local trust boundaries:
   `connected` frame advertise the live console origin), `test-browser-background-ws.mjs` (no
   console running → no `webOrigin`), `test-browser-native-pair.mjs` (extension stores a validated
   loopback origin and ignores `https://evil.example`).
+- Real Chrome for Testing `155.0.8059.79` plus local model `botconnector-fast:latest`, migrated
+  dynamic-port tests (2026-10-18): `test-browser-panel-real-ai-skip-e2e.mjs`,
+  `test-browser-panel-stop-real-ai-e2e.mjs`, `test-browser-panel-long-local-e2e.mjs` (five
+  operator approvals resolved from `@eN` element refs via the latest `dom_snapshot`; real DOM
+  `Clicks: 1`, name `Bico`, city `Bandung`) and `test-browser-claude-parity-readonly.mjs`
+  **PASS** on ephemeral web ports instead of a pinned 7777;
+  `test-browser-panel-vision-real.mjs` **PASS** through pairing and the canvas fixture on a
+  dynamic port and then stops at the `SBX_ALLOW_CLOUD_VISION_TEST` guard — its cloud vision QA
+  part is unverified (owner declined cloud quota; no local vision-capable model exists).
 - Not verified: a Chrome Web Store-installed 0.4.5 update (store remains 0.4.4), Edge, a real
-  HTTPS native site-grant prompt, and every historical Claude in Chrome parity scenario. This is
+  HTTPS native site-grant prompt, the cloud vision QA part of `test-browser-panel-vision-real.mjs`,
+  and every historical Claude in Chrome parity scenario. This is
   why the release gate below is still closed.
 
 ## Release gate
 
-Public beta/production remains **NO-GO** until the owner explicitly authorizes merge, npm publish
-and Web Store submission. The six audit blockers now have automated and real-Chrome evidence, but
-store-update, Edge, HTTPS site-grant and complete Claude in Chrome parity checks are still outside
-this evidence set.
+Public beta/production remains **NO-GO** until the owner explicitly authorizes npm publish, a
+version tag/GitHub Release and Web Store submission. The 0.4.5 source is merged to
+`origin/master` (2026-10-18, owner-authorized push; nothing published). The six audit blockers
+now have automated and real-Chrome evidence, but store-update, Edge, HTTPS site-grant, the cloud
+vision QA part and complete Claude in Chrome parity checks are still outside this evidence set.

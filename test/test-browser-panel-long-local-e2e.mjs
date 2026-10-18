@@ -11,14 +11,14 @@ const localBaseURL=process.env.SBX_LOCAL_BASE_URL||'http://127.0.0.1:11666/v1';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const port=async()=>{const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p};
 async function session(url){const ws=new WebSocket(url);await new Promise((r,e)=>{ws.onopen=r;ws.onerror=e});let id=0;const pending=new Map();ws.onmessage=e=>{let m=JSON.parse(e.data);if(pending.has(m.id)){let [r,j]=pending.get(m.id);pending.delete(m.id);m.error?j(Error(m.error.message)):r(m.result)}};return{call:(method,params={},sessionId)=>new Promise((r,j)=>{const i=++id;pending.set(i,[r,j]);ws.send(JSON.stringify({id:i,method,params,...(sessionId?{sessionId}:{})}))}),close:()=>ws.close()}};
-const bridgePort=await port(),chromePort=await port(),pagePort=await port();
+const bridgePort=await port(),chromePort=await port(),pagePort=await port(),webPort=await port();
 const profile=await mkdtemp(path.join(tmpdir(),'switchboard-chrome-worker-audit-'));
 const token=randomBytes(32).toString('hex');
 let host,chrome,server;
 try{
  server=http.createServer((_req,res)=>{res.writeHead(200,{'Content-Type':'text/html'});res.end('<html><head><title>Switchboard Real Chrome Test</title></head><body><button id="counter" onclick="this.textContent=\'Clicks: \'+(Number(this.dataset.n||0)+1);this.dataset.n=Number(this.dataset.n||0)+1">Clicks: 0</button><h1>Chrome DOM test</h1><input id="name" placeholder="name"><select id="city"><option value="Jakarta">Jakarta</option><option value="Bandung">Bandung</option></select><p id="done">Ready</p></body></html>')});
  await new Promise(r=>server.listen(pagePort,'127.0.0.1',r));
- host=await createHost({settings:{dir:profile},llm:{baseURL:localBaseURL,apiKey:'ollama',defaultModel:localModel,retries:0,timeoutMs:120000},agent:{maxSteps:12,maxTokens:384,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'auto_safe'},web:{enabled:true,port:7777,host:'127.0.0.1',token:randomBytes(24).toString('hex')}});
+ host=await createHost({settings:{dir:profile},llm:{baseURL:localBaseURL,apiKey:'ollama',defaultModel:localModel,retries:0,timeoutMs:120000},agent:{maxSteps:12,maxTokens:384,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'auto_safe'},web:{enabled:true,port:webPort,host:'127.0.0.1',token:randomBytes(24).toString('hex')}});
  const chromeBin=process.env.SBX_TEST_CHROME_PATH; if(!chromeBin)throw Error('Set SBX_TEST_CHROME_PATH to Chrome for Testing chrome.exe');
  chrome=spawn(chromeBin,['--no-first-run','--no-default-browser-check','--disable-gpu','--remote-allow-origins=*',`--remote-debugging-port=${chromePort}`,`--user-data-dir=${profile}`,`--load-extension=${path.join(process.cwd(),'browser-extension')}`,`--disable-extensions-except=${path.join(process.cwd(),'browser-extension')}`,`http://127.0.0.1:${pagePort}/`],{stdio:'ignore'});
  let version;
@@ -60,7 +60,7 @@ try{
  const state=host.ctx.browserCompanion.getActiveTab();
  console.log('Active tab reported by Chrome extension: '+(state?.url?.startsWith('http://127.0.0.1:')?'LOCAL_HTTP_TAB':'NONE'));
  const webReady=await host.ctx.web.ready();
- console.log('REAL_LOCAL_WEB_READY '+JSON.stringify({port:7777,ready:Boolean(webReady)}));
+ console.log('REAL_LOCAL_WEB_READY '+JSON.stringify({port:webPort,ready:Boolean(webReady)}));
  const qaTab=(await evalSw("chrome.tabs.query({}).then(t=>t.filter(x=>x.url?.startsWith('http://127.0.0.1:')).map(x=>({id:x.id,url:x.url})))"))[0];
  if(!qaTab||!qaTab.url.endsWith('/'))throw Error('Local QA target missing');
  await evalSw('bindAgentTab('+qaTab.id+')');
@@ -94,7 +94,23 @@ try{
  if(!ready)throw Error('Real panel did not initialize paired with the bridge');
  console.log('PASS_REAL_PANEL_PAIRED');
  const toolResults=[];
- host.ctx.on('agent/tool',ev=>{if(String(ev.name||'').startsWith('browser_')){toolResults.push({name:ev.name,failed:String(ev.result).startsWith('Error:')});console.log('QA_LONG_AGENT_TOOL '+JSON.stringify(toolResults.at(-1)));}});
+ // The product guides the model to element refs ("@e1"); resolve every ref to
+ // its concrete selector from the latest real dom_snapshot before approving.
+ const refSelectors=new Map();
+ host.ctx.on('agent/tool',ev=>{
+   if(!String(ev.name||'').startsWith('browser_'))return;
+   toolResults.push({name:ev.name,failed:String(ev.result).startsWith('Error:')});
+   console.log('QA_LONG_AGENT_TOOL '+JSON.stringify(toolResults.at(-1)));
+   if(ev.name==='browser_dom_snapshot'&&!toolResults.at(-1).failed){
+     try{
+       const raw=typeof ev.result==='string'?ev.result:JSON.stringify(ev.result);
+       const snapshot=JSON.parse(raw);
+       for(const element of snapshot?.elements||[]){
+         if(typeof element?.ref==='string'&&typeof element?.selector==='string')refSelectors.set(element.ref,element.selector);
+       }
+     }catch{/* keep the previous ref mapping */}
+   }
+ });
  const prompt='On the previously selected Chrome QA test tab, complete this safe multi-step QA task in order. 1) List available browser tabs, 2) select the tab with the Chrome DOM test heading, 3) attempt browser_click on #does-not-exist-on-purpose (it should fail; do not repeat this failed selector), 4) type Bico into #name, 5) select value Bandung in #city, 6) click #counter exactly once, 7) read a browser_dom_snapshot. Report the observed counter and both form values; do not submit forms, navigate elsewhere, or touch the other QA tab.';
  const send=await evalPanel("(()=>{document.getElementById('task-prompt').value="+JSON.stringify(prompt)+";document.getElementById('task-send').click();return 'sent'})()",true);
  if(send!=='sent')throw Error('Panel submit did not run');
@@ -107,8 +123,10 @@ try{
    if(state.stepText?.includes('langkah')||state.stepText?.includes('Bekerja'))hasProgress=true;
    if(state.approval&&approvals<7){
      const ap=host.ctx.approvals.pending()[0];
-     const valid=ap&&ap.sessionId===state.session&&['browser_dom_snapshot','browser_click','browser_tabs_list','browser_tab_select','browser_type','browser_select'].includes(ap.tool)&& (!ap.args?.selector || ['#counter','#name','#city'].includes(ap.args.selector));
-     if(!valid)throw Error('Unexpected approval; will not authorize: '+JSON.stringify({tool:ap?.tool,args:ap?.args,session:state.session}));
+     const selector=ap?.args?.selector;
+     const resolvedSelector=typeof selector==='string'&&/^@e\d+$/.test(selector)?refSelectors.get(selector):selector;
+     const valid=ap&&ap.sessionId===state.session&&['browser_dom_snapshot','browser_click','browser_tabs_list','browser_tab_select','browser_type','browser_select'].includes(ap.tool)&& (!selector||['#counter','#name','#city'].includes(resolvedSelector));
+     if(!valid)throw Error('Unexpected approval; will not authorize: '+JSON.stringify({tool:ap?.tool,args:ap?.args,resolvedSelector,session:state.session}));
      await evalPanel("document.getElementById('btn-approve-once').click();'approved'",true);
      approvals++;
      console.log('PANEL_REAL_OPERATOR_APPROVED '+JSON.stringify({tool:ap.tool,n:approvals}));

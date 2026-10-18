@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.5
+
+- Harden local trust boundaries: project-local CI is disabled by default behind an explicit per-project trust decision, runs only a base environment plus `ci.envAllowlist`, and executes steps in the configured sandbox.
+- Make the paired browser companion token browser-scoped: it cannot start shell-capable chats, settle non-browser approvals, or change the action mode through extension status updates.
+- Require browser selectors to exist in the current snapshot; screenshots and downloads always require explicit approval; pairing uses mutual HMAC challenge-response with AES-GCM token delivery; trace session keys reject path traversal.
+- Let the side panel discover the console origin advertised by the paired server (`webOrigin`), so `sbx web --port <n>` keeps Ask, approvals and Stop working without a hardcoded 7777; loopback `http:` origins only, with a visible fallback for older servers.
+- Refuse shell/credential-capable presets in unattended automations unless `allowUnattended: true`; verify documentation and extension manifest versions against `package.json` in tests.
+
 ## 0.4.4
 
 - Fix Windows portable startup by resolving the same pinned BotConnector Local Core from either the npm vendor path or the portable sibling local-core folder, without duplicating model managers.
