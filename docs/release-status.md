@@ -52,8 +52,16 @@ The unpublished source version hardens local trust boundaries:
   `Clicks: 1`, name `Bico`, city `Bandung`) and `test-browser-claude-parity-readonly.mjs`
   **PASS** on ephemeral web ports instead of a pinned 7777;
   `test-browser-panel-vision-real.mjs` **PASS** through pairing and the canvas fixture on a
-  dynamic port and then stops at the `SBX_ALLOW_CLOUD_VISION_TEST` guard — its cloud vision QA
-  part is unverified (owner declined cloud quota; no local vision-capable model exists).
+  dynamic port; its cloud vision QA part stays **unverified**. The default cloud model
+  `gemma4:cloud` returns HTTP 429 (Ollama Pro weekly limit), and the only local vision+tools model
+  `qwen3-vl:4b` is thinking-only (Ollama ignores `think:false`; sole renderer `qwen3-vl-thinking`),
+  so its reasoning exhausts the browser agent's token budget before emitting `browser_screenshot`
+  (two full runs: `Completed.` with an empty fallback answer, 0 approvals). Investigation surfaced a
+  real latent bug, now fixed: `ac64823` made `browser_screenshot` require explicit approval in every
+  mode (`autoConfirmActions` → `require_approval`, `browser-companion.ts:829,977,1084`), but the
+  test's approval allowlist omitted it and would reject a legitimate screenshot approval as
+  "Unexpected approval" for any model; the allowlist now includes `browser_screenshot`. Full vision
+  E2E still needs a working non-thinking vision+tools model or a cloud quota reset.
 - Not verified: a Chrome Web Store-installed 0.4.5 update (store remains 0.4.4), Edge, a real
   HTTPS native site-grant prompt, the cloud vision QA part of `test-browser-panel-vision-real.mjs`,
   and every historical Claude in Chrome parity scenario. This is

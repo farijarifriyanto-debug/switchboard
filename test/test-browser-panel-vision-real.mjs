@@ -112,7 +112,7 @@ try{
    if(state.stepText?.includes('langkah')||state.stepText?.includes('Bekerja'))hasProgress=true;
    if(state.approval&&approvals<7){
      const ap=host.ctx.approvals.pending()[0];
-     const valid=ap&&ap.sessionId===state.session&&['browser_dom_snapshot','browser_click','browser_tabs_list','browser_tab_select'].includes(ap.tool)&& (!ap.args?.selector || ap.args.selector==='#counter');
+     const valid=ap&&ap.sessionId===state.session&&['browser_dom_snapshot','browser_click','browser_tabs_list','browser_tab_select','browser_screenshot'].includes(ap.tool)&& (!ap.args?.selector || ap.args.selector==='#counter'); // browser_screenshot selalu butuh approval eksplisit di semua mode (trust hardening); operator di sini menyetujuinya seperti alur panel nyata
      if(!valid)throw Error('Unexpected approval; will not authorize: '+JSON.stringify({tool:ap?.tool,args:ap?.args,session:state.session}));
      await evalPanel("document.getElementById('btn-approve-once').click();'approved'",true);
      approvals++;
