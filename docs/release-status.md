@@ -51,20 +51,22 @@ The unpublished source version hardens local trust boundaries:
   operator approvals resolved from `@eN` element refs via the latest `dom_snapshot`; real DOM
   `Clicks: 1`, name `Bico`, city `Bandung`) and `test-browser-claude-parity-readonly.mjs`
   **PASS** on ephemeral web ports instead of a pinned 7777;
-  `test-browser-panel-vision-real.mjs` **PASS** through pairing and the canvas fixture on a
-  dynamic port; its cloud vision QA part stays **unverified**. The default cloud model
-  `gemma4:cloud` returns HTTP 429 (Ollama Pro weekly limit), and the only local vision+tools model
-  `qwen3-vl:4b` is thinking-only (Ollama ignores `think:false`; sole renderer `qwen3-vl-thinking`),
-  so its reasoning exhausts the browser agent's token budget before emitting `browser_screenshot`
-  (two full runs: `Completed.` with an empty fallback answer, 0 approvals). Investigation surfaced a
-  real latent bug, now fixed: `ac64823` made `browser_screenshot` require explicit approval in every
-  mode (`autoConfirmActions` → `require_approval`, `browser-companion.ts:829,977,1084`), but the
-  test's approval allowlist omitted it and would reject a legitimate screenshot approval as
-  "Unexpected approval" for any model; the allowlist now includes `browser_screenshot`. Full vision
-  E2E still needs a working non-thinking vision+tools model or a cloud quota reset.
+  `test-browser-panel-vision-real.mjs` **PASS end-to-end** (2026-10-18) on a dynamic port: real Chrome
+  for Testing `155.0.8059.79` plus the free BotConnector-gateway vision model `agnes-3.0-flash`
+  (`https://api.botconnector.id/v1`, key via `SBX_LOCAL_API_KEY`). The agent listed tabs, selected the
+  test tab, requested `browser_screenshot` (operator-approved, `approvals: 1`), read the canvas from
+  pixels (`PANEL_VISION_CANVAS_DOM_EMPTY`), and answered `SATURN 42` + `blue`
+  (`PASS_REAL_SIDE_PANEL_AUTO_SCREENSHOT_VISION_ANSWER`, exit 0); the screenshot was forwarded as an
+  ephemeral untrusted image with no `data:image/` leak into the session transcript. The Ollama cloud
+  default `gemma4:cloud` was unusable (HTTP 429, Ollama Pro weekly limit) and the only local
+  vision+tools model `qwen3-vl:4b` is thinking-only (Ollama ignores `think:false`; its reasoning
+  exhausts the browser agent's token budget before emitting `browser_screenshot`), so verification used
+  the gateway model instead. This run also empirically confirms the allowlist fix: `ac64823` made
+  `browser_screenshot` require explicit approval in every mode (`autoConfirmActions` → `require_approval`,
+  `browser-companion.ts:829,977,1084`), but the test's approval allowlist omitted it and would reject a
+  legitimate screenshot approval as "Unexpected approval"; the allowlist now includes `browser_screenshot`.
 - Not verified: a Chrome Web Store-installed 0.4.5 update (store remains 0.4.4), Edge, a real
-  HTTPS native site-grant prompt, the cloud vision QA part of `test-browser-panel-vision-real.mjs`,
-  and every historical Claude in Chrome parity scenario. This is
+  HTTPS native site-grant prompt, and every historical Claude in Chrome parity scenario. This is
   why the release gate below is still closed.
 
 ## Release gate
@@ -72,5 +74,7 @@ The unpublished source version hardens local trust boundaries:
 Public beta/production remains **NO-GO** until the owner explicitly authorizes npm publish, a
 version tag/GitHub Release and Web Store submission. The 0.4.5 source is merged to
 `origin/master` (2026-10-18, owner-authorized push; nothing published). The six audit blockers
-now have automated and real-Chrome evidence, but store-update, Edge, HTTPS site-grant, the cloud
-vision QA part and complete Claude in Chrome parity checks are still outside this evidence set.
+now have automated and real-Chrome evidence — including the cloud vision QA part of
+`test-browser-panel-vision-real.mjs` (verified 2026-10-18 with the free BotConnector-gateway model
+`agnes-3.0-flash`) — but store-update, Edge, HTTPS site-grant and complete Claude in Chrome parity
+checks are still outside this evidence set.
