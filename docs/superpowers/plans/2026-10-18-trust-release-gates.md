@@ -24,8 +24,8 @@
 
 - [x] Archive local `0.1.0` (`84c17d9`) as `archive/local-0.1.0-20261018` and `local-0.1.0-archive-20261018`.
 - [x] Create worktree `switchboard-fix-20261018` on `fix/trust-release-gates-20261018` from `origin/master`.
-- [ ] After verification, reset the main checkout `master` to `origin/master`, fast-forward it to the feature branch, and remove the temporary worktree.
-- [ ] Inspect local-only commits/files and port only genuinely unique work; do not merge histories.
+- [x] After verification, reset the main checkout `master` to `origin/master`, fast-forward it to the feature branch, and remove the temporary worktree.
+- [x] Inspect local-only commits/files and port only genuinely unique work; do not merge histories. Audit result: the only local-only files are seven dated historical plan/review docs; every feature area already exists in `origin/master`, so nothing functional needed porting.
 
 ### Task 2: Trace path traversal
 
@@ -86,5 +86,33 @@
 - [x] `npm run build`
 - [x] `npm test` (Windows; note skipped real Chrome/sandbox probes honestly)
 - [x] Focused real-browser checks if the environment permits; otherwise mark browser E2E `BELUM TERVERIFIKASI`.
-- [ ] Reset main `master` to `origin/master`, fast-forward to the feature branch, remove the temporary worktree, and leave both archive refs intact.
-- [ ] Report PASS/FAIL per item, commands and evidence, and the remaining release gate.
+- [x] Reset main `master` to `origin/master`, fast-forward to the feature branch, remove the temporary worktree, and leave both archive refs intact.
+- [x] Report PASS/FAIL per item, commands and evidence, and the remaining release gate.
+
+---
+
+## Verification log (2026-10-18, Windows)
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | exit 0 |
+| `npm run build` | exit 0 |
+| `npm test` (full Windows chain) | exit 0 — `recovery: OK`, `trace: OK`, `docs: OK` |
+| `node test/test-browser-panel-terminal-visible.mjs` (Chrome for Testing 155.0.8059.79, simulated provider) | PASS |
+| `node test/test-browser-panel-real-ai-e2e.mjs` (same Chrome, real model `botconnector-fast:latest`) | PASS — real click, `Clicks: 1`, 2 approvals, `Completed.` |
+
+- Local-only audit: comparing trees, the only files unique to local 0.1.0 are seven dated
+  historical plan/review docs; every feature area is present in the published line, so nothing
+  functional needed porting. Archive refs `archive/local-0.1.0-20261018` and
+  `local-0.1.0-archive-20261018` keep the old line.
+- Two pre-existing Windows flakes blocked a green suite and were fixed: session checkpoints retry
+  an atomic rename that Windows can reject with `EPERM` while a reader has the file open
+  (`src/services/session.ts`; 20/20 recovery runs after the fix), and `test-ci` now awaits its
+  persistence observations instead of sleeping 100 ms (20/20).
+- Limits: the real-model browser test uses an isolated copy of the extension whose panel API base
+  points at the test's dynamic web port (a live `sbx web` owns 7777); the panel hardcodes 7777 in
+  product source, a pre-existing assumption left unchanged. Store-installed 0.4.5, Edge, a real
+  HTTPS site-grant prompt, and every historical Claude in Chrome parity scenario remain
+  unverified.
+- Release gate stays closed: no npm publish, no Web Store submission, no push was made; local
+  `master` was moved to `ac64823` and the temporary worktree removed.
