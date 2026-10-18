@@ -110,18 +110,18 @@ console.log('PASS Enter and Space on buttons and links are refused')
 focus = { tag: 'input', sensitive: false, editable: true }
 const enter = await call('browser_key', { key: 'Enter' })
 assert.equal(JSON.stringify(enter.result), JSON.stringify({ key: 'Enter' }))
-assert.deepEqual(events.map(e => [e.method, e.type]), [['Input.dispatchKeyEvent', 'keyDown'], ['Input.dispatchKeyEvent', 'keyUp']])
-assert.equal(events[0].text, '\r', 'Enter carries its character')
-assert.equal(events[0].windowsVirtualKeyCode, 13)
+assert.deepEqual(events.map(e => [e.method, e.type ?? e.enabled]), [['Emulation.setFocusEmulationEnabled', true], ['Input.dispatchKeyEvent', 'keyDown'], ['Input.dispatchKeyEvent', 'keyUp']])
+assert.equal(events[1].text, '\r', 'Enter carries its character')
+assert.equal(events[1].windowsVirtualKeyCode, 13)
 console.log('PASS Enter in a text field is sent as a trusted key event')
 
 events.length = 0
 focus = { tag: 'button', sensitive: false, editable: false }
 await call('browser_key', { key: 'Tab' })
-assert.deepEqual(events.map(e => e.type), ['rawKeyDown', 'keyUp'], 'Tab uses a raw key event')
+assert.deepEqual(events.map(e => e.type ?? e.enabled), [true, 'rawKeyDown', 'keyUp'], 'Tab uses a raw key event')
 events.length = 0
 await call('browser_key', { key: 'Shift+Tab' })
-assert.equal(events[0].modifiers, 8, 'Shift+Tab sets the shift modifier')
+assert.equal(events[1].modifiers, 8, 'Shift+Tab sets the shift modifier')
 console.log('PASS navigation keys work from a button and Shift+Tab sets the modifier')
 
 console.log('=== browser_tab_close and browser_key contract PASSED ===')
