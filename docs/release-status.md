@@ -5,15 +5,15 @@ Historical QA and release notes remain useful as evidence but do not override th
 
 | Delivery | Version | Status | Evidence / note |
 |---|---|---|---|
-| npm `@botconnector/switchboard` | **0.4.4** | Published; `latest` | `npm view @botconnector/switchboard version dist-tags` on 2026-10-18 |
-| Source / working tree | **0.4.5** | Unpublished security candidate | Merged to `origin/master` on 2026-10-18 (source pushed); not tagged or published |
-| Chrome Web Store Browser Companion | **0.4.4** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`, observed at 0.4.4; update 0.4.5 **not submitted** |
+| npm `@botconnector/switchboard` | **0.4.5** | Published; `latest` | `npm view @botconnector/switchboard version dist-tags dist.shasum` on 2026-10-18 (`932eddc1c6bad25e5ce25ad11926412f4f71cb6e`, signed provenance) |
+| Source / working tree | **0.4.5** | Published | Tagged `v0.4.5` (`6f343b2`) on `origin/master` on 2026-10-18 |
+| Chrome Web Store Browser Companion | **0.4.4** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`, observed at 0.4.4; packaged `switchboard-chrome.zip` (`0.4.5`, SHA-256 `e520d0a20a8422b70e7a8f3cf2ec712c6c30f3907d1f8081540eacad2243d360`) ready for publisher dashboard upload |
 | Microsoft Edge Add-ons | **unknown** | Unverified | No verified listing/version evidence; do not invent a store URL |
-| GitHub Release | **v0.4.4** | Published | Existing release; 0.4.5 is not a GitHub release |
+| GitHub Release | **v0.4.5** | Published (`latest`) | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.5` (npm tarball, `Switchboard-0.4.5-Windows-x64.zip`, `switchboard-chrome.zip`, `switchboard-edge.zip`, and SHA-256 checksums) |
 
 ## What 0.4.5 contains
 
-The unpublished source version hardens local trust boundaries:
+Version 0.4.5 hardens local trust boundaries:
 
 - Local CI is disabled by default, requires a per-project trust decision, passes only a base
   environment plus `ci.envAllowlist`, and runs steps in the configured sandbox.
@@ -96,10 +96,11 @@ The unpublished source version hardens local trust boundaries:
 
 ## Release gate
 
-Public beta/production remains **NO-GO** until the owner explicitly authorizes npm publish, a
-version tag/GitHub Release and Web Store submission. The 0.4.5 source is merged to
-`origin/master` (2026-10-18, owner-authorized push; nothing published). The six audit blockers,
-cloud vision QA (`test-browser-panel-vision-real.mjs`), unpacked Microsoft Edge `155.0.4283.45` E2E,
-and the native HTTP/HTTPS site-grant prompt (`test-browser-site-once-visible.mjs` in Chrome and Edge)
-now have automated and real-browser evidence; store-installed 0.4.5 update, Edge Add-ons store listing,
-and manual owner-profile Claude in Chrome comparison remain outside automated evidence.
+Owner authorized **GO** for the **0.4.5** package and GitHub/npm release on 2026-10-18 after all six
+audit blockers, cloud vision QA (`test-browser-panel-vision-real.mjs`), unpacked Microsoft Edge
+`155.0.4283.45` E2E, and the native HTTP/HTTPS site-grant prompt (`test-browser-site-once-visible.mjs`
+in Chrome and Edge) passed automated and real-browser verification. `@botconnector/switchboard@0.4.5`
+is published on npm (`latest`) with signed provenance, and GitHub Release `v0.4.5` is published with
+the npm tarball, Windows x64 portable bundle, Chrome/Edge extension packages, and SHA-256 checksums.
+Chrome Web Store submission of `switchboard-chrome.zip` (`0.4.5`, item `miehnbiiokkciokmepnhgmlhjpabbkna`),
+Microsoft Edge Add-ons store listing, and post-store-update checks remain manual publisher actions.

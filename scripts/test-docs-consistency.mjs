@@ -27,10 +27,10 @@ assert.equal(pkg.version, manifest.version, 'package.json and extension manifest
 assert.equal(lock.version, pkg.version, 'package-lock root version must match package.json')
 assert.equal(lock.packages?.['']?.version, pkg.version, 'package-lock workspace version must match package.json')
 
-assert.match(status, new RegExp(`Source / working tree \\| \\*\\*${pkg.version.replaceAll('.', '\\.')}\\*\\* \\| Unpublished`), 'release-status must show the unpublished source version')
+assert.match(status, new RegExp(`Source / working tree \\| \\*\\*${pkg.version.replaceAll('.', '\\.')}\\*\\* \\| (?:Unpublished|Published)`), 'release-status must show the source version')
 assert.match(status, /Chrome Web Store Browser Companion \| \*\*0\.4\.4\*\* \| Published/, 'release-status must show the published Chrome version')
 assert.match(status, /Microsoft Edge Add-ons \| \*\*unknown\*\* \| Unverified/, 'release-status must not invent an Edge status')
-assert.match(status, /npm `@botconnector\/switchboard` \| \*\*0\.4\.4\*\* \| Published/, 'release-status must show the published npm version')
+assert.match(status, new RegExp(`npm \`@botconnector\\/switchboard\` \\| \\*\\*${pkg.version.replaceAll('.', '\\.')}\\*\\* \\| Published`), 'release-status must show the published npm version')
 
 for (const doc of [readme, extensionReadme]) {
   assert.match(doc, /17 browser/, 'current browser docs must use the 17-tool count')
