@@ -36,6 +36,12 @@ npm run test:browser-site-deny-visible
 
 These are manual acceptance tests. Do not run them in generic headless CI and label them equivalent to the owner's visible Chrome. No production credentials needed. One test uses the fixed loopback port 7777; do not run these tests concurrently or over an already running Switchboard instance.
 
+> 2026-10-18 update: the panel no longer requires port 7777. The paired server advertises its
+> real console origin and the side panel follows it
+> (`docs/superpowers/plans/2026-10-18-panel-web-origin-discovery.md`); the real-model E2E now runs
+> the unmodified extension against a dynamic console port. Tests that still configure their own
+> web server on a fixed port keep the old "do not run concurrently" guidance until they migrate.
+
 ## Claude in Chrome behavioral comparison
 
 Primary official references and previously reviewed 11 October 2026 notes are in `docs/claude-in-chrome-reference-20261011.md` and `docs/browser-parity-gate-20261011.md`:

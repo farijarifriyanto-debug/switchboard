@@ -21,6 +21,10 @@ The unpublished source version hardens local trust boundaries:
   settle non-browser approvals, and cannot change action mode through extension status updates.
 - Browser selectors must exist in the current snapshot; screenshots and downloads always require
   approval; pairing uses mutual HMAC challenge-response and AES-GCM token delivery.
+- The side panel learns the local console origin from the paired server (`webOrigin` in the
+  pairing/status/`connected` payloads), so `sbx web --port <n>` keeps the panel's Ask, approvals
+  and Stop working without a hardcoded 7777. Loopback `http:` origins only; older servers keep
+  the visible fallback.
 - Trace session keys reject path traversal.
 - Unattended automations refuse shell/credential-capable presets unless `allowUnattended: true`.
 - Documentation and manifest versions are checked by `scripts/test-docs-consistency.mjs`.
@@ -32,11 +36,15 @@ The unpublished source version hardens local trust boundaries:
   `test/test-browser-panel-terminal-visible.mjs` **PASS** (pairing, authenticated WebSocket,
   panel success/error/cancel/stop/step-limit, no false final).
 - Real Chrome for Testing `155.0.8059.79` plus local model `botconnector-fast:latest` (Ollama
-  `127.0.0.1:11666`), unpacked extension, real click and independent DOM read:
-  `test/test-browser-panel-real-ai-e2e.mjs` **PASS** — `Completed.`, two visible approvals,
+  `127.0.0.1:11666`), unpacked extension **unmodified from this source**, real click and independent
+  DOM read: `test/test-browser-panel-real-ai-e2e.mjs` **PASS** — the extension discovered the
+  console origin `http://127.0.0.1:60410` advertised by the paired bridge (while a live `sbx web`
+  still owned 7777), panel chat reached that dynamic port, `Completed.`, visible approvals,
   actual `Clicks: 1`, agent-tab context preserved, reconnect without duplicate action.
-  The test used an isolated copy of the extension whose panel API base was pointed at the test's
-  dynamic web port instead of `7777`; product source was not changed for this run.
+  Supporting tests on the same run: `test-browser-panel-chat-auth.mjs` (pair response and WS
+  `connected` frame advertise the live console origin), `test-browser-background-ws.mjs` (no
+  console running → no `webOrigin`), `test-browser-native-pair.mjs` (extension stores a validated
+  loopback origin and ignores `https://evil.example`).
 - Not verified: a Chrome Web Store-installed 0.4.5 update (store remains 0.4.4), Edge, a real
   HTTPS native site-grant prompt, and every historical Claude in Chrome parity scenario. This is
   why the release gate below is still closed.

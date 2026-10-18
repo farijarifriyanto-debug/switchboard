@@ -20,18 +20,9 @@ try{
  await new Promise(r=>server.listen(pagePort,'127.0.0.1',r));
  host=await createHost({settings:{dir:profile},llm:{baseURL:localBaseURL,apiKey:'ollama',defaultModel:localModel,retries:0,timeoutMs:120000},agent:{maxSteps:5,maxTokens:384,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'auto_safe'},web:{enabled:true,port:webPort,host:'127.0.0.1',token:randomBytes(24).toString('hex')}});
  const chromeBin=process.env.SBX_TEST_CHROME_PATH; if(!chromeBin)throw Error('Set SBX_TEST_CHROME_PATH to Chrome for Testing chrome.exe');
- let extensionDir=process.env.SBX_TEST_EXTENSION_DIR;
- if(!extensionDir){
-  // The panel's shipped default is the conventional web port 7777. An isolated
-  // test copy points those API calls at this run's dynamic web port so a live
-  // `sbx web` on 7777 cannot receive the test chat. No product source changes.
-  extensionDir=path.join(profile,'extension-under-test');
-  await cp(path.join(process.cwd(),'browser-extension'),extensionDir,{recursive:true});
-  const panelFile=path.join(extensionDir,'panel.js');
-  const panelText=await readFile(panelFile,'utf8');
-  await writeFile(panelFile,panelText.replaceAll('127.0.0.1:7777',`127.0.0.1:${webPort}`),'utf8');
-  console.log('REAL_PANEL_EXTENSION_COPY '+JSON.stringify({webPort,source:'browser-extension'}));
- }
+ // Load the real shipping extension unmodified: the panel must discover this
+ // run's dynamic console port from the paired server, not a hardcoded 7777.
+ const extensionDir=process.env.SBX_TEST_EXTENSION_DIR||path.join(process.cwd(),'browser-extension');
  chrome=spawn(chromeBin,['--no-first-run','--no-default-browser-check','--disable-gpu','--remote-allow-origins=*',`--remote-debugging-port=${chromePort}`,`--user-data-dir=${profile}`,`--load-extension=${extensionDir}`,`--disable-extensions-except=${extensionDir}`,`http://127.0.0.1:${pagePort}/`],{stdio:'ignore'});
  let version;
  for(let i=0;i<50;i++){try{let r=await fetch(`http://127.0.0.1:${chromePort}/json/version`);if(r.ok){version=await r.json();break}}catch{}await sleep(250)}
@@ -67,6 +58,11 @@ try{
  const connected=await evalSw('bridgeStatus().connected');
  if(!connected||!host.ctx.browserCompanion.isClientConnected())throw Error('Local backend WebSocket not connected');
  console.log('PASS authenticated real Chrome background WebSocket connects to Switchboard');
+ const discovered=await evalSw("chrome.storage.local.get('webOrigin').then(v=>v.webOrigin)");
+ if(discovered!=='http://127.0.0.1:'+webPort)throw Error('Real extension did not adopt the dynamic console origin: '+discovered);
+ const statusView=await evalSw('bridgeStatus()');
+ if(statusView?.webOrigin!==discovered)throw Error('Bridge status does not expose the discovered console origin: '+JSON.stringify(statusView));
+ console.log('PASS_REAL_EXTENSION_DISCOVERED_CONSOLE_ORIGIN '+discovered);
  await evalSw(`chrome.storage.local.set({approvedOrigins:['http://127.0.0.1:${pagePort}'],permissionMode:'auto_safe'})`);
  await sleep(300);
  const state=host.ctx.browserCompanion.getActiveTab();

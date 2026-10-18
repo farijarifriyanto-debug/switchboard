@@ -8,6 +8,9 @@ let isRecording = false;
 let currentTab = null;
 let bridgeUrl = 'http://127.0.0.1:7778';
 let companionToken = '';
+// Where the panel's Ask APIs live. Updated from the paired server (the console
+// may run on any `--port`); this default only applies to older servers.
+let webOrigin = 'http://127.0.0.1:7777';
 let recordedWorkflowSteps = [];
 
 // -----------------------------------------------------------------------------
@@ -69,9 +72,11 @@ async function refreshActiveTab() {
 // Switchboard Host Connection & Pairing
 // -----------------------------------------------------------------------------
 async function loadStoredConfig() {
-  const stored = await chrome.storage.local.get(['bridgeUrl', 'companionToken', 'permissionMode', 'workflowSteps']);
+  const stored = await chrome.storage.local.get(['bridgeUrl', 'companionToken', 'permissionMode', 'webOrigin', 'workflowSteps']);
   if (stored.bridgeUrl) bridgeUrl = stored.bridgeUrl;
   if (stored.companionToken) companionToken = stored.companionToken;
+  const storedWebOrigin = normalizeWebOrigin(stored.webOrigin);
+  if (storedWebOrigin) webOrigin = storedWebOrigin;
   const permissionMode = normalizePermissionMode(stored.permissionMode);
   $('permission-mode-select').value = permissionMode;
   if (stored.permissionMode !== permissionMode) await chrome.storage.local.set({ permissionMode });
@@ -95,6 +100,8 @@ async function refreshBridgeStatus() {
       updatePermissionModeDescription(serverMode);
       await chrome.storage.local.set({ permissionMode: serverMode });
     }
+    const serverWebOrigin = normalizeWebOrigin(status?.webOrigin);
+    if (serverWebOrigin) webOrigin = serverWebOrigin;
     if (!status?.connected && status?.error) {
       $('bridge-diagnostics').textContent = status.error;
     }
@@ -113,8 +120,10 @@ async function connectToSwitchboard() {
       type: 'SWITCHBOARD_BRIDGE_CONNECT', url: bridgeUrl, code,
     });
     if (!reply?.ok) throw new Error(reply?.error || 'Pairing failed');
-    const saved = await chrome.storage.local.get('companionToken');
+    const saved = await chrome.storage.local.get(['companionToken', 'webOrigin']);
     companionToken = saved.companionToken || '';
+    const pairedWebOrigin = normalizeWebOrigin(saved.webOrigin);
+    if (pairedWebOrigin) webOrigin = pairedWebOrigin;
     $('bridge-token-input').value = '';
     setBadge('connected', 'Connected');
     $('bridge-diagnostics').textContent = 'Paired successfully. This companion remains connected when its panel is closed.';
@@ -194,7 +203,7 @@ function approvalTargetOrigin(item, fallbackTab) {
 async function refreshActionApproval() {
   if (!activeTask || !activeTaskSession || !companionToken) return;
   try {
-    const response = await fetch('http://127.0.0.1:7777/api/approvals', {
+    const response = await fetch(webOrigin + '/api/approvals', {
       headers: { authorization: 'Bearer ' + companionToken },
     });
     if (!response.ok) return;
@@ -214,7 +223,7 @@ async function settleApproval(decision) {
   const buttons = ['btn-approve-once', 'btn-approve-session', 'btn-reject'].map($);
   buttons.forEach(button => { button.disabled = true; });
   try {
-    const response = await fetch('http://127.0.0.1:7777/api/approvals/' + encodeURIComponent(id), {
+    const response = await fetch(webOrigin + '/api/approvals/' + encodeURIComponent(id), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + companionToken },
       body: JSON.stringify({ decision }),
@@ -454,6 +463,11 @@ function normalizePermissionMode(value) {
   return 'auto';
 }
 
+/** Accept only the local console: plain HTTP on loopback (matches background.js). */
+function normalizeWebOrigin(value) {
+  return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(String(value || '')) ? String(value) : '';
+}
+
 function updatePermissionModeDescription(mode) {
   const descriptions = {
     manual: 'Ask you to approve each browser action. Chrome still controls which sites the companion can access.',
@@ -664,7 +678,7 @@ let activeTask = null;
 let activeTaskSession = null;
 function taskStatus(text) { $('task-status').textContent = text; }
 $('task-open-web').addEventListener('click', () => {
-  void chrome.tabs.create({ url: 'http://127.0.0.1:7777/' });
+  void chrome.tabs.create({ url: webOrigin + '/' });
 });
 $('task-stop').addEventListener('click', async () => {
   const sessionToCancel = activeTaskSession;
@@ -672,7 +686,7 @@ $('task-stop').addEventListener('click', async () => {
   taskStatus('Stopped.');
   note('Dihentikan.');
   if (sessionToCancel && companionToken) {
-    await fetch('http://127.0.0.1:7777/api/runs/' + encodeURIComponent(sessionToCancel) + '/cancel', {
+    await fetch(webOrigin + '/api/runs/' + encodeURIComponent(sessionToCancel) + '/cancel', {
       method: 'POST', headers: { authorization: 'Bearer ' + companionToken }
     }).catch(() => {});
   }
@@ -866,7 +880,7 @@ $('task-form').addEventListener('submit', async event => {
       ? 'The current website origin is ' + currentTab.origin +
         '. Use browser_tabs_list and browser_tab_select to target the right tab if needed. '
       : '';
-    const response = await fetch('http://127.0.0.1:7777/api/chat', {
+    const response = await fetch(webOrigin + '/api/chat', {
       method: 'POST',
       signal: activeTask.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + companionToken },

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
+import WebSocket from 'ws';
 import { createHost } from '../dist/index.js';
+import { pairV2 } from './helpers/pair-client.mjs';
 
 async function randomPort(){
   const s=net.createServer();
@@ -10,15 +12,35 @@ async function randomPort(){
 }
 const bearer=randomBytes(24).toString('hex');
 const consoleToken=randomBytes(24).toString('hex');
+const browserPort=await randomPort();
 const host=await createHost({
  llm:{baseURL:'http://127.0.0.1:9/v1',defaultModel:'stub',retries:0},
  sessions:{dir:'',load:false},metrics:{persist:'',load:false},
- browser:{port:await randomPort(),host:'127.0.0.1',token:bearer},
+ browser:{port:browserPort,host:'127.0.0.1',token:bearer},
  web:{enabled:true,port:0,token:consoleToken}
 });
 try{
  const {url}=await host.ctx.web.ready();
  const origin='chrome-extension://'+'a'.repeat(32);
+ // The panel's Ask APIs live on this console, which may run on any --port.
+ // The paired bridge must advertise the real origin so the extension never
+ // has to guess the conventional 7777.
+ const consoleOrigin=new URL(url).origin;
+ const paired=await pairV2('http://127.0.0.1:'+browserPort,bearer,'token',origin);
+ assert.equal(paired.webOrigin,consoleOrigin,'pair response advertises the live console origin');
+ console.log('PASS pair response advertises the live console origin '+consoleOrigin);
+ const wsFrames=[];
+ const discoverySocket=new WebSocket('ws://127.0.0.1:'+browserPort+'/api/browser-companion/socket',
+   ['switchboard-bridge-v1','sb-auth-'+bearer],{origin});
+ discoverySocket.on('message',raw=>{try{wsFrames.push(JSON.parse(raw.toString()))}catch{}});
+ await new Promise((resolve,reject)=>{discoverySocket.once('open',resolve);discoverySocket.once('error',reject)});
+ let connectedFrame=wsFrames.find(frame=>frame.type==='connected');
+ for(let i=0;i<50&&!connectedFrame;i++){await new Promise(resolve=>setTimeout(resolve,40));connectedFrame=wsFrames.find(frame=>frame.type==='connected')}
+ assert.ok(connectedFrame,'WS connected frame arrives for the paired extension');
+ assert.equal(connectedFrame.data.webOrigin,consoleOrigin,'WS connected frame advertises the live console origin');
+ discoverySocket.close();
+ await new Promise(resolve=>discoverySocket.once('close',resolve));
+ console.log('PASS WS connected frame advertises the live console origin');
  const requestHeaders={'origin':origin,'access-control-request-method':'POST',
    'access-control-request-headers':'content-type,authorization'};
  const preflight=await fetch(url+'api/chat',{method:'OPTIONS',headers:requestHeaders});

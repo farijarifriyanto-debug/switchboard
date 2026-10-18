@@ -143,6 +143,9 @@ export class BrowserCompanionService {
   private pairCodeFailures = 0
   private pairChallenges = new Map<string, PairChallenge>()
   private seq = 0
+  // Origin of the local web console when this host runs one, resolved once.
+  // `null` means "no console in this host"; `undefined` means "not resolved".
+  private webOriginResolved: string | null | undefined
 
   constructor(private ctx: Context, config: BrowserCompanionConfig = {}) {
     const configuredToken = typeof config.token === 'string' ? config.token.trim() : ''
@@ -170,6 +173,23 @@ export class BrowserCompanionService {
   /** Short-lived, single-use code displayed only in the local interactive CLI. */
   get pairingCode(): string | null {
     return this.pairCodeExpiry > Date.now() && this.pairCodeFailures < 5 ? this.pairCode : null
+  }
+
+  /**
+   * Origin of the local operator console when one runs in this host. The side
+   * panel uses it as its Ask backend, so it must follow the console's real port
+   * (`sbx web --port <n>`) instead of assuming the conventional 7777. Resolved
+   * lazily and cached; the console port cannot change while the host is up.
+   */
+  private async webConsoleOrigin(): Promise<string | null> {
+    if (this.webOriginResolved !== undefined) return this.webOriginResolved
+    const web = this.ctx.get('web', false) as { ready(): Promise<{ url: string }> } | null | undefined
+    if (!web) return (this.webOriginResolved = null)
+    try {
+      return (this.webOriginResolved = new URL((await web.ready()).url).origin)
+    } catch {
+      return (this.webOriginResolved = null)
+    }
   }
 
   get currentMode(): PermissionMode {
@@ -433,7 +453,10 @@ export class BrowserCompanionService {
       })
       // Heartbeat payloads are constrained by maxPayload; messages are not executable commands.
       ws.on('message', () => {})
-      ws.send(JSON.stringify({ type: 'connected', data: { mode: this.mode } }))
+      void this.webConsoleOrigin().then(webOrigin => {
+        if (ws.readyState !== WebSocket.OPEN) return
+        ws.send(JSON.stringify({ type: 'connected', data: { mode: this.mode, ...(webOrigin ? { webOrigin } : {}) } }))
+      }).catch(() => { /* socket closed while resolving the console origin */ })
     })
   }
 
@@ -566,12 +589,14 @@ export class BrowserCompanionService {
         const encrypted = method === 'code'
           ? this.encryptPairToken(secret, method, clientNonce, challenge.serverNonce)
           : undefined
+        const webOrigin = await this.webConsoleOrigin()
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({
           ok: true,
           mode: this.mode,
           approvedOrigins: Array.from(this.approvedOrigins),
           activeTab: this.activeTab,
+          ...(webOrigin ? { webOrigin } : {}),
           ...(encrypted ?? {}),
         }))
       } catch (err: any) {
@@ -595,7 +620,8 @@ export class BrowserCompanionService {
         'cache-control': 'no-cache, no-transform',
         connection: 'keep-alive',
       })
-      res.write(`event: connected\ndata: ${JSON.stringify({ mode: this.mode, origins: Array.from(this.approvedOrigins) })}\n\n`)
+      const webOrigin = await this.webConsoleOrigin()
+      res.write(`event: connected\ndata: ${JSON.stringify({ mode: this.mode, origins: Array.from(this.approvedOrigins), ...(webOrigin ? { webOrigin } : {}) })}\n\n`)
 
       this.eventListeners.add(res)
       req.on('close', () => {
@@ -644,8 +670,9 @@ export class BrowserCompanionService {
         }
         // Mode is server-authoritative. The extension reports tab/origin state
         // here, but cannot change the action mode through this route.
+        const webOrigin = await this.webConsoleOrigin()
         res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ ok: true, mode: this.mode, activeTab: this.activeTab }))
+        res.end(JSON.stringify({ ok: true, mode: this.mode, activeTab: this.activeTab, ...(webOrigin ? { webOrigin } : {}) }))
       } catch (err: any) {
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))

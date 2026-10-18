@@ -26,6 +26,18 @@ let statusSyncTimer = null;
 // badge/panel, never the authority.
 let serverMode = 'auto';
 
+// Origin of the local web console serving the panel's Ask APIs. The paired
+// server advertises its real origin (the console may run on any `--port`);
+// the conventional loopback:7777 is only a fallback for older servers.
+const DEFAULT_WEB_ORIGIN = 'http://127.0.0.1:7777';
+let webConsoleOrigin = DEFAULT_WEB_ORIGIN;
+void chrome.storage.local.get('webOrigin')
+  .then(({ webOrigin }) => {
+    const stored = validWebOrigin(webOrigin);
+    if (stored) webConsoleOrigin = stored;
+  })
+  .catch(() => {});
+
 function validBridgeUrl(input) {
   const url = new URL(String(input || 'http://127.0.0.1:7778'));
   if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)
@@ -33,6 +45,27 @@ function validBridgeUrl(input) {
     throw new Error('Browser Companion only connects to an HTTP loopback address.');
   }
   return url.origin;
+}
+
+/** The panel's Ask backend must stay on this machine and speak plain HTTP. */
+function validWebOrigin(input) {
+  try {
+    const url = new URL(String(input || ''));
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)
+        || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+      return '';
+    }
+    return url.origin;
+  } catch (_) {
+    return '';
+  }
+}
+
+function adoptWebOrigin(input) {
+  const origin = validWebOrigin(input);
+  if (!origin || origin === webConsoleOrigin) return;
+  webConsoleOrigin = origin;
+  void chrome.storage.local.set({ webOrigin: origin });
 }
 
 async function bridgeConfig() {
@@ -90,6 +123,7 @@ async function syncBrowserState() {
     serverMode = normalizeActionMode(data.mode);
     await chrome.storage.local.set({ permissionMode: serverMode });
   }
+  adoptWebOrigin(data?.webOrigin);
 }
 
 function scheduleStatusSync() {
@@ -200,6 +234,7 @@ async function pairV2(url, secret, method) {
   }
   const data = await response.json();
   if (!data?.ok) throw new Error('Invalid pairing response.');
+  adoptWebOrigin(data.webOrigin);
   if (method === 'code') {
     if (!data.tokenCipher || !data.tokenIv) throw new Error('Pairing response did not include the encrypted token.');
     data.token = await decryptPairToken(secret, method, clientNonce, challenge.serverNonce, data.tokenCipher, data.tokenIv);
@@ -260,6 +295,7 @@ async function ensureBridgeSocket() {
         if (msg.type === 'connected' && msg.data) {
           serverMode = normalizeActionMode(msg.data.mode);
           void chrome.storage.local.set({ permissionMode: serverMode });
+          adoptWebOrigin(msg.data.webOrigin);
         }
         if (msg.type === 'command' && msg.data && generation === bridgeSocketGeneration) {
           void sendBridgeResult(msg.data, url, token).catch(err => {
@@ -327,6 +363,7 @@ function bridgeStatus() {
     connected: socketIsOpen(),
     status: socketIsOpen() ? 'connected' : 'disconnected',
     mode: serverMode,
+    webOrigin: webConsoleOrigin,
     error: bridgeLastError,
   };
 }

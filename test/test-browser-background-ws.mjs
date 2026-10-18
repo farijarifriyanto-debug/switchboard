@@ -50,6 +50,7 @@ try {
   const code = service.pairingCode
   const data = await pairV2(BASE, code, 'code', EXTENSION_ORIGIN)
   assert.equal(data.token, TOKEN, 'code pairing returns the token only inside the authenticated encryption envelope')
+  assert.equal(data.webOrigin, undefined, 'no console origin advertised when no web console runs')
   await assert.rejects(pairV2(BASE, code, 'code', EXTENSION_ORIGIN), /HTTP 401|rejected|expired/, 'pairing code is single-use')
   const reconnect = await pairV2(BASE, TOKEN, 'token', EXTENSION_ORIGIN)
   assert.equal(reconnect.token, undefined, 'saved token reconnect does not echo the secret')

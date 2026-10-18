@@ -109,10 +109,11 @@
   an atomic rename that Windows can reject with `EPERM` while a reader has the file open
   (`src/services/session.ts`; 20/20 recovery runs after the fix), and `test-ci` now awaits its
   persistence observations instead of sleeping 100 ms (20/20).
-- Limits: the real-model browser test uses an isolated copy of the extension whose panel API base
-  points at the test's dynamic web port (a live `sbx web` owns 7777); the panel hardcodes 7777 in
-  product source, a pre-existing assumption left unchanged. Store-installed 0.4.5, Edge, a real
-  HTTPS site-grant prompt, and every historical Claude in Chrome parity scenario remain
+- Limits: the real-model browser test previously needed an isolated copy of the extension because
+  the panel hardcoded 7777. Fixed on 2026-10-18: the paired server advertises its console origin
+  and the panel follows it (`docs/superpowers/plans/2026-10-18-panel-web-origin-discovery.md`);
+  the E2E now runs the unmodified extension against a dynamic port. Store-installed 0.4.5, Edge, a
+  real HTTPS site-grant prompt, and every historical Claude in Chrome parity scenario remain
   unverified.
 - Release gate stays closed: no npm publish, no Web Store submission, no push was made; local
   `master` was moved to `ac64823` and the temporary worktree removed.
