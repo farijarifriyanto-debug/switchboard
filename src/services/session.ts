@@ -7,6 +7,24 @@ import { readBoundedText } from './text-file.js'
 import path from 'node:path'
 import type { SessionUsage, AgentMessage } from '../types.js'
 
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+/**
+ * Windows can reject an atomic replace with EPERM/EACCES while another reader
+ * has the target open. Retrying briefly preserves atomic checkpoints instead of
+ * dropping a completed job's delivery on a transient sharing violation.
+ */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  let delay = 10
+  for (let attempt = 0; ; attempt++) {
+    try { return await rename(from, to) } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (!code || !RENAME_RETRY_CODES.has(code) || attempt >= 8) throw error
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      delay = Math.min(delay * 2, 160)
+    }
+  }
+}
+
 export interface SessionConfig {
   /** Directory holding one JSON file per session. `~` is expanded; `""` disables persistence. */
   dir?: string
@@ -263,7 +281,7 @@ export class SessionService extends Service {
       await mkdir(dir, { recursive: true })
       try {
         await writeFile(tmp, snapshot, { encoding: 'utf8', mode: 0o600 })
-        if (this.sessions.has(id)) await rename(tmp, target)
+        if (this.sessions.has(id)) await renameWithRetry(tmp, target)
       } finally { await unlink(tmp).catch(() => {}) }
     })
     this.writes.set(id, next)

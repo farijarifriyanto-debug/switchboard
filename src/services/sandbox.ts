@@ -53,9 +53,26 @@ function passedEnv(config: SandboxConfig): Array<[string, string]> {
   return (config.passEnv ?? []).filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && process.env[name] !== undefined).map((name) => [name, process.env[name] as string])
 }
 
+export interface SandboxCommandOptions {
+  workspace: string
+  command: string
+  name: string
+  uid?: number
+  gid?: number
+  /** Absolute path inside the sandbox, default `/workspace`. */
+  workdir?: string
+  /** Explicit environment for the command. Overrides `config.passEnv`. */
+  env?: Record<string, string>
+}
+
 /** Builds the wrapper command line. Pure apart from reading which host paths exist. */
-export function buildSandboxCommand(config: SandboxConfig, opts: { workspace: string; command: string; name: string; uid?: number; gid?: number }): SandboxCommand {
+export function buildSandboxCommand(config: SandboxConfig, opts: SandboxCommandOptions): SandboxCommand {
   const ro = config.workspace === 'ro'
+  const workdir = opts.workdir ?? SANDBOX_WORKDIR
+  const env = new Map<string, string>(passedEnv(config))
+  for (const [key, value] of Object.entries(opts.env ?? {})) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) env.set(key, value)
+  }
   if (config.mode === 'docker') {
     const container = `sbx-${opts.name}`
     const args = [
@@ -66,10 +83,10 @@ export function buildSandboxCommand(config: SandboxConfig, opts: { workspace: st
       '--pids-limit', String(config.pids ?? 256), '--memory', config.memory ?? '1g', '--cpus', String(config.cpus ?? 1),
       ...(opts.uid !== undefined && opts.gid !== undefined ? ['--user', `${opts.uid}:${opts.gid}`] : []),
       '-e', 'HOME=/tmp',
-      ...passedEnv(config).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+      ...[...env].flatMap(([k, v]) => ['-e', `${k}=${v}`]),
       '-v', `${opts.workspace}:${SANDBOX_WORKDIR}${ro ? ':ro' : ''}`,
       ...(config.readOnly ?? []).flatMap((dir) => ['-v', `${dir}:${dir}:ro`]),
-      '-w', SANDBOX_WORKDIR,
+      '-w', workdir,
       config.image ?? 'node:24-alpine', 'sh', '-c', opts.command,
     ]
     return { file: 'docker', args, container }
@@ -82,9 +99,9 @@ export function buildSandboxCommand(config: SandboxConfig, opts: { workspace: st
   for (const file of ['/etc/ssl', '/etc/ca-certificates', '/etc/alternatives', ...(config.network ? ['/etc/resolv.conf', '/etc/hosts', '/etc/nsswitch.conf'] : [])]) if (has(file)) args.push('--ro-bind', file, file)
   for (const dir of config.readOnly ?? []) if (has(dir)) args.push('--ro-bind', dir, dir)
   args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp')
-  args.push(ro ? '--ro-bind' : '--bind', opts.workspace, SANDBOX_WORKDIR, '--chdir', SANDBOX_WORKDIR)
+  args.push(ro ? '--ro-bind' : '--bind', opts.workspace, SANDBOX_WORKDIR, '--chdir', workdir)
   args.push('--setenv', 'PATH', BASE_PATH, '--setenv', 'HOME', '/tmp', '--setenv', 'LANG', 'C.UTF-8', '--setenv', 'TERM', 'dumb')
-  for (const [k, v] of passedEnv(config)) args.push('--setenv', k, v)
+  for (const [k, v] of env) args.push('--setenv', k, v)
   args.push('/bin/sh', '-c', opts.command)
   return { file: 'bwrap', args }
 }

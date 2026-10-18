@@ -487,39 +487,47 @@ Also `GET/POST/PUT/DELETE /api/automations`, `POST /api/automations/:id/run`, `G
   A slot that passed while nothing was running is recorded as `missed` and skipped, never replayed.
 - Runs are **unattended**: any tool that would ask for approval is refused on the spot, so an
   automation can do exactly what its preset allows without asking. The default preset is `reviewer`
-  (read-only). Each run uses a fresh session that is deleted afterwards; the answer is kept in the run
-  history (last 20).
+  (read-only). A preset that can run shell commands or reach credentials — including `default` and
+  custom presets with full/shell/MCP tools — is refused unless the automation explicitly sets
+  `allowUnattended: true`. Existing unsafe automations fail closed before a session starts. Each run
+  uses a fresh session that is deleted afterwards; the answer is kept in the run history (last 20).
 - At most 20 automations, no more often than every 5 minutes, one run at a time, 10 minute limit.
   After 5 failures in a row an automation switches itself off (a failure is delivered too).
 - `--telegram <id>` needs the Telegram channel running and the id on its `allowFrom`.
 
 ## Browser
 
-Switchboard does not bundle a browser; it drives [Playwright MCP](https://github.com/microsoft/playwright-mcp)
-through the MCP bridge. Add the server under the name `browser` (pin the version) and install its browser once:
-
-```jsonc
-"mcp": { "servers": { "browser": {
-  "transport": "stdio", "command": "npx",
-  "args": ["-y", "@playwright/mcp@0.0.83", "--headless", "--isolated", "--browser", "chromium"],
-  "toolCallTimeoutMs": 120000
-} } }
-```
+Switchboard drives a real Chrome or Edge tab through the **Browser Companion** extension in
+`browser-extension/`. The extension owns the tab, applies Chrome's native site permission, and
+exposes **17 browser tools** (`browser_*`). Start the bridge and the browser
+preset together:
 
 ```sh
-npx -y @playwright/mcp@0.0.83 install-browser chrome-for-testing
-sbx chat --preset browser
+sbx chat --preset browser     # or: sbx web, then choose Browser
 ```
 
-The built-in `browser` preset hides everything except `mcp__browser__*`, `web_search` and
-`load_skill`: no files, no shell. Page content is untrusted input to the model, so keep it that way:
-`--isolated` keeps the profile in memory (no logins, cookies or history of yours), approvals stay on
-(only the read-only snapshot-style tools skip them), and `--allowed-origins https://example.com`
-limits where it may go. `scripts/browser-smoke.mjs` (the *Browser smoke* workflow) checks the
-integration against real Chromium: it lists the 25 tools, loads a page and reads its snapshot.
-Presets accept a trailing `*` as a prefix pattern (`mcp__browser__*`). Playwright MCP writes page
-snapshots into a `.playwright-mcp/` folder in the working directory (already in this repo's `.gitignore`;
-add it to yours).
+Load `browser-extension/` as an unpacked extension, open its **Connection** tab, and enter the
+one-use pairing code printed by the CLI. The bridge listens on `127.0.0.1:7778` only. Pairing is a
+mutual HMAC challenge-response; the code-derived token is delivered with AES-GCM, and a saved token
+never comes back in a response. Local HTTP and WebSocket calls require the paired token.
+
+- **One site gate:** Chrome's optional host permission is the only site-access authority. Approving a
+  site in the Chrome dialog is enough; Switchboard does not add a second site allowlist.
+- **Action modes:** `manual` asks before each browser action, `auto` screens page content and
+  high-risk actions, and `skip` skips the automatic screener while keeping hard blocks. These modes
+  govern agent actions, not site access. The local Switchboard server owns the mode; the panel mirrors
+  it.
+- **Always confirm:** downloads and screenshots require explicit approval in every mode. Passwords,
+  payment fields, purchases, account creation and other prohibited actions remain blocked.
+- **Snapshot selectors:** mutating tools accept an element `ref` (`@e1`) or the exact selector
+  returned by `browser_dom_snapshot`. Arbitrary CSS that was not in the snapshot is rejected.
+- **Companion token scope:** the extension token can use browser-scoped state, browser chats and
+  browser-tool approvals only. It cannot read the full console state, start a shell-capable preset,
+  or settle approvals from console/automation sessions.
+
+The bridge starts with `sbx chat --preset browser` and `sbx web`. See
+[`browser-extension/README.md`](browser-extension/README.md) for installation, permissions and
+security details, and [`docs/release-status.md`](docs/release-status.md) for the published version.
 
 ## Plugin catalog (official MCP tools)
 
@@ -699,9 +707,11 @@ A model with no known price is never counted as free: the total is then shown as
 ### Web console
 
 `sbx web` serves a small offline console (no CDN, no build step) plus a JSON/SSE
-API over the same plugin host the CLI uses. It binds to loopback only and has no
-authentication — it exposes an agent with filesystem and shell tools, so treat
-the port as you would a shell.
+API over the same plugin host the CLI uses. It binds to loopback by default. Loopback
+has no additional password prompt, but it exposes an agent with filesystem and shell
+tools, so treat the port as you would a shell. Set `web.token` (or
+`SWITCHBOARD_WEB_TOKEN`) to require a cookie/Bearer token; a non-loopback `web.host`
+is refused unless a token is configured.
 
 | Endpoint | Purpose |
 |---|---|
@@ -714,12 +724,26 @@ Enable it from config instead by setting `"web": { "enabled": true }`.
 ### Local CI (`sbx ci`)
 
 Switchboard can run GitHub-Actions-style workflows on your own machine — no
-push, no remote runner. Opt-in via config:
+push, no remote runner. It is **disabled by default**. Enabling it is not enough:
+the first interactive `sbx ci <workflow>` asks you to trust that project root, and
+a non-interactive run refuses rather than executing untrusted shell commands.
+Trust is recorded per project in `~/.switchboard/ci-trust.json` (mode 0600);
+`ci.trust: true` is the explicit unattended override.
 
 ```jsonc
 // switchboard.config.jsonc
-"ci": { "enabled": true, "keepRuns": 200 }   // keepRuns optional: history retention (default 200, min 10)
+"ci": {
+  "enabled": true,
+  "keepRuns": 200,                         // history retention (default 200, min 10)
+  "envAllowlist": ["MY_BUILD_FLAG"],       // extra parent vars; nothing else leaks in
+  "sandbox": { "mode": "docker", "image": "node:24-alpine", "network": false }
+}
 ```
+
+Steps receive a small base environment plus names in `envAllowlist`; explicit
+workflow/job/step `env` still wins. When `sandbox` is configured, every step runs
+inside it, and the container is killed on timeout or cancellation. If the sandbox
+cannot start, the step fails closed.
 
 Workflows live in `.switchboard/workflows/*.yml`:
 
@@ -867,7 +891,7 @@ source; a manual run from `master` restores GitHub assets and skips npm publicat
 
 Early (0.x). Working today: streaming chat, tool calling, a multi-step agent loop with approvals,
 persistent sessions, presets, skills, compaction and session recall, subagent delegation, MCP
-servers (including a Playwright browser), a sandbox for `run_command`, scheduled automations, Telegram
+servers, the Browser Companion, a sandbox for `run_command`, scheduled automations, Telegram
 and Discord channels, a local web console and `sbx ci`.
 
 The sandbox is isolation, not a security boundary (see above). Telegram and Discord are the only chat channels.

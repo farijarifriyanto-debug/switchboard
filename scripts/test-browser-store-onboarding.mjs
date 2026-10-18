@@ -55,7 +55,7 @@ try {
   assert.equal(codeRes.status, 200)
   assert.match(codeRes.headers.get('cache-control'), /no-store/)
   const oneTime = await codeRes.json()
-  assert.match(oneTime.code, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/)
+  assert.match(oneTime.code, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/)
   assert.ok(!JSON.stringify(oneTime).includes(bridgeToken))
   console.log('PASS authenticated on-demand pairing code, code excluded from state polling')
   console.log('PASS store URL allowlist, status availability, strict cross-origin guard')

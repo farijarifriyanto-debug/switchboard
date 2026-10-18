@@ -100,7 +100,7 @@ const host = await createHost({
   metrics: { persist: '', load: false },
   sessions: { dir: '', load: false },
   web: { enabled: true, port: 0 },
-  ci: { enabled: true },
+  ci: { enabled: true, trust: true },
 })
 
 try {

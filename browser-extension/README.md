@@ -5,7 +5,7 @@ Chrome/Edge **Manifest V3** companion for the Switchboard CLI agent. The extensi
 ## How it works
 
 ```
-Switchboard CLI (sbx chat --preset browser) -> 13 browser_* tools
+Switchboard CLI (sbx chat --preset browser) -> 17 browser_* tools
                       |
               local bridge 127.0.0.1:7778 (authenticated)
                       |
@@ -16,7 +16,7 @@ Switchboard CLI (sbx chat --preset browser) -> 13 browser_* tools
              tool result -> Switchboard answer
 ```
 
-The connection survives closing the extension side panel. Chrome 116+ WebSocket activity keeps the worker alive; a 30-second alarm retries the connection after a browser/worker restart or network outage. If the CLI shuts down, the extension reconnects when it starts again. The initial pairing uses an ephemeral, single-use short code; the persistent token stays in the browser's local storage and the user's private `~/.switchboard/browser-companion-token` file.
+The connection survives closing the extension side panel. Chrome 116+ WebSocket activity keeps the worker alive; a 30-second alarm retries the connection after a browser/worker restart or network outage. If the CLI shuts down, the extension reconnects when it starts again. Pairing is a mutual HMAC-SHA256 challenge-response: both sides prove knowledge of the single-use code or saved token. A code-paired token is delivered with AES-256-GCM, not plaintext; a saved token is never echoed back. The persistent token stays in the browser's local storage and the user's private `~/.switchboard/browser-companion-token` file.
 
 ## Store installation and local onboarding
 
@@ -28,9 +28,9 @@ The Switchboard Web UI now displays a compact Browser Companion status row when 
 
 The local Web UI detects installation through a content script restricted to HTTP localhost/127.0.0.1 pages. The page may need to be refreshed after first extension installation. This is presentation-only: neither the web page nor its detection script can execute browser tools or read pairing tokens.
 
-See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard steps and validated store-URL environment variables. See [PRIVACY.md](./PRIVACY.md) for the required privacy disclosures. The Chrome listing was observed in October 2026; version 0.4.2 remains an update candidate pending store review. The Microsoft Edge listing status was not verified.
+See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard steps and validated store-URL environment variables. See [PRIVACY.md](./PRIVACY.md) for the required privacy disclosures. The current published Chrome Web Store version and the unpublished source version are recorded in [`docs/release-status.md`](../docs/release-status.md). The Microsoft Edge listing status was not verified.
 
-## Site access and AI tasks (0.4.2)
+## Site access and AI tasks
 
 Browser site access uses the native Chrome/Edge host permission as its single source of truth. Manual/Auto control AI actions, not a second site allowlist. When a task needs a new site, Switchboard waits and marks the extension icon with **!**. Open the companion panel, review the requested domain, then choose **Allow in Chrome & continue**. The browser shows its native permission dialog; choosing Deny stops the original action. Chrome permission alone is sufficient; Switchboard does not ask you to approve the same site twice. No blanket permission to all sites is requested. Do not approve unfamiliar sites.
 
@@ -55,9 +55,10 @@ The extension never requires a separate AI-provider API key. The pairing code is
 
 - The bridge is bound to loopback. WebSocket upgrade checks peer address, HTTP Host, exact extension Origin, and a persistent authentication token carried in the WebSocket subprotocol. Local HTTP routes require bearer authentication; invalid origin/host requests are rejected.
 - Pairing is limited to five failed guesses per CLI launch and the short code expires after 15 minutes. Using the code consumes it; already paired clients reconnect with their existing token.
-- Extension permissions: `activeTab`, `scripting`, `sidePanel`, `storage`, `tabs`, and `alarms`. Host permissions are limited to HTTP loopback.
+- Extension permissions: `activeTab`, `alarms`, `debugger`, `downloads`, `nativeMessaging`, `notifications`, `scripting`, `sidePanel`, `storage`, `tabGroups`, and `tabs`. Host permissions are limited to HTTP loopback; HTTP/HTTPS site access is optional and granted per origin through Chrome.
 - Mutating actions require Chrome-native site permission and remain subject to the configured action policy. CLI tool approvals are controlled separately by Switchboard (default risky-tool approval; `--yes` explicitly disables CLI prompts). Restricted browser mode blocks page mutations regardless of CLI mode. Passwords and payment details are protected. DOM content is untrusted and is not agent instruction.
-- Screenshots requested through either the UI or agent tools require approval of the active site origin **and** Chrome's `activeTab` grant: click the Switchboard toolbar icon while on that tab. This grant may need to be renewed after navigation or browser restart. The extension does not request broad `<all_urls>` access.
+- Screenshots and downloads require explicit Switchboard approval **in every mode**, in addition to Chrome's native site/`activeTab` grant. Screenshots requested through the UI or agent tools need the active site origin and Chrome's `activeTab` grant: click the Switchboard toolbar icon while on that tab. This grant may need to be renewed after navigation or browser restart. The extension does not request broad `<all_urls>` access.
+- Mutating tools accept an element `ref` (`@e1`) or the exact selector returned by `browser_dom_snapshot`; arbitrary CSS that was not in the current snapshot is rejected.
 - Browser activity and site approvals are visible and revocable in the extension.
 
 ## Verification

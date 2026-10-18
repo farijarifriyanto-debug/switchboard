@@ -9,6 +9,7 @@ import net from 'node:net';
 import {mkdtemp,readFile,writeFile,rm,mkdir} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {pairV2} from '../test/helpers/pair-client.mjs';
 
 const root=path.resolve('.');
 const home=await mkdtemp(path.join(os.tmpdir(),'sbx-web-browser-'));
@@ -35,7 +36,7 @@ let ok=false,reason='';
 try{
  let pairCode;
  while(Date.now()-started<20000){
-  pairCode=/Browser Companion pairing code[^:\n]*:\s*(?:\x1b\[[0-9;]*m)*([A-HJ-NP-Z2-9]{8})/.exec(output)?.[1];
+  pairCode=/Browser Companion pairing code[^:\n]*:\s*(?:\x1b\[[0-9;]*m)*([A-HJ-NP-Z2-9]{12})/.exec(output)?.[1];
   if(pairCode)break;
   if(child.exitCode!==null)throw Error('sbx web exited unexpectedly');
   await new Promise(r=>setTimeout(r,200));
@@ -56,18 +57,13 @@ try{
  }
  assert.ok(webReady,'Web UI did not start');
  assert.ok(bridgeReady,'Browser Companion localhost bridge did not start');
- const pair=await fetch('http://127.0.0.1:'+bridgePort+'/api/browser-companion/pair',{
-  method:'POST',headers:{'content-type':'application/json',origin:'chrome-extension://'+'a'.repeat(32)},
-  body:JSON.stringify({code:pairCode})
- });
- assert.equal(pair.status,200,'short code pairing from sbx web works');
- const data=await pair.json();
- assert.equal(data.token,token,'paired extension receives persistent token');
- const replay=await fetch('http://127.0.0.1:'+bridgePort+'/api/browser-companion/pair',{
-  method:'POST',headers:{'content-type':'application/json',origin:'chrome-extension://'+'a'.repeat(32)},
-  body:JSON.stringify({code:pairCode})
- });
- assert.equal(replay.status,401,'single-use code replay rejected');
+ const data=await pairV2('http://127.0.0.1:'+bridgePort,pairCode,'code');
+ assert.equal(data.token,token,'paired extension receives persistent token through the mutual-auth envelope');
+ await assert.rejects(
+   pairV2('http://127.0.0.1:'+bridgePort,pairCode,'code'),
+   /HTTP 401|rejected|expired/,
+   'single-use code replay rejected',
+ );
  ok=true;
  console.log('PASS sbx web starts local Web UI and Browser Companion');
  console.log('PASS persistent token + one-use pairing code printed to CLI (code REDACTED)');

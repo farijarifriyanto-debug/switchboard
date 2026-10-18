@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import WebSocket from 'ws'
 import { createHost } from '../dist/index.js'
+import { pairV2 } from './helpers/pair-client.mjs'
 
 const PORT = 7794
 const BASE = 'http://127.0.0.1:' + PORT
@@ -44,15 +45,15 @@ try {
   const service = host.ctx.browserCompanion
   assert.ok(service)
   assert.equal(service.isClientConnected(), false)
-  assert.match(service.pairingCode, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/)
+  assert.match(service.pairingCode, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/)
   assert.equal((await pair({code:'AAAAAAAA'})).status,401)
   const code = service.pairingCode
-  const valid = await pair({code})
-  assert.equal(valid.status,200)
-  const data = await valid.json()
-  assert.equal(data.token,TOKEN)
-  assert.equal((await pair({code})).status,401,'pairing code single-use')
-  assert.equal((await pair({token:TOKEN})).status,200,'saved secret reconnect remains supported')
+  const data = await pairV2(BASE, code, 'code', EXTENSION_ORIGIN)
+  assert.equal(data.token, TOKEN, 'code pairing returns the token only inside the authenticated encryption envelope')
+  await assert.rejects(pairV2(BASE, code, 'code', EXTENSION_ORIGIN), /HTTP 401|rejected|expired/, 'pairing code is single-use')
+  const reconnect = await pairV2(BASE, TOKEN, 'token', EXTENSION_ORIGIN)
+  assert.equal(reconnect.token, undefined, 'saved token reconnect does not echo the secret')
+  assert.equal(reconnect.ok, true, 'saved token reconnect remains supported')
   console.log('PASS short-lived one-use pairing and persistent local token')
 
   assert.equal(await rejected('bad-credential',EXTENSION_ORIGIN),true)

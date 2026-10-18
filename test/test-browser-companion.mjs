@@ -13,6 +13,7 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { createHost } from '../dist/index.js'
+import { pairV2 } from './helpers/pair-client.mjs'
 
 console.log('=== Running Browser Companion Bridge & Tools Integration Tests ===')
 
@@ -94,18 +95,12 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
     assert.ok(service, 'BrowserCompanionService is available on host context')
     assert.equal(service.currentToken, token, 'configured token matches')
 
-    // 2a. Pairing test
-    const pairRes = await fetch('http://127.0.0.1:7789/api/browser-companion/pair', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token }),
-    })
-    assert.equal(pairRes.status, 200, 'pairing succeeds with valid token')
-    const pairData = await pairRes.json()
+    // 2a. Pairing test (mutual challenge-response; token is never echoed)
+    const pairData = await pairV2('http://127.0.0.1:7789', token, 'token')
     assert.equal(pairData.ok, true)
-    assert.equal(pairData.token, token)
+    assert.equal(pairData.token, undefined, 'token pairing does not send the secret back')
     assert.equal(pairData.mode, 'auto', 'new companion sessions use the modern side-panel default')
-    console.log('✓ Pairing handshake succeeded')
+    console.log('✓ Mutual pairing handshake succeeded')
 
     // 2b. SSE Stream Connection (simulate browser extension worker)
     const controller = new AbortController()
@@ -134,13 +129,25 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
           auditedOrigin: 'http://127.0.0.1:8080',
         },
         approvedOrigins: ['http://127.0.0.1:8080'],
-        mode: 'auto_safe',
+        mode: 'skip',
       }),
     })
     assert.equal(statusRes.status, 200)
-    assert.equal(service.currentMode, 'auto', 'legacy Auto status migrates to Auto')
+    assert.equal(service.currentMode, 'auto', 'extension status cannot change the server-authoritative mode')
     assert.equal(service.getActiveTab()?.id, 42)
-    console.log('✓ Status synchronization verified')
+    const modeRes = await fetch('http://127.0.0.1:7789/api/browser-companion/mode', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mode: 'manual' }),
+    })
+    assert.equal(modeRes.status, 200)
+    assert.equal(service.currentMode, 'manual', 'authenticated mode endpoint changes the server mode')
+    await fetch('http://127.0.0.1:7789/api/browser-companion/mode', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mode: 'auto' }),
+    })
+    console.log('✓ Server-authoritative status and mode verified')
 
     // 2d. Bi-directional tool call test:
     // When agent calls `browser_click`, the command is streamed via SSE,
@@ -237,6 +244,60 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
     host.ctx.approvals.decide(globalApproval.id, 'approved')
     assert.match((await globallyGated).content, /extension is not connected/i)
     console.log('✓ Browser Manual/Auto action policy gates verified')
+  } finally {
+    await host.dispose()
+  }
+}
+
+// 3b. Selectors must exist in the current snapshot, and screenshots always confirm.
+{
+  const host = await createHost({
+    sessions: { dir: '', load: false },
+    approval: { mode: 'risky', timeoutMs: 5000 },
+  })
+  try {
+    const service = host.ctx.browserCompanion
+    assert.ok(service)
+    service.isClientConnected = () => true
+    const page = {
+      ok: true, tabId: 91, title: 'Snapshot page', url: 'https://snapshot.example.test/',
+      origin: 'https://snapshot.example.test', hash: 'snapshot-a', text: 'A visible page',
+      headings: [{ level: 'h1', text: 'Snapshot page' }],
+      elements: [{ selector: '#known', ref: '@e1', tag: 'button', text: 'Known action' }],
+    }
+    let screenshotExecutions = 0
+    service.executeOnBrowser = async (tool) => {
+      if (tool === 'browser_tabs_list') return { ok: true, tabs: [{ id: page.tabId, url: page.url, active: true }] }
+      if (tool === 'browser_dom_snapshot') return structuredClone(page)
+      if (tool === 'browser_screenshot') {
+        screenshotExecutions += 1
+        return { ok: true, dataUrl: 'data:image/jpeg;base64,AA==' }
+      }
+      return { ok: true, result: 'clicked' }
+    }
+    host.ctx.browserSafety.screenPage = async () => ({ verdict: 'clean', content: '[UNTRUSTED PAGE CONTENT]\nSnapshot page' })
+    host.ctx.browserSafety.evaluateAction = async () => ({ verdict: 'continue', reason: 'Task-aligned.' })
+    service.setMode('auto')
+
+    const arbitrary = await host.ctx.tools.callResult('browser_click', { selector: '#not-in-snapshot' }, {
+      sessionId: 'snapshot-selector', userIntent: 'Click the visible button.',
+    })
+    assert.equal(arbitrary.isError, true, 'arbitrary CSS not present in the snapshot is blocked')
+    assert.match(arbitrary.content, /snapshot/i)
+    assert.equal(host.ctx.approvals.pending().length, 0, 'blocked selector does not create an approval')
+
+    const shot = host.ctx.tools.callResult('browser_screenshot', {}, {
+      sessionId: 'snapshot-shot', userIntent: 'Capture the visible page.',
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    const pending = host.ctx.approvals.pending()
+    assert.equal(pending.length, 1, 'screenshot waits for explicit approval even in Auto')
+    assert.equal(pending[0].tool, 'browser_screenshot')
+    host.ctx.approvals.decide(pending[0].id, 'rejected')
+    const rejected = await shot
+    assert.equal(rejected.isError, true, 'a rejected screenshot does not execute')
+    assert.equal(screenshotExecutions, 0)
+    console.log('✓ Snapshot-only selectors and always-confirm screenshots verified')
   } finally {
     await host.dispose()
   }

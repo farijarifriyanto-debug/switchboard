@@ -18,6 +18,17 @@ export interface TraceConfig {
 const DEFAULT_DIR = '~/.switchboard/trace'
 
 /**
+ * Session ids become file names under `trace.dir`. Keep one conservative
+ * grammar for every read/write path; a caller-supplied id must never contain a
+ * separator, a parent segment, a drive letter, or a NUL byte.
+ */
+const TRACE_KEY = /^(?!\.{1,2}$)[A-Za-z0-9._-]{1,128}$/
+function safeTraceKey(key: string): string | null {
+  if (!TRACE_KEY.test(key) || key.includes('..')) return null
+  return key
+}
+
+/**
  * `ctx.trace` — durable record of *protocol-relevant* things: LLM calls with
  * latency/usage, retries, tool calls with exit codes, approvals, fallbacks,
  * errors. Raw model-visible text never goes here; the transcript lives in the
@@ -106,6 +117,7 @@ export class TraceService extends Service {
     if (this.limit <= 0) return
     const full: TraceEntry = { at: Date.now(), ...entry } as TraceEntry
     const key = entry.sessionId ?? 'global'
+    if (!safeTraceKey(key)) return
     const ring = this.rings.get(key) ?? []
     ring.push(full)
     if (ring.length > this.limit) ring.splice(0, ring.length - this.limit)
@@ -135,13 +147,14 @@ export class TraceService extends Service {
    *  First read per key hydrates from the JSONL mirror so history survives a restart. */
   async list(sessionId?: string, limit = 200): Promise<TraceEntry[]> {
     const key = sessionId ?? 'global'
+    if (!safeTraceKey(key)) return []
     await this.hydrate(key)
     const ring = this.rings.get(key) ?? []
     return ring.slice(-limit).reverse().map((entry) => ({ ...entry }))
   }
 
   private hydrate(key: string): Promise<void> {
-    if (!this.dir || this.hydrated.has(key)) return Promise.resolve()
+    if (!safeTraceKey(key) || !this.dir || this.hydrated.has(key)) return Promise.resolve()
     let pending = this.hydrating.get(key)
     if (!pending) {
       pending = this.loadKey(key).finally(() => this.hydrating.delete(key))
@@ -151,7 +164,7 @@ export class TraceService extends Service {
   }
 
   private async loadKey(key: string): Promise<void> {
-    if (!this.dir) return
+    if (!safeTraceKey(key) || !this.dir) return
     this.hydrated.add(key)
     try {
       const text = await readFile(path.join(this.dir, `${key}.jsonl`), 'utf8')
@@ -188,9 +201,11 @@ export class TraceService extends Service {
     this.dirty.clear()
     for (const [sessionId, entries] of batches) {
       if (!entries.length) continue
+      const key = safeTraceKey(sessionId)
+      if (!key) continue
       try {
         await mkdir(this.dir, { recursive: true })
-        const target = path.join(this.dir, `${sessionId}.jsonl`)
+        const target = path.join(this.dir, `${key}.jsonl`)
         const text = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
         await appendFile(target, text, 'utf8')
       } catch {

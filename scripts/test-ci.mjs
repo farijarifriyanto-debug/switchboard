@@ -227,6 +227,7 @@ try {
   )
   const events = []
   let persistedBeforeObserve = false
+  const observations = []
   const failRun = await run(scratch, failWf, {
     trigger: 'cli',
     runId: 'run-failtest',
@@ -234,16 +235,16 @@ try {
       events.push(ev.type + ':' + (ev.job?.id ?? ''))
       if (ev.type === 'step_end') {
         // saveRun must have flushed the step BEFORE the observer runs
-        void getRun(scratch, 'run-failtest').then((saved) => {
+        observations.push(getRun(scratch, 'run-failtest').then((saved) => {
           const step = saved?.jobs
             .find((j) => j.id === ev.job.id)
             ?.steps.find((s) => s.name === ev.step.name)
           if (step && step.status === ev.record.status) persistedBeforeObserve = true
-        })
+        }))
       }
     },
   })
-  await new Promise((r) => setTimeout(r, 100))
+  await Promise.all(observations)
   assert.equal(persistedBeforeObserve, true, 'record persisted before step_end observers run')
   assert.equal(failRun.status, 'failed', 'a failing step fails the run')
   const jobStatus = Object.fromEntries(failRun.jobs.map((j) => [j.id, j.status]))
@@ -271,6 +272,30 @@ try {
   const envRun = await run(scratch, envWf, { trigger: 'cli' })
   assert.equal(envRun.status, 'success')
   assert.match(envRun.jobs[0].steps[0].log, /^step\/w\/true\/env$/m, 'precedence + runner vars in log')
+
+  // parent env is allowlisted, not inherited wholesale
+  const secretWf = parseWorkflow(
+    [
+      'jobs:',
+      '  j:',
+      '    steps:',
+      '      - run: node -e "console.log(process.env.SBX_CI_TEST_SECRET || \'missing\')"',
+    ].join('\n'),
+    'secret.yml',
+  )
+  const previousSecret = process.env.SBX_CI_TEST_SECRET
+  process.env.SBX_CI_TEST_SECRET = 'parent-secret'
+  try {
+    const hiddenRun = await run(scratch, secretWf, { trigger: 'cli' })
+    assert.equal(hiddenRun.status, 'success')
+    assert.match(hiddenRun.jobs[0].steps[0].log, /^missing$/m, 'parent secret is not inherited by default')
+    const allowedRun = await run(scratch, secretWf, { trigger: 'cli', envAllowlist: ['SBX_CI_TEST_SECRET'] })
+    assert.equal(allowedRun.status, 'success')
+    assert.match(allowedRun.jobs[0].steps[0].log, /^parent-secret$/m, 'explicit envAllowlist opts a name in')
+  } finally {
+    if (previousSecret === undefined) delete process.env.SBX_CI_TEST_SECRET
+    else process.env.SBX_CI_TEST_SECRET = previousSecret
+  }
 
   // timeout
   const slowWf = parseWorkflow(
@@ -402,7 +427,7 @@ try {
   await mkdir(path.join(enabledDir, '.switchboard', 'workflows'), { recursive: true })
   await writeFile(
     path.join(enabledDir, 'switchboard.config.jsonc'),
-    '{ "ci": { "enabled": true } }',
+    '{ "ci": { "enabled": true, "trust": true } }',
     'utf8',
   )
   await writeFile(
@@ -478,16 +503,35 @@ try {
   assert.match(off.out, /ci is disabled/, 'enable hint printed')
   assert.match(off.out, /"ci": \{ "enabled": true \}/, 'hint shows the exact config flag')
 
+  // Enabled is not trusted. Non-interactive execution must refuse before any
+  // workflow step runs, and `--list` stays safe.
+  const untrustedDir = await mkdtemp(path.join(tmpdir(), 'sb-ci-untrusted-'))
+  await mkdir(path.join(untrustedDir, '.switchboard', 'workflows'), { recursive: true })
+  await writeFile(path.join(untrustedDir, 'switchboard.config.jsonc'), '{ "ci": { "enabled": true } }', 'utf8')
+  await writeFile(
+    path.join(untrustedDir, '.switchboard', 'workflows', 'ok.yml'),
+    'name: Untrusted\njobs:\n  j:\n    steps:\n      - run: node -e "console.log(\'must-not-run\')"\n',
+    'utf8',
+  )
+  const untrustedList = await cli(['ci', '--list'], untrustedDir)
+  assert.equal(untrustedList.code, 0, 'listing workflows does not execute them')
+  const untrustedRun = await cli(['ci', 'ok'], untrustedDir)
+  assert.equal(untrustedRun.code, 1, 'untrusted non-interactive run exits 1')
+  assert.match(untrustedRun.out, /not trusted/i, 'explains the trust gate')
+  assert.doesNotMatch(untrustedRun.out, /must-not-run/, 'no step ran before trust')
+  assert.equal((await listRuns(untrustedDir, { limit: 5 })).runs.length, 0, 'no run record before trust')
+
   await rm(enabledDir, { recursive: true, force: true })
   await rm(path.dirname(runsDir(enabledDir)), { recursive: true, force: true })
   await rm(disabledDir, { recursive: true, force: true })
+  await rm(untrustedDir, { recursive: true, force: true })
 
   // ------------------------------------------- interrupt (SIGINT/SIGTERM -> cancelled)
   // The CLI wires process signals to the run's AbortController. OS console
   // delivery is Node's job, so the handlers are driven via process.emit.
   const sigDir = await mkdtemp(path.join(tmpdir(), 'sb-ci-sig-'))
   await mkdir(path.join(sigDir, '.switchboard', 'workflows'), { recursive: true })
-  await writeFile(path.join(sigDir, 'switchboard.config.jsonc'), '{ "ci": { "enabled": true } }', 'utf8')
+  await writeFile(path.join(sigDir, 'switchboard.config.jsonc'), '{ "ci": { "enabled": true, "trust": true } }', 'utf8')
   await writeFile(
     path.join(sigDir, '.switchboard', 'workflows', 'slow.yml'),
     'name: Slow\njobs:\n  j:\n    steps:\n      - run: node -e "setTimeout(() => {}, 15000)"\n',
@@ -502,7 +546,7 @@ try {
     for (const [signal, expectedExit] of [['SIGINT', 130], ['SIGTERM', 143]]) {
       const running = runCiCommand(
         { command: 'ci', positional: ['slow'], cwd: sigDir, plugins: [], session: true, open: true },
-        { ci: { enabled: true } },
+        { ci: { enabled: true, trust: true } },
       )
       let started = null
       const deadline = Date.now() + 15_000

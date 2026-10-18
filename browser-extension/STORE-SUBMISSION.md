@@ -2,7 +2,7 @@
 
 ## Status
 
-> Update 15 October 2026: CURRENT candidate 0.4.4 for existing store item miehnbiiokkciokmepnhgmlhjpabbkna (installed store version 0.4.3). Use RELEASE-0.4.4.md for package SHA-256. Older version instructions below are historical.
+> Status 18 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` is published at **0.4.4**. Source version **0.4.5** is an unpublished security candidate and has not been submitted. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source. Older version instructions below are historical.
 
 **Historical update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
@@ -35,7 +35,7 @@ Until official store URLs have been approved/configured, the UI shows **Preview 
 - Upload **switchboard-edge.zip** and fill the listing, permissions, screenshots, privacy declarations, publisher contact and support information.
 - Submit for review and wait for its own confirmed listing URL.
 
-**Chrome listing:** already observed in the owner’s Chrome Web Store. Verify its exact item ID and publisher ownership in the developer dashboard before uploading 0.4.2. **Edge listing:** not verified. Never invent a store link.
+**Chrome listing:** already observed in the owner’s Chrome Web Store. Verify its exact item ID and publisher ownership in the developer dashboard before uploading the next version. **Edge listing:** not verified. Never invent a store link.
 
 When more than one browser has Browser Companion installed, the Web UI compares its public browser extension ID to the authenticated live bridge ID. Only the controlling browser displays **Connected**; others show **Connected elsewhere** and can pair intentionally to switch sessions.
 
@@ -94,10 +94,10 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 
 **Remaining human step:** Connect or create Chrome Web Store and Microsoft Edge Add-ons developer publisher accounts, enter real publisher details, and submit each extension for review. This cannot be completed merely by publishing Switchboard to npm or GitHub.
 
-## Update acceptance requirements for 0.4.3
+## Update acceptance requirements for 0.4.5
 
 - Explain optional per-origin HTTP/HTTPS access in the Chrome Web Store permission disclosure and privacy policy.
 - Verify the actual Chrome native site permission dialog, not just Switchboard local allowlist state.
 - Verify denied permission prevents navigation, granted permission resumes the pending task, and revocation removes later access.
 - Verify the direct side-panel prompt returns a real AI answer through an authenticated local Switchboard backend.
-- Upload version 0.4.3 as an update to the existing Chrome listing only after its package and developer account are verified. Do not create a duplicate Chrome listing.
+- Upload version 0.4.5 as an update to the existing Chrome listing only after its package, real-Chrome evidence and developer account are verified and the owner authorizes the release. Do not create a duplicate Chrome listing.

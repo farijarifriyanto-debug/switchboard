@@ -89,6 +89,12 @@ async function refreshBridgeStatus() {
   try {
     const status = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' });
     setBadge(status?.connected ? 'connected' : 'disconnected', status?.connected ? 'Connected' : 'Offline');
+    if (status?.mode) {
+      const serverMode = normalizePermissionMode(status.mode);
+      $('permission-mode-select').value = serverMode;
+      updatePermissionModeDescription(serverMode);
+      await chrome.storage.local.set({ permissionMode: serverMode });
+    }
     if (!status?.connected && status?.error) {
       $('bridge-diagnostics').textContent = status.error;
     }
@@ -425,12 +431,20 @@ $('btn-schedule-wf').addEventListener('click', async () => {
 // Security & Audit Tab
 // -----------------------------------------------------------------------------
 $('permission-mode-select').addEventListener('change', async (e) => {
-  const mode = normalizePermissionMode(e.target.value);
-  e.target.value = mode;
-  await chrome.storage.local.set({ permissionMode: mode });
-  updatePermissionModeDescription(mode);
-  await syncCurrentTabToBridge();
-  await refreshActiveTab();
+  const requested = normalizePermissionMode(e.target.value);
+  e.target.value = requested;
+  try {
+    const reply = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_SET_PERMISSION_MODE', mode: requested });
+    if (!reply?.ok) throw new Error(reply?.error || 'The local Switchboard server did not accept the mode.');
+    const mode = normalizePermissionMode(reply.mode);
+    e.target.value = mode;
+    await chrome.storage.local.set({ permissionMode: mode });
+    updatePermissionModeDescription(mode);
+    await refreshActiveTab();
+  } catch (error) {
+    $('bridge-diagnostics').textContent = String(error?.message || error);
+    await refreshBridgeStatus();
+  }
 });
 
 function normalizePermissionMode(value) {

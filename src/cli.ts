@@ -286,7 +286,7 @@ export async function runCiCommand(args: Args, config: SwitchboardConfig): Promi
     process.exitCode = 1
     return
   }
-  const { listWorkflows, runWorkflow, listRuns, resolveKeepRuns, parseCron, nextFire } = await import('./ci/index.js')
+  const { listWorkflows, runWorkflow, listRuns, resolveKeepRuns, parseCron, nextFire, isCiTrusted, trustCiRoot } = await import('./ci/index.js')
   const keepRuns = resolveKeepRuns(config.ci?.keepRuns)
   const list = await listWorkflows(root)
   const wanted = args.positional.find((p) => !p.startsWith('-'))
@@ -320,6 +320,27 @@ export async function runCiCommand(args: Args, config: SwitchboardConfig): Promi
     }
     return
   }
+  if (!isCiTrusted(root, config.ci)) {
+    if (!process.stdin.isTTY) {
+      console.error(C.red('ci workflows are not trusted in this project.'))
+      console.error(`Run ${C.bold('sbx ci <workflow>')} in an interactive terminal to review and trust ${root},`)
+      console.error(`or set ${C.bold('"ci": { "trust": true }')} only on a machine where unattended execution is intended.`)
+      process.exitCode = 1
+      return
+    }
+    const { createInterface } = await import('node:readline/promises')
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    const answer = await rl.question(
+      C.yellow(`Trust workflows in ${root}? They run shell commands with your user permissions. [y/N] `),
+    )
+    rl.close()
+    if (!/^(?:y|yes)$/i.test(answer.trim())) {
+      console.error(C.red('ci workflows were not trusted; nothing ran.'))
+      process.exitCode = 1
+      return
+    }
+    await trustCiRoot(root)
+  }
   // spec §7: `sbx ci <name>` runs a single workflow — first match wins, like the web POST
   const targets = wanted ? list.filter((w) => w.id === wanted || w.name === wanted).slice(0, 1) : list
   if (wanted && !targets.length) {
@@ -352,6 +373,8 @@ export async function runCiCommand(args: Args, config: SwitchboardConfig): Promi
         trigger: 'cli',
         keepRuns,
         signal: controller.signal,
+        envAllowlist: config.ci?.envAllowlist,
+        sandbox: config.ci?.sandbox,
         onEvent(ev) {
           if (ev.type === 'step_start') {
             console.log(C.dim(`  · ${ev.step.name}`))

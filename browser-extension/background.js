@@ -1,5 +1,5 @@
 // Switchboard Browser Companion — Service Worker (Chrome & Edge Manifest V3)
-// Handles: independent message dispatch, 13 browser tools, permission modes,
+// Handles: independent message dispatch, 17 browser tools, permission modes,
 // sensitive field protection, compact DOM snapshots, workflow recording & replay,
 // audit logging, and authenticated loopback bridge communication.
 
@@ -22,6 +22,9 @@ let bridgeSocketTimer = null;
 let bridgeConnectPromise = null;
 let bridgeLastError = '';
 let statusSyncTimer = null;
+// The Switchboard server owns the action mode. This is a cached copy for the
+// badge/panel, never the authority.
+let serverMode = 'auto';
 
 function validBridgeUrl(input) {
   const url = new URL(String(input || 'http://127.0.0.1:7778'));
@@ -62,9 +65,6 @@ async function syncBrowserState() {
   } catch (_) {
     // Restricted/non-HTTP pages never receive browser actions.
   }
-  const { permissionMode: storedMode } = await chrome.storage.local.get('permissionMode');
-  const permissionMode = normalizeActionMode(storedMode);
-  if (storedMode !== permissionMode) await chrome.storage.local.set({ permissionMode });
   // Only native Chrome host grants are reported as site access.
   const candidates = new Set();
   if (activeTab?.auditedOrigin) candidates.add(activeTab.auditedOrigin);
@@ -82,9 +82,14 @@ async function syncBrowserState() {
   const response = await fetch(config.url + '/api/browser-companion/status', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.token },
-    body: JSON.stringify({ activeTab, approvedOrigins: grantedOrigins, mode: permissionMode }),
+    body: JSON.stringify({ activeTab, approvedOrigins: grantedOrigins }),
   });
   if (!response.ok) throw new Error('Bridge status synchronization HTTP ' + response.status);
+  const data = await response.json().catch(() => ({}));
+  if (data?.mode) {
+    serverMode = normalizeActionMode(data.mode);
+    await chrome.storage.local.set({ permissionMode: serverMode });
+  }
 }
 
 function scheduleStatusSync() {
@@ -118,6 +123,90 @@ async function sendBridgeResult(command, endpoint, token) {
   if (!response.ok) throw new Error('Failed to acknowledge browser command (HTTP ' + response.status + ')');
 }
 
+// -----------------------------------------------------------------------------
+// Mutual pairing: challenge-response, code-derived AES-GCM token transport
+// -----------------------------------------------------------------------------
+function base64url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64url(value) {
+  const binary = atob(String(value).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function randomPairNonce() {
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return base64url(bytes);
+}
+
+async function pairProof(secret, side, method, clientNonce, serverNonce) {
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const payload = new TextEncoder().encode(`switchboard-pair-${side}|${method}|${clientNonce}|${serverNonce}`);
+  return base64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, payload)));
+}
+
+async function decryptPairToken(secret, method, clientNonce, serverNonce, tokenCipher, tokenIv) {
+  const keyBytes = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`switchboard-pair-token|${method}|${secret}|${clientNonce}|${serverNonce}`),
+  );
+  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: fromBase64url(tokenIv) },
+    key,
+    fromBase64url(tokenCipher),
+  );
+  return new TextDecoder().decode(plain);
+}
+
+async function pairV2(url, secret, method) {
+  const clientNonce = randomPairNonce();
+  const challengeResponse = await fetch(url + '/api/browser-companion/pair/challenge', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ method, clientNonce }),
+  });
+  if (!challengeResponse.ok) {
+    if (challengeResponse.status === 401 || challengeResponse.status === 429) {
+      throw new Error('Pairing code was rejected or expired. Restart Switchboard CLI to receive a new code.');
+    }
+    throw new Error('Pairing challenge failed (HTTP ' + challengeResponse.status + ').');
+  }
+  const challenge = await challengeResponse.json();
+  if (!challenge?.ok || challenge.method !== method || !challenge.serverNonce || !challenge.serverProof) {
+    throw new Error('Invalid pairing challenge.');
+  }
+  const expectedServerProof = await pairProof(secret, 'server', method, clientNonce, challenge.serverNonce);
+  if (expectedServerProof !== challenge.serverProof) {
+    throw new Error('Could not verify the local Switchboard server. Check the pairing code and try again.');
+  }
+  const clientProof = await pairProof(secret, 'client', method, clientNonce, challenge.serverNonce);
+  const response = await fetch(url + '/api/browser-companion/pair', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ method, clientNonce, serverNonce: challenge.serverNonce, clientProof }),
+  });
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 429) {
+      throw new Error('Pairing code was rejected or expired. Restart Switchboard CLI to receive a new code.');
+    }
+    throw new Error('Pairing request failed (HTTP ' + response.status + ').');
+  }
+  const data = await response.json();
+  if (!data?.ok) throw new Error('Invalid pairing response.');
+  if (method === 'code') {
+    if (!data.tokenCipher || !data.tokenIv) throw new Error('Pairing response did not include the encrypted token.');
+    data.token = await decryptPairToken(secret, method, clientNonce, challenge.serverNonce, data.tokenCipher, data.tokenIv);
+  }
+  return data;
+}
+
 // Native messaging: the local host returns the companion token the CLI wrote on this computer.
 // Only the extension IDs in the host manifest can start it, so no typed code is needed.
 const NATIVE_HOST_NAME = 'com.botconnector.switchboard';
@@ -125,14 +214,14 @@ async function pairViaNativeHost() {
   const reply = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, { type: 'get-companion-token' });
   if (!reply?.ok || !/^[a-f0-9]{48}$/.test(reply.token || '')) throw new Error(reply?.error || 'Native host returned no token.');
   const url = validBridgeUrl(reply.url);
-  const response = await fetch(url + '/api/browser-companion/pair', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ token: reply.token }),
+  const data = await pairV2(url, reply.token, 'token');
+  serverMode = normalizeActionMode(data.mode);
+  await chrome.storage.local.set({
+    bridgeUrl: url,
+    companionToken: reply.token,
+    bridgeConnected: true,
+    permissionMode: serverMode,
   });
-  if (!response.ok) throw new Error('Native pairing rejected (HTTP ' + response.status + ').');
-  const data = await response.json();
-  if (!data.ok || !data.token) throw new Error('Invalid pairing response.');
-  await chrome.storage.local.set({ bridgeUrl: url, companionToken: data.token, bridgeConnected: true });
 }
 
 async function ensureBridgeSocket() {
@@ -168,6 +257,10 @@ async function ensureBridgeSocket() {
     ws.addEventListener('message', event => {
       try {
         const msg = JSON.parse(event.data);
+        if (msg.type === 'connected' && msg.data) {
+          serverMode = normalizeActionMode(msg.data.mode);
+          void chrome.storage.local.set({ permissionMode: serverMode });
+        }
         if (msg.type === 'command' && msg.data && generation === bridgeSocketGeneration) {
           void sendBridgeResult(msg.data, url, token).catch(err => {
             bridgeLastError = errorMessage(err);
@@ -205,22 +298,19 @@ async function pairBridge(message) {
   const code = raw && !/^[a-f0-9]{48}$/i.test(raw) ? raw.toUpperCase().replace(/[\s-]/g, '') : '';
   const token = !code ? (raw || previous.companionToken || '') : '';
   if (!code && !token) throw new Error('Enter the pairing code shown in Switchboard CLI.');
-  const response = await fetch(url + '/api/browser-companion/pair', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(code ? { code } : { token }),
+  const data = await pairV2(url, code || token, code ? 'code' : 'token');
+  const finalToken = code ? data.token : token;
+  if (!finalToken) throw new Error('Pairing response did not establish a token.');
+  serverMode = normalizeActionMode(data.mode);
+  await chrome.storage.local.set({
+    bridgeUrl: url,
+    companionToken: finalToken,
+    bridgeConnected: true,
+    permissionMode: serverMode,
   });
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 429) {
-      throw new Error('Pairing code was rejected or expired. Restart Switchboard CLI to receive a new code.');
-    }
-    throw new Error('Pairing request failed (HTTP ' + response.status + ').');
-  }
-  const data = await response.json();
-  if (!data.ok || !data.token) throw new Error('Invalid pairing response.');
-  await chrome.storage.local.set({ bridgeUrl: url, companionToken: data.token, bridgeConnected: true });
   stopSocket();
   const connected = await ensureBridgeSocket();
-  return { ok: connected, paired: true, connected, mode: data.mode,
+  return { ok: connected, paired: true, connected, mode: serverMode,
     error: connected ? undefined : (bridgeLastError || 'Waiting to reconnect') };
 }
 
@@ -236,6 +326,7 @@ function bridgeStatus() {
     ok: true,
     connected: socketIsOpen(),
     status: socketIsOpen() ? 'connected' : 'disconnected',
+    mode: serverMode,
     error: bridgeLastError,
   };
 }
@@ -254,10 +345,6 @@ chrome.tabs.onUpdated.addListener((_tabId, change) => {
   if (change.url || change.status === 'complete') scheduleStatusSync();
 });
 chrome.windows.onFocusChanged.addListener(() => scheduleStatusSync());
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local') return;
-  if (changes.permissionMode) scheduleStatusSync();
-});
 chrome.permissions?.onAdded?.addListener(() => scheduleStatusSync());
 chrome.permissions?.onRemoved?.addListener(() => scheduleStatusSync());
 
@@ -1121,7 +1208,29 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return { ok: true };
     }
 
-    // 10. SWITCHBOARD_BRIDGE_STATUS (live socket health, not a stale stored boolean)
+    // 10. SWITCHBOARD_SET_PERMISSION_MODE: the server is authoritative. The
+    // panel may request a mode, but only the authenticated loopback response
+    // updates the local cache.
+    if (message.type === 'SWITCHBOARD_SET_PERMISSION_MODE') {
+      if (!['manual', 'auto', 'skip', 'ask_every_time', 'auto_safe'].includes(message.mode)) {
+        throw new Error('Invalid permission mode.');
+      }
+      const config = await bridgeConfig();
+      if (!config.token) throw new Error('Connect the browser companion before changing action mode.');
+      const response = await fetch(config.url + '/api/browser-companion/mode', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.token },
+        body: JSON.stringify({ mode: message.mode }),
+      });
+      if (!response.ok) throw new Error('Server rejected the action mode (HTTP ' + response.status + ').');
+      const data = await response.json();
+      if (!data?.ok) throw new Error('Server rejected the action mode.');
+      serverMode = normalizeActionMode(data.mode);
+      await chrome.storage.local.set({ permissionMode: serverMode });
+      return { ok: true, mode: serverMode };
+    }
+
+    // 11. SWITCHBOARD_BRIDGE_STATUS (live socket health, not a stale stored boolean)
     if (message.type === 'SWITCHBOARD_BRIDGE_STATUS') {
       return bridgeStatus();
     }

@@ -22,6 +22,6 @@ Lakukan tes end-to-end di Chrome **nyata** (jika owner meminta Chrome laptop, ja
 
 ### Release gate
 
-**NO-GO** bila masih ada DIFF referensi yang tidak disetujui, bukti E2E AI/provider nyata belum ada, atau keamanan gagal. Lulus unit test/CI saja bukan selesai. Dokumentasikan bukti, sumber acuan, skenario uji, keterbatasan, dan hasil perbandingan setelah SETIAP patch. Saat ini v0.4.2 sudah publik dan draft PR #22 adalah pekerjaan pengembangan: **jangan merge atau kirim update Web Store hanya karena patch selesai**; ikuti izin owner, verifikasi semua blocker, dan kebijakan rilis aktual.
+**NO-GO** bila masih ada DIFF referensi yang tidak disetujui, bukti E2E AI/provider nyata belum ada, atau keamanan gagal. Lulus unit test/CI saja bukan selesai. Dokumentasikan bukti, sumber acuan, skenario uji, keterbatasan, dan hasil perbandingan setelah SETIAP patch. Status rilis tunggal ada di `docs/release-status.md`: Chrome Web Store publik **0.4.4**, sumber **0.4.5 belum dirilis**, Edge belum diverifikasi. **Jangan merge, publish, atau kirim update Web Store hanya karena patch selesai**; ikuti izin owner dan verifikasi semua blocker.
 
 Aturan global di `C:\Users\farij\AGENTS.md` berlaku juga. **Ringkasan:** pelajari original -> implementasi sama -> uji nyata -> bandingkan -> coret DIFF -> ulang sampai MATCH, bukan custom.

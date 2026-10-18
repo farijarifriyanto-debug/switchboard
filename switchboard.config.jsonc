@@ -40,9 +40,18 @@
   "metrics": { "limit": 1000, "persist": "~/.switchboard/metrics.jsonl", "load": true },
   // One JSON file per session; resume with `sbx chat -r <id>`.
   "sessions": { "dir": "~/.switchboard/sessions", "load": true, "autosave": true },
-  // Local CI (`sbx ci` + the Pipelines tab) — off unless enabled here.
-  // keepRuns: run-history retention (default 200, min 10).
-  "ci": { "enabled": true, "keepRuns": 200 },
+  // Local CI (`sbx ci` + the Pipelines tab) is OFF by default.
+  // Enabling it is not enough: the first interactive `sbx ci <workflow>` asks
+  // you to trust this project before any shell command runs (or set
+  // "trust": true only on a machine where unattended execution is intended).
+  // Steps inherit only the safe base environment, plus names in envAllowlist.
+  // Set sandbox.mode to "docker" or "bwrap" to run every step isolated.
+  "ci": {
+    "enabled": false,
+    "keepRuns": 200
+    // , "envAllowlist": ["MY_BUILD_FLAG"]
+    // , "sandbox": { "mode": "docker", "image": "node:24-alpine", "network": false }
+  },
   // MCP servers: tools appear as mcp__<server>__<tool> through the usual
   // approval gate. stdio (command/args/env) or streamable-http (url/headers).
   // "mcp": {

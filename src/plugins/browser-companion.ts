@@ -1,6 +1,6 @@
 import type { Context } from 'cordis'
 import http from 'node:http'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createCipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 import type { Socket } from 'node:net'
 import WebSocket, { WebSocketServer } from 'ws'
@@ -105,13 +105,19 @@ interface PendingCommand {
   timer: NodeJS.Timeout
 }
 
+interface PairChallenge {
+  serverNonce: string
+  method: 'token' | 'code'
+  expiresAt: number
+}
+
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
  * Switchboard Browser Companion Plugin & Bridge
  *
  * Implements:
- * - 13 browser automation tools for the Switchboard agent harness
+ * - 17 browser automation tools for the Switchboard agent harness
  * - Authenticated loopback bridge between Switchboard and the Chrome/Edge extension
  * - Security gates: origin validation, DNS rebinding defense, sensitive field masking,
  *   untrusted content demarcation, permission modes (Ask Every Time, Auto Safe, Restricted),
@@ -130,17 +136,21 @@ export class BrowserCompanionService {
   private socketServer: WebSocketServer | null = null
   private activeSocket: WebSocket | null = null
   private activeSocketOrigin: string | null = null
-  private pairCode = [...randomBytes(8)].map(byte => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[byte % 32]).join('')
+  // 12 characters from a 32-symbol alphabet (60 bits). The challenge includes
+  // a server proof, so the code itself must resist an offline guessing attack.
+  private pairCode = [...randomBytes(12)].map(byte => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[byte % 32]).join('')
   private pairCodeExpiry = Date.now() + 15 * 60_000
   private pairCodeFailures = 0
+  private pairChallenges = new Map<string, PairChallenge>()
   private seq = 0
 
   constructor(private ctx: Context, config: BrowserCompanionConfig = {}) {
+    const configuredToken = typeof config.token === 'string' ? config.token.trim() : ''
     this.config = {
       enabled: config.enabled ?? true,
       port: config.port,
       host: config.host ?? '127.0.0.1',
-      token: config.token || randomBytes(16).toString('hex'),
+      token: configuredToken || randomBytes(32).toString('hex'),
       defaultMode: normalizePermissionMode(config.defaultMode ?? 'auto'),
       timeoutMs: config.timeoutMs ?? 90_000,
     }
@@ -350,6 +360,26 @@ export class BrowserCompanionService {
     return left.length === right.length && timingSafeEqual(left, right)
   }
 
+  private pairProof(secret: string, side: 'client' | 'server', method: 'token' | 'code', clientNonce: string, serverNonce: string): string {
+    return createHmac('sha256', secret)
+      .update(`switchboard-pair-${side}|${method}|${clientNonce}|${serverNonce}`)
+      .digest('base64url')
+  }
+
+  private prunePairChallenges(now = Date.now()): void {
+    for (const [nonce, challenge] of this.pairChallenges) {
+      if (challenge.expiresAt <= now) this.pairChallenges.delete(nonce)
+    }
+  }
+
+  private encryptPairToken(secret: string, method: 'token' | 'code', clientNonce: string, serverNonce: string): { tokenCipher: string; tokenIv: string } {
+    const key = createHash('sha256').update(`switchboard-pair-token|${method}|${secret}|${clientNonce}|${serverNonce}`).digest()
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', key, iv)
+    const encrypted = Buffer.concat([cipher.update(this.token, 'utf8'), cipher.final(), cipher.getAuthTag()])
+    return { tokenCipher: encrypted.toString('base64url'), tokenIv: iv.toString('base64url') }
+  }
+
   /** WebSocket bridge keeps the Chrome MV3 worker alive independently of the side panel. */
   private handleSocketUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): void {
     const deny = (status: number) => {
@@ -461,37 +491,89 @@ export class BrowserCompanionService {
       const tokenHeader = String(req.headers['x-switchboard-companion-token'] ?? '')
       const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
       const candidate = bearer || tokenHeader
-      return Boolean(candidate && candidate === this.token)
+      return Boolean(candidate && this.token && this.secretsMatch(candidate, this.token))
     }
 
-    // Route: Pairing
+    // Route: Pairing challenge. The challenge proves the server knows the
+    // pairing secret; the client proves it in /pair. The token never crosses the
+    // wire in plaintext (code pairing returns it AES-GCM-encrypted).
+    if (route === '/api/browser-companion/pair/challenge' && req.method === 'POST') {
+      try {
+        const body = await readJson()
+        const method = body.method === 'code' ? 'code' : body.method === 'token' ? 'token' : ''
+        const clientNonce = String(body.clientNonce || '')
+        if (!method || !/^[A-Za-z0-9_-]{16,64}$/.test(clientNonce)) {
+          res.writeHead(400, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: 'method ("token" or "code") and a 16-64 character clientNonce are required.' }))
+          return
+        }
+        const secret = method === 'code' ? this.pairingCode : this.token
+        if (!secret) {
+          res.writeHead(401, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Pairing code is invalid, expired, or locked after too many attempts.' }))
+          return
+        }
+        this.prunePairChallenges()
+        if (this.pairChallenges.size >= 8) {
+          const oldest = this.pairChallenges.keys().next().value
+          if (oldest) this.pairChallenges.delete(oldest)
+        }
+        const serverNonce = randomBytes(18).toString('base64url')
+        this.pairChallenges.set(clientNonce, { serverNonce, method, expiresAt: Date.now() + 2 * 60_000 })
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({
+          ok: true,
+          method,
+          serverNonce,
+          serverProof: this.pairProof(secret, 'server', method, clientNonce, serverNonce),
+        }))
+      } catch (err: any) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
+    // Route: Pairing (challenge response only)
     if (route === '/api/browser-companion/pair' && req.method === 'POST') {
       try {
         const body = await readJson()
-        const providedToken = String(body.token || '').trim()
-        const providedCode = String(body.code || '').trim().toUpperCase().replace(/\s|-/g, '')
-        const codeAttempt = providedCode.length > 0
-        let valid = providedToken.length > 0 && this.secretsMatch(providedToken, this.token)
-        if (!valid && codeAttempt && this.pairCodeExpiry > Date.now() && this.pairCodeFailures < 5) {
-          valid = this.secretsMatch(providedCode, this.pairCode)
-          if (!valid) this.pairCodeFailures += 1
-        }
-        if (!valid) {
-          res.writeHead(codeAttempt && this.pairCodeFailures >= 5 ? 429 : 401, { 'content-type': 'application/json' })
-          res.end(JSON.stringify({ error: codeAttempt ? 'Invalid or expired pairing code' : 'Invalid pairing token' }))
+        const method = body.method === 'code' ? 'code' : body.method === 'token' ? 'token' : ''
+        const clientNonce = String(body.clientNonce || '')
+        const challenge = this.pairChallenges.get(clientNonce)
+        if (!method || !challenge || challenge.method !== method
+          || challenge.serverNonce !== String(body.serverNonce || '')
+          || challenge.expiresAt <= Date.now()) {
+          res.writeHead(401, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Pairing requires a fresh challenge response.' }))
           return
         }
-        if (codeAttempt) this.pairCodeExpiry = 0
+        this.pairChallenges.delete(clientNonce)
+        const secret = method === 'code' ? this.pairingCode : this.token
+        if (!secret) {
+          res.writeHead(401, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: method === 'code' ? 'Invalid or expired pairing code' : 'Invalid pairing token' }))
+          return
+        }
+        const expected = this.pairProof(secret, 'client', method, clientNonce, challenge.serverNonce)
+        if (!this.secretsMatch(String(body.clientProof || ''), expected)) {
+          if (method === 'code') this.pairCodeFailures += 1
+          res.writeHead(method === 'code' && this.pairCodeFailures >= 5 ? 429 : 401, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: method === 'code' ? 'Invalid or expired pairing code' : 'Invalid pairing token' }))
+          return
+        }
+        if (method === 'code') this.pairCodeExpiry = 0
+        const encrypted = method === 'code'
+          ? this.encryptPairToken(secret, method, clientNonce, challenge.serverNonce)
+          : undefined
         res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(
-          JSON.stringify({
-            ok: true,
-            token: this.token,
-            mode: this.mode,
-            approvedOrigins: Array.from(this.approvedOrigins),
-            activeTab: this.activeTab,
-          }),
-        )
+        res.end(JSON.stringify({
+          ok: true,
+          mode: this.mode,
+          approvedOrigins: Array.from(this.approvedOrigins),
+          activeTab: this.activeTab,
+          ...(encrypted ?? {}),
+        }))
       } catch (err: any) {
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
@@ -560,9 +642,29 @@ export class BrowserCompanionService {
         if (Array.isArray(body.approvedOrigins)) {
           this.approvedOrigins = new Set(body.approvedOrigins)
         }
-        if (body.mode && ['manual', 'auto', 'skip', 'ask_every_time', 'auto_safe'].includes(body.mode)) this.setMode(body.mode)
+        // Mode is server-authoritative. The extension reports tab/origin state
+        // here, but cannot change the action mode through this route.
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true, mode: this.mode, activeTab: this.activeTab }))
+      } catch (err: any) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+      return
+    }
+
+    // Route: Action mode (authenticated, server-authoritative)
+    if (route === '/api/browser-companion/mode' && req.method === 'POST') {
+      try {
+        const body = await readJson()
+        if (!['manual', 'auto', 'skip', 'ask_every_time', 'auto_safe'].includes(body.mode)) {
+          res.writeHead(400, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: 'mode must be "manual", "auto", or "skip"' }))
+          return
+        }
+        this.setMode(body.mode)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, mode: this.mode }))
       } catch (err: any) {
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
@@ -697,7 +799,8 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
     'browser_dom_snapshot', 'browser_screenshot', 'browser_wait', 'browser_extract',
     'browser_console_logs', 'browser_network_errors', 'browser_tab_close', 'browser_key',
   ])
-  const autoConfirmActions = new Set(['browser_download'])
+  const autoConfirmActions = new Set(['browser_download', 'browser_screenshot'])
+  const elementTargetTools = new Set(['browser_click', 'browser_type', 'browser_select', 'browser_download'])
   const pageBoundTools = new Set([
     'browser_dom_snapshot', 'browser_screenshot', 'browser_click', 'browser_type',
     'browser_scroll', 'browser_select', 'browser_download', 'browser_wait',
@@ -792,6 +895,7 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
     const binding = { tabId: raw.tabId, origin, hash: raw.hash, kind: 'page' as const, mode: service.currentMode, safeSnapshot, safeContent: screened.content }
     return {
       origin, binding, screening: screened, protectedAuthorization, prohibitedTarget, selectedSensitive,
+      selectedFound: Boolean(selected),
       downloadOrigin: typeof selected?.hrefOrigin === 'string' ? selected.hrefOrigin : undefined,
     }
   }
@@ -888,6 +992,12 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
           return { verdict: 'block' as const, reason: error instanceof Error ? error.message : 'Browser page preflight failed.' }
         }
       }
+      if (page && elementTargetTools.has(spec.name) && !page.selectedFound) {
+        return {
+          verdict: 'block' as const,
+          reason: 'That element is not in the current browser_dom_snapshot. Use its ref (for example "@e12") or the exact selector returned by the snapshot; arbitrary CSS selectors are not accepted.',
+        }
+      }
       if (page?.selectedSensitive && spec.name === 'browser_type') {
         return { verdict: 'block' as const, reason: 'Interaction with sensitive credential, payment, or file fields is blocked.' }
       }
@@ -945,7 +1055,11 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
       }
       return {
         verdict: protectedApproval ? 'require_approval' as const : 'continue' as const,
-        reason: protectedApproval ? 'The file source cannot be verified automatically; confirm this download explicitly.' : '',
+        reason: protectedApproval
+          ? spec.name === 'browser_screenshot'
+            ? 'Screenshots can capture sensitive page content; confirm this screenshot explicitly.'
+            : 'The file source cannot be verified automatically; confirm this download explicitly.'
+          : '',
       }
     } : undefined
     disposers.push(ctx.tools.register({
@@ -955,6 +1069,9 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
         async execute(args: any, toolCtx: ToolContext) {
           if (service.currentMode === 'manual' && pageBoundTools.has(spec.name) && toolCtx.browserPageBinding?.kind !== 'page') {
             const page = await pageSnapshot(toolCtx, toolCtx.browserPageBinding?.tabId, args?.selector)
+            if (elementTargetTools.has(spec.name) && !page.selectedFound) {
+              throw new Error('That element is not in the current browser_dom_snapshot. Use its ref or the exact snapshot selector; arbitrary CSS selectors are not accepted.')
+            }
             if (page.selectedSensitive && spec.name === 'browser_type') {
               throw new Error('Interaction with sensitive credential, payment, or file fields is blocked.')
             }
@@ -1118,7 +1235,7 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   // 5. browser_screenshot
   reg({
     name: 'browser_screenshot',
-    description: 'Capture a screenshot of the visible viewport of the active tab as a JPEG data URL.',
+    description: 'Capture a screenshot of the visible viewport of the active tab as a JPEG data URL. Always requires explicit approval because the image can contain sensitive page content.',
     parameters: {
       type: 'object',
       properties: {
@@ -1135,11 +1252,11 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   // 6. browser_click
   reg({
     name: 'browser_click',
-    description: 'Click an element specified by a CSS selector or element ref (@e1, @e2).',
+    description: 'Click an element returned by browser_dom_snapshot, using its ref (@e1, @e2) or the exact selector from that snapshot. Arbitrary CSS selectors are rejected.',
     parameters: {
       type: 'object',
       properties: {
-        selector: { type: 'string', description: 'CSS selector or element ref to click.' },
+        selector: { type: 'string', description: 'Element ref or the exact selector returned by browser_dom_snapshot.' },
         tabId: { type: 'number', description: 'Optional tab ID.' },
       },
       required: ['selector'],
@@ -1153,11 +1270,11 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   // browser_download: a click that must start a download. Protected: always asks in the extension.
   reg({
     name: 'browser_download',
-    description: 'Click a download link or button and report the file Chrome starts downloading. Always requires approval in the Switchboard panel.',
+    description: 'Click a download link or button returned by browser_dom_snapshot and report the file Chrome starts downloading. Always requires approval in the Switchboard panel.',
     parameters: {
       type: 'object',
       properties: {
-        selector: { type: 'string', description: 'CSS selector or element ref of the download link or button.' },
+        selector: { type: 'string', description: 'Element ref or the exact snapshot selector of the download link or button.' },
         tabId: { type: 'number', description: 'Optional tab ID.' },
       },
       required: ['selector'],
@@ -1189,11 +1306,11 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   // 7. browser_type
   reg({
     name: 'browser_type',
-    description: 'Type text into an input or textarea element specified by selector or ref. With clear=false (the default), text is appended; when replacing existing text, set clear=true and do not assume the field is empty. A successful result includes verified=true: the live field matched without returning its text. Do not repeat the mutation. Sensitive fields (passwords, credit cards) are blocked.',
+    description: 'Type text into an input or textarea returned by browser_dom_snapshot, using its ref or exact snapshot selector. Arbitrary CSS selectors are rejected. With clear=false (the default), text is appended; when replacing existing text, set clear=true and do not assume the field is empty. A successful result includes verified=true: the live field matched without returning its text. Do not repeat the mutation. Sensitive fields (passwords, credit cards) are blocked.',
     parameters: {
       type: 'object',
       properties: {
-        selector: { type: 'string', description: 'CSS selector or element ref.' },
+        selector: { type: 'string', description: 'Element ref or the exact selector returned by browser_dom_snapshot.' },
         text: { type: 'string', description: 'Text to type.' },
         clear: { type: 'boolean', description: 'Set clear=true to replace existing text; clear=false (default) appends.' },
         pressEnter: { type: 'boolean', description: 'Press Enter key after typing.' },
@@ -1229,11 +1346,11 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
   // 9. browser_select
   reg({
     name: 'browser_select',
-    description: 'Select an option in a <select> dropdown element by value or visible label.',
+    description: 'Select an option in a <select> dropdown returned by browser_dom_snapshot, using the element ref or exact snapshot selector.',
     parameters: {
       type: 'object',
       properties: {
-        selector: { type: 'string', description: 'CSS selector for the select element.' },
+        selector: { type: 'string', description: 'Element ref or the exact snapshot selector for the select element.' },
         value: { type: 'string', description: 'Value or label of the option.' },
         tabId: { type: 'number', description: 'Optional tab ID.' },
       },

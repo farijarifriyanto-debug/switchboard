@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict'
 import http from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createHost } from '../dist/index.js'
@@ -15,6 +15,7 @@ import { validateAutomation } from '../dist/services/automations.js'
 // ---- validation
 const ok = { id: 'daily', name: 'Daily', schedule: '0 9 * * *', prompt: 'summarize' }
 assert.equal(validateAutomation(ok).preset, 'reviewer', 'default preset is read-only')
+assert.equal(validateAutomation({ ...ok, preset: 'default', allowUnattended: true }).allowUnattended, true, 'explicit unattended opt-in survives validation')
 assert.throws(() => validateAutomation({ ...ok, schedule: '* * * * *' }), /more often than every 5 minutes/)
 assert.throws(() => validateAutomation({ ...ok, schedule: '*/2 * * * *' }), /more often/)
 assert.doesNotThrow(() => validateAutomation({ ...ok, schedule: '*/5 * * * *' }))
@@ -94,7 +95,19 @@ try {
 
   // ---- unattended: tools that need approval are refused, not run
   mode = 'tool'
-  await ctx.automations.create({ id: 'shelly', name: 'Shelly', schedule: '30 9 * * *', prompt: 'do it', preset: 'default' }, at(9, 2))
+  await assert.rejects(
+    ctx.automations.create({ id: 'unsafe', name: 'Unsafe', schedule: '30 9 * * *', prompt: 'do it', preset: 'default' }, at(9, 2)),
+    /allowUnattended|shell commands|credentials/i,
+    'default (all-tools) preset needs an explicit unattended opt-in',
+  )
+  await ctx.presets.create({ id: 'shells', name: 'Shells', tools: { allow: ['run_command'] } })
+  await assert.rejects(
+    ctx.automations.create({ id: 'custom-unsafe', name: 'Custom unsafe', schedule: '30 9 * * *', prompt: 'do it', preset: 'shells' }, at(9, 2)),
+    /allowUnattended|shell commands|credentials/i,
+    'custom presets that allow run_command also need the opt-in',
+  )
+  await ctx.presets.remove('shells')
+  await ctx.automations.create({ id: 'shelly', name: 'Shelly', schedule: '30 9 * * *', prompt: 'do it', preset: 'default', allowUnattended: true }, at(9, 2))
   const t = await ctx.automations.tick(at(9, 30))
   assert.deepEqual(t.ran, ['shelly'])
   const shelly = ctx.automations.get('shelly')
@@ -129,6 +142,9 @@ try {
   const listed = await (await api('automations')).json()
   assert.ok(listed.automations.find((a) => a.id === 'daily').lastRun)
   assert.equal((await api('automations', 'POST', { ...ok, id: 'viaapi', schedule: '* * * * *' })).status, 400)
+  assert.equal((await api('automations', 'POST', { ...ok, id: 'viaunsafe', preset: 'default' })).status, 400)
+  assert.equal((await api('automations', 'POST', { ...ok, id: 'viaunsafe', preset: 'default', allowUnattended: true })).status, 201)
+  assert.equal((await api('automations/viaunsafe', 'DELETE')).status, 200)
   assert.equal((await api('automations', 'POST', { ...ok, id: 'viaapi' })).status, 201)
   assert.equal((await api('automations/viaapi/run', 'POST')).status, 200)
   assert.equal((await (await api('automations/viaapi/runs')).json()).runs.length, 1)
@@ -136,10 +152,28 @@ try {
   assert.equal((await api('automations/missing', 'DELETE')).status, 404)
 
   await host.dispose()
+  // Old stores predate allowUnattended. An unsafe item must fail closed
+  // before a session starts, not silently regain the shell.
+  const stored = JSON.parse(await readFile(path.join(dir, 'automations.json'), 'utf8'))
+  stored.automations.push({
+    id: 'legacy-unsafe', name: 'Legacy unsafe', schedule: '0 0 * * *', prompt: 'run it',
+    preset: 'default', deliver: { type: 'console' }, enabled: true,
+    createdAt: Date.now() - 60_000, failures: 0, runs: [], nextRun: Date.now() - 1_000,
+  })
+  await writeFile(path.join(dir, 'automations.json'), JSON.stringify(stored), 'utf8')
   host = await boot()
   await host.ctx.automations.ready()
   assert.ok(host.ctx.automations.get('daily'), 'automations survive a restart')
   assert.equal(host.ctx.automations.get('viaapi'), undefined)
+  const sessionsBeforeLegacy = host.ctx.sessions.list().length
+  await assert.rejects(host.ctx.automations.runNow('legacy-unsafe'), /allowUnattended/i, 'manual run of a legacy unsafe item is refused')
+  const legacyTick = await host.ctx.automations.tick(new Date())
+  assert.ok(legacyTick.ran.includes('legacy-unsafe'))
+  const legacy = host.ctx.automations.get('legacy-unsafe')
+  assert.equal(legacy.enabled, false, 'legacy unsafe item disables itself')
+  assert.equal(legacy.runs[0].status, 'failed')
+  assert.match(legacy.runs[0].error, /allowUnattended/i)
+  assert.equal(host.ctx.sessions.list().length, sessionsBeforeLegacy, 'blocked legacy item creates no session')
   console.log('automations: OK')
 } finally {
   await host.dispose()

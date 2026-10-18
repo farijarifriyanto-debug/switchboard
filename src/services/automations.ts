@@ -32,6 +32,13 @@ export interface Automation {
   prompt: string
   /** Preset the run uses; limits what the agent can touch. Default `reviewer` (read-only). */
   preset: string
+  /**
+   * Explicit opt-in for presets that can run shell commands or reach
+   * credentials. Without it, `default` and custom full-access presets are
+   * refused before a session is created, including old automations loaded from
+   * disk.
+   */
+  allowUnattended: boolean
   deliver: Delivery
   enabled: boolean
   createdAt: number
@@ -47,6 +54,30 @@ const MISSED_AFTER_MS = 2 * 60 * 60_000
 const KEEP_RUNS = 20
 const MAX_OUTPUT = 4_000
 const DISABLE_AFTER = 5
+
+/**
+ * Tools that cannot start a local process, write files, or invoke an arbitrary
+ * MCP server. A custom preset is unattended-safe only when every allowed tool
+ * matches this set; a missing allow list means "all tools" and is refused.
+ */
+const SAFE_UNATTENDED_TOOLS = [
+  /^read_file$/,
+  /^list_dir$/,
+  /^search_files$/,
+  /^load_skill$/,
+  /^web_search$/,
+  /^web_fetch$/,
+  /^browser_[a-z_]+$/,
+  /^mcp__browser__[a-z0-9_]+$/,
+]
+
+export function presetIsUnattendedSafe(id: string, preset?: { tools?: { allow?: string[] } }): boolean {
+  if (id === 'reviewer' || id === 'researcher' || id === 'browser') return true
+  if (id === 'default' || !preset) return false
+  const allow = preset.tools?.allow
+  if (!allow || allow.length === 0) return false
+  return allow.every((tool) => tool === 'mcp__browser__*' || SAFE_UNATTENDED_TOOLS.some((pattern) => pattern.test(tool)))
+}
 
 /** Smallest gap between the next few firings; a cron that fires every minute is refused. */
 function minGap(schedule: string, from: Date): number {
@@ -90,7 +121,16 @@ export function validateAutomation(input: unknown, id?: string, now = new Date()
     if (!/^\d{5,25}$/.test(userId)) throw new SettingsError('deliver.userId must be your Discord user id (digits, as a string).')
     deliver = { type: 'discord', userId }
   } else if (d && d.type !== 'console') throw new SettingsError('deliver.type must be "console", "telegram" or "discord".')
-  return { id: wanted, name, schedule, prompt, preset, deliver, enabled: raw.enabled !== false }
+  return {
+    id: wanted,
+    name,
+    schedule,
+    prompt,
+    preset,
+    allowUnattended: raw.allowUnattended === true,
+    deliver,
+    enabled: raw.enabled !== false,
+  }
 }
 
 /**
@@ -166,11 +206,28 @@ export class AutomationService extends Service {
     if (preset !== 'default' && !this.ctx.get('presets', false)?.get(preset)) throw new SettingsError(`No preset "${preset}".`, { status: 404 })
   }
 
+  private unattendedBlock(preset: string, allowUnattended: boolean): string | null {
+    if (allowUnattended) return null
+    const descriptor = preset === 'default' ? undefined : this.ctx.get('presets', false)?.get(preset)
+    if (presetIsUnattendedSafe(preset, descriptor)) return null
+    return `Preset "${preset}" can run shell commands or reach credentials; unattended runs are blocked unless allowUnattended: true.`
+  }
+
+  private assertUnattended(fields: { preset: string; allowUnattended: boolean }): void {
+    const block = this.unattendedBlock(fields.preset, fields.allowUnattended)
+    if (!block) return
+    throw new SettingsError(block, {
+      status: 400,
+      hint: 'Use the reviewer or browser preset, or set allowUnattended: true explicitly after reviewing what the preset can do.',
+    })
+  }
+
   async create(input: unknown, now = new Date()): Promise<Automation> {
     const fields = validateAutomation(input, undefined, now)
     if (this.items.some((a) => a.id === fields.id)) throw new SettingsError(`Automation "${fields.id}" already exists.`, { status: 409 })
     if (this.items.length >= MAX_AUTOMATIONS) throw new SettingsError(`At most ${MAX_AUTOMATIONS} automations.`, { status: 409 })
     this.checkPreset(fields.preset)
+    this.assertUnattended(fields)
     const item: Automation = { ...fields, createdAt: now.getTime(), failures: 0, runs: [] }
     item.nextRun = nextFire(parseCron(item.schedule), now)?.getTime()
     this.items.push(item)
@@ -181,9 +238,15 @@ export class AutomationService extends Service {
   async update(id: string, input: unknown, now = new Date()): Promise<Automation> {
     const index = this.items.findIndex((a) => a.id === id)
     if (index === -1) throw new SettingsError(`No automation "${id}".`, { status: 404 })
-    const fields = validateAutomation(input, id, now)
-    this.checkPreset(fields.preset)
     const old = this.items[index]
+    const fields = validateAutomation(input, id, now)
+    // Omitting the flag on an edit keeps the prior explicit decision; sending
+    // false revokes it.
+    if (typeof input === 'object' && input !== null && !('allowUnattended' in input)) {
+      fields.allowUnattended = old.allowUnattended === true
+    }
+    this.checkPreset(fields.preset)
+    this.assertUnattended(fields)
     const item: Automation = { ...old, ...fields, failures: fields.enabled && !old.enabled ? 0 : old.failures }
     item.nextRun = item.enabled ? nextFire(parseCron(item.schedule), now)?.getTime() : undefined
     this.items[index] = item
@@ -239,6 +302,8 @@ export class AutomationService extends Service {
   async runNow(id: string): Promise<RunRecord> {
     const item = this.items.find((a) => a.id === id)
     if (!item) throw new SettingsError(`No automation "${id}".`, { status: 404 })
+    const block = this.unattendedBlock(item.preset, item.allowUnattended === true)
+    if (block) throw new SettingsError(block, { status: 409, hint: 'Edit the automation and set allowUnattended: true explicitly, or choose a read-only preset.' })
     if (this.busy) throw new SettingsError('Another automation is running.', { status: 409 })
     this.busy = true
     try {
@@ -259,6 +324,19 @@ export class AutomationService extends Service {
     const sessions = this.ctx.get('sessions', false)
     const agent = this.ctx.get('agent', false)
     const run: RunRecord = { id: `r-${startedAt.toString(36)}`, at: startedAt, endedAt: startedAt, status: 'failed', output: '' }
+    // Old automations can predate this flag. Fail closed before creating a
+    // session, and disable the item so the scheduler does not retry it daily.
+    const blocked = this.unattendedBlock(item.preset, item.allowUnattended === true)
+    if (blocked) {
+      run.error = blocked
+      run.endedAt = Date.now()
+      item.enabled = false
+      item.nextRun = undefined
+      item.failures += 1
+      this.record(item, run)
+      await this.deliver(item, run)
+      return run
+    }
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), this.runTimeoutMs)
     let sessionId: string | undefined

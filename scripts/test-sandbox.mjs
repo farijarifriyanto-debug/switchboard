@@ -41,6 +41,21 @@ assert.ok(inArgs(buildSandboxCommand({ mode: 'docker', network: true }, { worksp
 assert.ok(inArgs(buildSandboxCommand({ mode: 'docker', workspace: 'ro' }, { workspace: ws, command: 'x', name: 'x' }).args, '-v', `${ws}:/workspace:ro`))
 assert.ok(!JSON.stringify(dk.args).includes('hunter2'))
 
+// CI needs the step workdir and explicit step env inside the sandbox, without
+// inheriting anything else from the host.
+const dkCi = buildSandboxCommand(
+  { mode: 'docker' },
+  { workspace: ws, command: 'pwd', name: 'ci', workdir: '/workspace/sub dir', env: { CI: 'true', SBX_EXPLICIT: 'yes' } },
+)
+assert.ok(inArgs(dkCi.args, '-w', '/workspace/sub dir'), 'docker step workdir is mapped into the container')
+assert.ok(inArgs(dkCi.args, '-e', 'CI=true') && inArgs(dkCi.args, '-e', 'SBX_EXPLICIT=yes'), 'docker step env is explicit')
+const bwCi = buildSandboxCommand(
+  { mode: 'bwrap' },
+  { workspace: ws, command: 'pwd', name: 'ci', workdir: '/workspace/sub dir', env: { CI: 'true', SBX_EXPLICIT: 'yes' } },
+)
+assert.ok(inArgs(bwCi.args, '--chdir', '/workspace/sub dir'), 'bwrap step workdir is mapped into the sandbox')
+assert.ok(inArgs(bwCi.args, '--setenv', 'CI', 'true') && inArgs(bwCi.args, '--setenv', 'SBX_EXPLICIT', 'yes'), 'bwrap step env is explicit')
+
 // ---- fail closed: a missing sandbox never falls back to the host
 {
   const dir = await mkdtemp(path.join(tmpdir(), 'sbx-sb-'))

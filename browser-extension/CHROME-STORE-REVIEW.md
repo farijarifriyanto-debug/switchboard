@@ -21,7 +21,7 @@ Switchboard Browser Companion is a **local** browser companion and has no login 
 **Quick test (no AI provider key needed):**
 
 1. Install Node.js 20+ and run `npm install -g @botconnector/switchboard@0.4.0`.
-2. Start the local app in a terminal: `sbx web --no-open`. The terminal shows an 8-character, one-use Browser Companion pairing code; leave this terminal running.
+2. Start the local app in a terminal: `sbx web --no-open`. The terminal shows a 12-character, one-use Browser Companion pairing code; leave this terminal running.
 3. Open `http://127.0.0.1:7777` in Chrome. Switchboard's local Web UI opens without a BotConnector account. Select the **Browser** preset. The local onboarding row may not appear in npm v0.4.0; the extension's own **Connection** tab works independently.
 4. Open the installed Switchboard Browser Companion from Chrome's extensions toolbar. Go to **Connection** and connect to `http://127.0.0.1:7778` using the pairing code from the running Switchboard terminal. If pairing expired, restart Switchboard for a fresh code.
 5. Confirm **Connected**, then open `https://example.com/` in another browser tab. Click the extension toolbar icon while that tab is active to grant Chrome's temporary `activeTab` permission. In the Browser Companion panel use **Refresh tab**. Review the **Inspector**, **Permissions**, and **Connection** sections.

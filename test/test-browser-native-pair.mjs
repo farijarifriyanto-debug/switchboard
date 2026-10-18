@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { createHmac, webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const TOKEN = 'a'.repeat(48);
@@ -77,27 +78,49 @@ function ask(request, env = {}) {
     }
   };
   const fetched = [];
+  const serverNonce = 's'.repeat(24);
   const ctx = vm.createContext({
     chrome,
     URL,
     console,
+    crypto: webcrypto,
+    TextEncoder,
+    TextDecoder,
+    btoa,
+    atob,
+    setTimeout,
     fetch: async (url, init) => {
-      fetched.push({ url, body: JSON.parse(init.body) });
-      return { ok: true, json: async () => ({ ok: true, token: TOKEN }) };
+      const body = JSON.parse(init.body);
+      fetched.push({ url, body });
+      if (url.endsWith('/pair/challenge')) {
+        const serverProof = createHmac('sha256', TOKEN)
+          .update(`switchboard-pair-server|token|${body.clientNonce}|${serverNonce}`)
+          .digest('base64url');
+        return { ok: true, status: 200, json: async () => ({ ok: true, method: 'token', serverNonce, serverProof }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, mode: 'auto' }) };
     }
   });
   const source = readFileSync('browser-extension/background.js', 'utf8');
-  const start = source.indexOf('// Native messaging: the local host');
+  const start = source.indexOf('function base64url');
   const end = source.indexOf('async function ensureBridgeSocket()');
   // Load only the helpers this test needs; the rest of the worker needs live Chrome APIs.
-  vm.runInContext(source.slice(start, end) + '\nthis.pairViaNativeHost = pairViaNativeHost;\nfunction validBridgeUrl(input) { return new URL(String(input || "http://127.0.0.1:7778")).origin; }', ctx);
+  vm.runInContext(source.slice(start, end)
+    + '\nlet serverMode = "auto";'
+    + '\nfunction normalizeActionMode(value) { return value === "manual" ? "manual" : value === "skip" ? "skip" : "auto"; }'
+    + '\nfunction validBridgeUrl(input) { return new URL(String(input || "http://127.0.0.1:7778")).origin; }'
+    + '\nthis.pairViaNativeHost = pairViaNativeHost;', ctx);
   await vm.runInContext('pairViaNativeHost()', ctx);
   assert.deepEqual(requests, [['com.botconnector.switchboard', 'get-companion-token']]);
-  assert.equal(fetched[0].url, 'http://127.0.0.1:7778/api/browser-companion/pair');
-  assert.deepEqual(fetched[0].body, { token: TOKEN });
+  assert.equal(fetched[0].url, 'http://127.0.0.1:7778/api/browser-companion/pair/challenge');
+  assert.equal(fetched[0].body.method, 'token');
+  assert.equal(fetched[1].url, 'http://127.0.0.1:7778/api/browser-companion/pair');
+  assert.equal(fetched[1].body.method, 'token');
+  assert.match(fetched[1].body.clientProof, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(local.companionToken, TOKEN);
   assert.equal(local.bridgeConnected, true);
-  console.log('PASS extension pairs through the native host without a typed code');
+  assert.equal(local.permissionMode, 'auto');
+  console.log('PASS extension pairs through the native host with mutual challenge-response');
 }
 
 fs.rmSync(home, { recursive: true, force: true });

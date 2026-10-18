@@ -18,7 +18,7 @@ import { SwitchboardUpdateService } from '../services/switchboard-updates.js'
 import { recommendBotConnectorLocal } from '../services/botconnector-local-recommendations.js'
 import { listModels as discoverModels } from '../llm/discovery.js'
 import type { ProviderProfile } from '../llm/adapters.js'
-import { evaluateSchedules, getRun, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, saveScheduleState } from '../ci/index.js'
+import { evaluateSchedules, getRun, isCiTrusted, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, saveScheduleState } from '../ci/index.js'
 
 export interface WebUiConfig {
   /** Port to listen on. Defaults to 7777. */
@@ -34,7 +34,13 @@ export interface WebUiConfig {
   /** Directory holding the static console. Defaults to `<repo>/web`. */
   dir?: string
   /** Local workflow runner gate (copied from SwitchboardConfig.ci by the host). */
-  ci?: { enabled?: boolean; keepRuns?: number }
+  ci?: {
+    enabled?: boolean
+    keepRuns?: number
+    trust?: boolean
+    envAllowlist?: string[]
+    sandbox?: import('../services/sandbox.js').SandboxConfig
+  }
   /** Whether the host loaded an `mcp` config block (copied by the host; state.mcp separates "unavailable" from "not configured"). */
   mcpConfigured?: boolean
   /**
@@ -227,6 +233,9 @@ export const webUi = {
     const port = config.port ?? 7777
     const root = config.dir ?? fileURLToPath(new URL('../../web/', import.meta.url))
     const ciEnabled = config.ci?.enabled === true
+    if (ciEnabled && !isCiTrusted(ctx.workspace.root, config.ci)) {
+      ctx.logger('ci').warn('ci is enabled but workflows are not trusted; run `sbx ci <workflow>` once or set ci.trust=true')
+    }
     ctx.automations.start() // a running console keeps the schedule
     const keepRuns = resolveKeepRuns(config.ci?.keepRuns)
     const mcpConfigured = config.mcpConfigured === true
@@ -286,8 +295,10 @@ export const webUi = {
         // extension scheme to negotiate CORS, then require the bearer token
         // for every actual request.
         const isCompanionPreflight = companionOrigin && req.method === 'OPTIONS';
+        const companionToken = String(browserService?.currentToken ?? '');
         const isCompanionRequest = companionOrigin && req.method !== 'OPTIONS'
-          && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '');
+          && companionToken.length > 0
+          && String(req.headers.authorization ?? '') === 'Bearer ' + companionToken;
         if (isCompanionRequest || isCompanionPreflight) {
           if (extensionOrigin) res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
           res.setHeader('Vary', 'Origin')
@@ -312,7 +323,7 @@ export const webUi = {
           res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
           return void res.end('Switchboard console: open the URL printed by `sbx web` (it carries the access token).')
         }
-        if (route.startsWith('/api/')) return await api(req, res, route)
+        if (route.startsWith('/api/')) return await api(req, res, route, isCompanionRequest)
         return await staticFile(res, route)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -342,20 +353,37 @@ export const webUi = {
       }
     }
 
+    /**
+     * A companion token belongs to the browser extension. It may see and settle
+     * only browser-tool approvals from sessions that use the browser preset;
+     * approvals from a shell-capable console or automation stay invisible.
+     */
+    const browserApprovals = () => {
+      const presets = new Map(ctx.sessions.list().map((session) => [session.id, session.preset]))
+      const allowed = (approval: any): boolean =>
+        typeof approval?.tool === 'string'
+        && approval.tool.startsWith('browser_')
+        && typeof approval.sessionId === 'string'
+        && presets.get(approval.sessionId) === 'browser'
+      return {
+        pending: ctx.approvals.pending().filter(allowed),
+        recent: ctx.approvals.recent.filter(allowed),
+      }
+    }
+
     // ------------------------------------------------------------------ api
 
-    async function api(req: http.IncomingMessage, res: http.ServerResponse, route: string): Promise<void> {
+    async function api(
+      req: http.IncomingMessage,
+      res: http.ServerResponse,
+      route: string,
+      isCompanionRequest = false,
+    ): Promise<void> {
       // Same fence as /api/settings/* on EVERY api route (CSRF + DNS-rebinding
       // defense). The Host check only applies when the console is bound to
       // loopback; an operator who binds elsewhere on purpose keeps the Origin
       // and JSON content-type checks.
       const origin = String(req.headers.origin ?? '')
-      const isCompanionRequest = (route === '/api/chat' || route === '/api/state' || /^\/api\/runs\/[^/]+\/cancel$/.test(route)
-        || (route === '/api/approvals' && req.method === 'GET')
-        || (/^\/api\/approvals\/[^/]+$/.test(route) && req.method === 'POST'))
-        && (/^chrome-extension:\/\/[a-p]{32}$/.test(origin)
-          || (!origin && route === '/api/approvals' && req.method === 'GET'))
-        && String(req.headers.authorization ?? '') === 'Bearer ' + (browserService?.currentToken ?? '')
       const fenced = settingsGuard(req, { enforceHost: LOOPBACK_HOSTS.has(host.toLowerCase()) })
       if (isCompanionRequest && fenced?.status === 403 && fenced.error === 'Cross-origin settings requests are not allowed.') {
         // A paired browser extension may access only its chat, state, run-cancel, and approval endpoints.
@@ -533,10 +561,13 @@ export const webUi = {
 
       // ------------------------------------------------------------ approvals
       if (route === '/api/approvals' && req.method === 'GET') {
+        const approvals = isCompanionRequest
+          ? browserApprovals()
+          : { pending: ctx.approvals.pending(), recent: ctx.approvals.recent }
         return json(res, 200, {
           mode: ctx.approvals.mode,
-          pending: ctx.approvals.pending(),
-          recent: ctx.approvals.recent,
+          pending: approvals.pending,
+          recent: approvals.recent,
           browser: browserApprovalContext(),
         })
       }
@@ -548,6 +579,9 @@ export const webUi = {
           return json(res, 400, { error: 'decision must be "approved", "approved_session" or "rejected"' })
         }
         const id = decodeURIComponent(approvalsDecide[1])
+        if (isCompanionRequest && !browserApprovals().pending.some((approval) => approval.id === id)) {
+          return json(res, 404, { error: 'no such browser approval' })
+        }
         const ok = ctx.approvals.decide(id, decision)
         return ok ? json(res, 200, { id, decision }) : json(res, 404, { error: 'no such pending approval' })
       }
@@ -566,6 +600,12 @@ export const webUi = {
           return json(res, 404, { error: 'ci is disabled — set "ci": { "enabled": true } in switchboard.config.jsonc' })
         }
         const wfRoot = ctx.workspace.root
+        if (!isCiTrusted(wfRoot, config.ci)) {
+          return json(res, 403, {
+            error: 'ci workflows are not trusted for this project',
+            hint: 'Run `sbx ci <workflow>` once in an interactive terminal, or set "ci": { "trust": true } only where unattended execution is intended.',
+          })
+        }
         if (route === '/api/ci/workflows' && req.method === 'GET') {
           const workflows = await listWorkflows(wfRoot)
           const { runs } = await listRuns(wfRoot, { limit: Number.MAX_SAFE_INTEGER })
@@ -600,9 +640,13 @@ export const webUi = {
             return json(res, 400, { error: `unknown workflow "${wanted}" (available: ${list.map((w) => w.id).join(', ') || 'none'})` })
           }
           const runId = newRunId()
-          void runWorkflow(wfRoot, found.id, { trigger: 'web', runId, keepRuns }).catch((error) =>
-            ctx.logger('web-ui').warn('ci run %s died: %s', runId, String(error)),
-          )
+          void runWorkflow(wfRoot, found.id, {
+            trigger: 'web',
+            runId,
+            keepRuns,
+            envAllowlist: config.ci?.envAllowlist,
+            sandbox: config.ci?.sandbox,
+          }).catch((error) => ctx.logger('web-ui').warn('ci run %s died: %s', runId, String(error)))
           return json(res, 202, { id: runId, workflow: found.id })
         }
         const runMatch = route.match(/^\/api\/ci\/runs\/([^/]+)$/)
@@ -611,6 +655,28 @@ export const webUi = {
           return record ? json(res, 200, record) : json(res, 404, { error: 'no such run' })
         }
         return json(res, 404, { error: 'unknown ci route' })
+      }
+
+      if (route === '/api/state' && req.method === 'GET' && isCompanionRequest) {
+        const approvals = browserApprovals()
+        return json(res, 200, {
+          browserCompanion: {
+            bridgeReady: Boolean(browserService),
+            connected: Boolean(browserService?.isClientConnected()),
+            connectedExtensionOrigin: browserService?.connectedExtensionOrigin ?? null,
+            mode: browserService?.currentMode ?? null,
+            storeUrls: browserStoreUrls,
+          },
+          approval: {
+            mode: ctx.approvals.mode,
+            pending: approvals.pending,
+            recent: approvals.recent,
+            browser: browserApprovalContext(),
+          },
+          sessions: ctx.sessions.list()
+            .filter((session) => session.preset === 'browser')
+            .map((session) => ({ id: session.id, title: session.title, status: session.status, updatedAt: session.updatedAt })),
+        })
       }
 
       if (route === '/api/state' && req.method === 'GET') {
@@ -685,7 +751,7 @@ export const webUi = {
             recent: ctx.approvals.recent,
             browser: browserApprovalContext(),
           },
-          ci: { enabled: ciEnabled },
+          ci: { enabled: ciEnabled, trusted: ciEnabled ? isCiTrusted(ctx.workspace.root, config.ci) : false },
           mcp: mcpState(),
           models: stateModels,
           capabilities: [...new Set(ctx.tools.list().map((t) => t.plugin))].map((name) => ({
@@ -818,6 +884,12 @@ export const webUi = {
       const cancelMatch = route.match(/^\/api\/runs\/([^/]+)\/cancel$/)
       if (cancelMatch && req.method === 'POST') {
         const id = decodeURIComponent(cancelMatch[1])
+        if (isCompanionRequest) {
+          const session = ctx.sessions.find(id)
+          if (!session || session.preset !== 'browser') {
+            return json(res, 403, { error: 'the companion token may cancel only browser-preset sessions' })
+          }
+        }
         const ac = runs.get(id)
         if (!ac) return json(res, 404, { error: `no running session "${id}"` })
         ac.abort()
@@ -874,7 +946,16 @@ export const webUi = {
         if (needsTools && toolsBlocked) {
           return json(res, 422, { error: 'This model does not advertise tool support, so it cannot safely perform project or command tasks. Select a model with tools enabled.' })
         }
-        const presetId = typeof body.preset === 'string' && body.preset ? body.preset : undefined
+        let presetId = typeof body.preset === 'string' && body.preset ? body.preset : undefined
+        if (isCompanionRequest) {
+          if (presetId && presetId !== 'browser') {
+            return json(res, 403, { error: 'the companion token may chat only with the browser preset' })
+          }
+          if (session && session.preset !== 'browser') {
+            return json(res, 403, { error: 'the companion token may continue only browser-preset sessions' })
+          }
+          presetId = 'browser'
+        }
         if (presetId && !ctx.presets.get(presetId)) return json(res, 404, { error: `no preset "${presetId}"` })
         const id = session?.id ?? ctx.sessions.create({ title: prompt.slice(0, 72), model: model || wantedModel, provider,...(presetId ? { preset: presetId } : {}), projectRoot: ctx.workspace.root }).id
         if (runs.has(id)) return json(res, 409, { error: 'this session already has an active run' })
@@ -1229,6 +1310,7 @@ export const webUi = {
     async function schedulerTick(now: Date = new Date()): Promise<{ fired: string[]; skipped: string[] }> {
       if (!ciEnabled) return { fired: [], skipped: [] }
       const root = ctx.workspace.root
+      if (!isCiTrusted(root, config.ci)) return { fired: [], skipped: [] }
       try {
         const listed = await listWorkflows(root)
         const candidates = listed.filter((wf) => wf.schedule.length > 0).map((wf) => ({ id: wf.id, schedule: wf.schedule }))
@@ -1244,9 +1326,13 @@ export const webUi = {
         for (const id of decision.skipped) ctx.logger('web-ui').info('ci schedule: %s still running, skipped', id)
         for (const id of decision.toFire) {
           const runId = newRunId()
-          void runWorkflow(root, id, { trigger: 'schedule', runId, keepRuns }).catch((error) =>
-            ctx.logger('web-ui').warn('ci scheduled run %s died: %s', runId, String(error)),
-          )
+          void runWorkflow(root, id, {
+            trigger: 'schedule',
+            runId,
+            keepRuns,
+            envAllowlist: config.ci?.envAllowlist,
+            sandbox: config.ci?.sandbox,
+          }).catch((error) => ctx.logger('web-ui').warn('ci scheduled run %s died: %s', runId, String(error)))
         }
         return { fired: decision.toFire, skipped: decision.skipped }
       } catch (error) {

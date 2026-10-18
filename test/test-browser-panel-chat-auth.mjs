@@ -32,18 +32,40 @@ try{
  const auth=await fetch(url+'api/state',{headers:{origin,authorization:'Bearer '+bearer}});
  assert.equal(auth.status,200,'authorized extension can use the Web UI agent backend');
  assert.equal(auth.headers.get('access-control-allow-origin'),origin);
- const state=await auth.json();assert.ok(state.endpoint);
- console.log('PASS extension bearer authenticates to the same Switchboard Web UI');
+ const state=await auth.json();
+ assert.ok(state.browserCompanion,'authorized extension receives browser-scoped state');
+ assert.equal(state.endpoint,undefined,'companion token cannot read the console endpoint/provider settings');
+ assert.equal(state.tools,undefined,'companion token cannot enumerate the full tool surface');
+ assert.ok(Array.isArray(state.sessions),'companion sees only browser-scoped sessions');
+ console.log('PASS extension bearer receives browser-scoped state, not the full console');
  const evil=await fetch(url+'api/state',{headers:{origin:'https://evil.example',authorization:'Bearer '+bearer}});
  assert.equal(evil.status,401,'forged website origin not whitelisted by extension CORS exception');
  console.log('PASS browser web origin is rejected even if bridge bearer supplied');
 
+ const browserSession=host.ctx.sessions.create({title:'Browser approval session',preset:'browser'});
+ const consoleSession=host.ctx.sessions.create({title:'Console session'});
+ const forbiddenPreset=await fetch(url+'api/chat',{method:'POST',headers:{origin,authorization:'Bearer '+bearer,'content-type':'application/json'},body:JSON.stringify({prompt:'hello',preset:'default'})});
+ assert.equal(forbiddenPreset.status,403,'companion token cannot start a non-browser preset chat');
+ const forbiddenSession=await fetch(url+'api/chat',{method:'POST',headers:{origin,authorization:'Bearer '+bearer,'content-type':'application/json'},body:JSON.stringify({prompt:'hello',sessionId:consoleSession.id})});
+ assert.equal(forbiddenSession.status,403,'companion token cannot continue a console session');
+ console.log('PASS companion chat is forced to the browser preset and browser sessions');
+
  const approvalWait=host.ctx.approvals.request('browser_type',{
    selector:'#pesan', targetOrigin:'https://example.org',
- },'extension-approval-test');
+ },browserSession.id);
  await new Promise(resolve=>setImmediate(resolve));
  const pending=host.ctx.approvals.pending()[0];
  assert.ok(pending,'test approval is pending before the extension decision');
+ const consoleApprovalWait=host.ctx.approvals.request('run_command',{command:'echo should-not-be-visible'},consoleSession.id);
+ await new Promise(resolve=>setImmediate(resolve));
+ const consolePending=host.ctx.approvals.pending().find((approval)=>approval.sessionId===consoleSession.id);
+ assert.ok(consolePending,'a shell approval from a console session is pending');
+ const scopedApprovals=await (await fetch(url+'api/approvals',{headers:{origin,authorization:'Bearer '+bearer}})).json();
+ assert.equal(scopedApprovals.pending.some((approval)=>approval.id===consolePending.id),false,'companion cannot list non-browser approvals');
+ const crossDecide=await fetch(url+'api/approvals/'+encodeURIComponent(consolePending.id),{method:'POST',headers:{origin,authorization:'Bearer '+bearer,'content-type':'application/json'},body:JSON.stringify({decision:'approved'})});
+ assert.equal(crossDecide.status,404,'companion cannot settle a non-browser approval');
+ host.ctx.approvals.decide(consolePending.id,'rejected');
+ await consoleApprovalWait;
  const approvalPath='api/approvals/'+encodeURIComponent(pending.id);
  const approvalPreflight=await fetch(url+approvalPath,{method:'OPTIONS',headers:{
    origin, 'access-control-request-method':'POST',

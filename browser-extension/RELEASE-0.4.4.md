@@ -1,4 +1,8 @@
-# Switchboard Browser Companion 0.4.4 — public release candidate
+# Switchboard Browser Companion 0.4.4 — historical published release
+
+> **Historical record.** The Chrome Web Store item is published at 0.4.4. The current
+> source version is 0.4.5 and is **not** released. See [`docs/release-status.md`](../docs/release-status.md)
+> for the single current status.
 
 Date: 15 October 2026. Owner explicitly requested immediate launch after reviewing QA gaps.
 
@@ -8,7 +12,7 @@ Date: 15 October 2026. Owner explicitly requested immediate launch after reviewi
 - Update **same item**, not a duplicate. Manifest update version `0.4.4`.
 - Artifact: `switchboard-chrome.zip` (51,817 bytes), SHA-256 `b230f3f36bce5c775a139e67e4a3b3cce31f272c57813c4caa920a1015be7994` (candidate built from branch before final merge; re-check exact published ZIP).
 - `scripts/verify-browser-store-zip.py` PASS: eight expected files, matching audited source, images and root manifest valid. Chrome and Edge ZIP built from identical source.
-- No change to NPM package version `0.4.1`; Browser Companion update is not a CLI/NPM release.
+- The Browser Companion update is independent of the CLI/npm package version; this record does not claim an npm release.
 
 ## Changes included
 

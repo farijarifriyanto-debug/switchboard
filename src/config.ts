@@ -89,8 +89,8 @@ export interface SwitchboardConfig {
   /** Durable protocol trace (LLM latency/usage, retries, tool calls, approvals). */
   trace?: { limit?: number; dir?: string }
   /**
-   * Local operator console (`sbx web`). Off by default: it serves an
-   * unauthenticated agent, so binding it is an explicit choice.
+   * Local operator console (`sbx web`). Off by default. It serves an agent with
+   * filesystem and shell tools: loopback-only unless a token is configured.
    */
   web?: {
     enabled?: boolean
@@ -107,10 +107,18 @@ export interface SwitchboardConfig {
    */
   settings?: { dir?: string }
   /**
-   * Local workflow runner (`sbx ci`). Off unless `enabled: true` — without it
-   * there is no command, no `/api/ci/*` routes and no console panel.
+   * Local workflow runner (`sbx ci`). Off by default. `enabled: true` opens the
+   * feature; workflows must also be trusted (interactive CLI prompt or
+   * `trust: true`) before anything runs. Steps get only `envAllowlist` from the
+   * parent environment, and can run inside the configured sandbox.
    */
-  ci?: { enabled?: boolean; keepRuns?: number }
+  ci?: {
+    enabled?: boolean
+    keepRuns?: number
+    trust?: boolean
+    envAllowlist?: string[]
+    sandbox?: import('./services/sandbox.js').SandboxConfig
+  }
   /**
    * MCP servers (`sbx` acts as an MCP client). Each entry spawns or connects
    * one server and exposes its tools as `mcp__<server>__<tool>`. Absent = no
@@ -166,6 +174,7 @@ export const DEFAULT_CONFIG: SwitchboardConfig = {
   approval: { mode: 'risky', timeoutMs: 120_000 },
   trace: { limit: 400, dir: '~/.switchboard/trace' },
   web: { enabled: false, port: 7777, host: '127.0.0.1' },
+  ci: { enabled: false },
   plugins: [],
 }
 

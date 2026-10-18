@@ -7,8 +7,9 @@ export { SetupError, listWorkflows, loadWorkflow, parseWorkflow } from './workfl
 export { CronError, evaluateSchedules, loadScheduleState, nextFire, parseCron, saveScheduleState, scheduleStateFile } from './schedule.js'
 export type { CronSpec, ScheduleCandidate, ScheduleDecision, ScheduleState } from './schedule.js'
 export { getRun, listRuns, newRunId, resolveKeepRuns, runsDir, saveRun } from './store.js'
-export { run } from './runner.js'
+export { buildCiEnv, CI_BASE_ENV_ALLOWLIST, run } from './runner.js'
 export type { RunOptions } from './runner.js'
+export { CI_TRUST_FILE, isCiTrusted, trustCiRoot } from './trust.js'
 export type { CiEvent, JobDef, JobRecord, JobStatus, RunRecord, RunStatus, RunSummary, ScheduleDef, StepDef, StepRecord, StepStatus, Workflow } from './types.js'
 export type { RunPage, RunQuery } from './store.js'
 
