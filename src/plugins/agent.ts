@@ -191,11 +191,13 @@ export const agentLoop = {
           ? ctx.sessions.require(sessionId)
           : ctx.sessions.create({ title: prompt.slice(0, 60), system: runSystem, projectRoot: ctx.workspace?.root, ...(presetId && presets?.get(presetId) ? { preset: presetId } : {}) })
         // a preset named for an existing session sticks to it
-        if (sessionId && options.preset && session.preset !== options.preset && presets?.get(options.preset)) ctx.sessions.setPreset(session.id, options.preset)
         // --- per-session mutex (spec §8): acquire BEFORE any mutation ---
         // The busy check throws BEFORE the system write / message append /
         // turn_started — pure read first, nothing observable changed.
         if (activeRuns.has(session.id)) throw new Error(`session "${session.id}" is already running`)
+        // Only a run that actually owns the session may rebind its preset: a
+        // rejected concurrent request must leave the next run's tools alone.
+        if (sessionId && options.preset && session.preset !== options.preset && presets?.get(options.preset)) ctx.sessions.setPreset(session.id, options.preset)
         const runToken = Symbol(session.id)
         activeRuns.set(session.id, runToken)
         let endEmitted = false // final | step-limit final | epilogue already yielded
