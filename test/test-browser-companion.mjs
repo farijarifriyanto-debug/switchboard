@@ -807,6 +807,9 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
       }
       return { ok: true, result: 'Typed' }
     }
+    // Manual execution re-reads and screens the page before acting; this test is
+    // about the approval gate, not the screening model.
+    host.ctx.browserSafety.screenPage = async () => ({ verdict: 'clean', content: '[UNTRUSTED PAGE CONTENT]\nContact form' })
     service.setMode('manual')
     const session = host.ctx.sessions.create({ title: 'session grant' })
     const toolCtx = () => ({ sessionId: session.id, userIntent: 'Fill the contact form.' })
