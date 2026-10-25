@@ -466,7 +466,7 @@ body.rail-collapsed .sidebar {
 }
 
 .count {
-  color: var(--sb-alias-label-dimmed);
+  color: var(--sb-alias-label-secondary);
 }
 
 /* ----------------------------------------------------------- shared lists */
@@ -515,10 +515,10 @@ body.rail-collapsed .sidebar {
 
 .session-list .del {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--sb-radius-xs);
-  color: var(--sb-alias-label-dimmed);
+  color: var(--sb-alias-label-secondary);
   opacity: 0;
   transition: opacity var(--sb-transition-duration-fast) var(--sb-ease-in-out),
     background var(--sb-transition-duration-fast) var(--sb-ease-in-out);
@@ -1997,30 +1997,31 @@ body.rail-collapsed .reveal {
 
 .session-state {
   display: inline-block;
-  min-width: 38px;
+  min-width: 44px;
   text-align: center;
   padding: 0 6px;
   border-radius: var(--sb-radius-xs);
-  font-size: 10px;
-  line-height: 16px;
-  color: var(--sb-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--sb-alias-label-secondary);
   background: var(--sb-alias-bg-skeleton);
 }
 
 .session-state.running,
 .session-state.active {
-  color: var(--sb-alias-state-business-primary);
+  color: color-mix(in srgb, var(--sb-alias-state-business-primary) 60%, var(--sb-alias-label-primary));
   background: var(--sb-alias-state-business-tertiary);
 }
 
 .session-state.failed,
 .session-state.error {
-  color: var(--sb-alias-state-error-primary);
+  /* 4.5:1 on the tinted chip in both themes; a bare red token only reached 4.3. */
+  color: color-mix(in srgb, var(--sb-alias-state-error-primary) 65%, var(--sb-alias-label-primary));
   background: color-mix(in srgb, var(--sb-alias-state-error-primary) 8%, transparent);
 }
 
 .session-state.cancelled {
-  color: var(--sb-alias-state-warn-label);
+  color: color-mix(in srgb, var(--sb-alias-state-warn-label) 55%, var(--sb-alias-label-primary));
   background: var(--sb-alias-state-warn-tertiary);
 }
 
@@ -2206,22 +2207,22 @@ details[open] > .io-toggle::before {
 
 .session-state.working,
 .session-state.active {
-  color: var(--sb-alias-state-business-primary);
+  color: color-mix(in srgb, var(--sb-alias-state-business-primary) 60%, var(--sb-alias-label-primary));
   background: var(--sb-alias-state-business-tertiary);
 }
 
 .session-state.waiting_approval {
-  color: var(--sb-alias-state-warn-label);
+  color: color-mix(in srgb, var(--sb-alias-state-warn-label) 55%, var(--sb-alias-label-primary));
   background: var(--sb-alias-state-warn-tertiary);
 }
 
 .session-state.completed {
-  color: var(--sb-alias-state-success-primary);
+  color: color-mix(in srgb, var(--sb-alias-state-success-primary) 45%, var(--sb-alias-label-primary));
   background: var(--sb-alias-state-success-tertiary);
 }
 
 .session-state.idle {
-  color: var(--sb-alias-label-tertiary);
+  color: var(--sb-alias-label-secondary);
   background: var(--sb-alias-bg-skeleton);
 }
 
@@ -2643,10 +2644,10 @@ body[data-theme] {
 
 .session-state {
   font-family: var(--sb-font-family-code);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  min-width: 40px;
+  min-width: 44px;
 }
 
 .session-model {
