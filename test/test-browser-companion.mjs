@@ -816,7 +816,8 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
     const [gate] = host.ctx.approvals.pending()
     assert.ok(gate, 'manual mode asks for the first action')
     host.ctx.approvals.decide(gate.id, 'approved_session')
-    assert.equal((await first).isError, undefined)
+    const firstResult = await first
+    assert.equal(firstResult.isError, undefined, `the approved action should run: ${firstResult.content}`)
 
     const again = await host.ctx.tools.prepare('browser_type', { selector: '#email', text: 'Budi' }, toolCtx())
     assert.equal(again.needsApproval, false, 'the granted tool is not asked again in this session')
