@@ -28,7 +28,7 @@ assert.equal(lock.version, pkg.version, 'package-lock root version must match pa
 assert.equal(lock.packages?.['']?.version, pkg.version, 'package-lock workspace version must match package.json')
 
 assert.match(status, new RegExp(`Source / working tree \\| \\*\\*${pkg.version.replaceAll('.', '\\.')}\\*\\* \\| (?:Unpublished|Published)`), 'release-status must show the source version')
-assert.match(status, /Chrome Web Store Browser Companion \| \*\*0\.4\.4\*\* \| Published/, 'release-status must show the published Chrome version')
+assert.match(status, /Chrome Web Store Browser Companion \| \*\*0\.4\.5\*\* \| Published/, 'release-status must show the observed published Chrome version')
 assert.match(status, /Microsoft Edge Add-ons \| \*\*unknown\*\* \| Unverified/, 'release-status must not invent an Edge status')
 // The npm row records what is actually published, which may lag the source
 // while a release is in flight; it must never claim a newer version than the tree.
