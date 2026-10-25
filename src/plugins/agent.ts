@@ -633,7 +633,9 @@ export const agentLoop = {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        if (opts.signal?.aborted || message.includes('aborted')) {
+        // Cancellation is the caller's signal, not any error that mentions an
+        // abort: the per-request timeout aborts the same controller.
+        if (opts.signal?.aborted) {
           return undefined // cancellation: not a failure
         }
         ctx.logger('agent-loop').error('turn failed for session %c: %s', sessionId, message)
