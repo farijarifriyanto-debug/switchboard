@@ -619,7 +619,8 @@ async function loadTrace(sessionId = state.selectedSession?.id || state.sessionI
   }
   try {
     const res = await fetch(`/api/trace?session=${encodeURIComponent(target)}&limit=200`)
-    if (!res.ok) return
+    // A failed fetch is its own state: leaving the list blank hides the failure.
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     const entries = Array.isArray(data.entries) ? data.entries : []
     if (!entries.length) {
@@ -648,8 +649,8 @@ async function loadTrace(sessionId = state.selectedSession?.id || state.sessionI
         return `<li class="${cls}"><details class="trace-item"><summary title="${esc(event.detail || '')}"><span class="trace-kind mono">${esc(event.kind || 'event')}</span><span class="trace-summary">${esc(event.summary || '—')}</span><span class="trace-time mono">${clock(event.at)}</span></summary>${detail}</details></li>`
       })
       .join('')
-  } catch {
-    /* trace is optional */
+  } catch (error) {
+    ui.traceEvents.innerHTML = `<li class="muted pad">trace unavailable (${esc(error instanceof Error ? error.message : String(error))}) — use ↻ to retry</li>`
   }
 }
 
@@ -1088,6 +1089,9 @@ $('plugin-form').addEventListener('submit', async (event) => {
 function activateTab(name) {
   document.querySelectorAll('.rail-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name))
   for (const pane of document.querySelectorAll('.rail-pane')) pane.hidden = pane.id !== `pane-${name}`
+  // The trace pane used to open empty on a fresh chat: nothing had ever called
+  // loadTrace, so its "no session selected" state was never rendered.
+  if (name === 'trace') void loadTrace()
 }
 
 document.querySelectorAll('.rail-tabs .tab').forEach((tab) => {
