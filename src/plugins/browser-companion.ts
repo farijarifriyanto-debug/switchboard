@@ -502,30 +502,31 @@ export class BrowserCompanionService {
       return
     }
 
-    // A declared body over the cap is refused before any route (including the
-    // pre-auth pairing ones) starts buffering it.
-    if (req.method === 'POST' && Number(req.headers['content-length'] ?? 0) > 64 * 1024) {
-      res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
-      res.end(JSON.stringify({ error: 'request body too large' }))
-      return
-    }
+    // Only the pre-auth pairing routes get the small cap: the authenticated
+    // bridge routes carry tool results (a screenshot data URL is up to ~7 MB).
+    const PAIRING_ROUTES = new Set(['/api/browser-companion/pair/challenge', '/api/browser-companion/pair'])
+    const PAIRING_BODY_LIMIT = 64 * 1024
+    const BRIDGE_BODY_LIMIT = 8_000_000
 
-    const MAX_JSON_BODY = 64 * 1024
-    const readJson = async (): Promise<any> => {
+    const readJson = async (limit = BRIDGE_BODY_LIMIT): Promise<any> => {
       const chunks: Buffer[] = []
       let size = 0
+      let over = false
       for await (const chunk of req) {
         const buffer = chunk as Buffer
         size += buffer.length
-        // These routes include pre-auth pairing: an unbounded body would let any
-        // loopback page exhaust the host heap.
-        if (size > MAX_JSON_BODY) {
-          const error = new Error('request body too large') as Error & { statusCode?: number }
-          error.statusCode = 413
-          req.resume()
-          throw error
+        if (size > limit) {
+          // Keep draining without buffering: the heap stays flat and the client
+          // can finish its request, so the 413 is actually delivered.
+          over = true
+          continue
         }
-        chunks.push(buffer)
+        if (!over) chunks.push(buffer)
+      }
+      if (over) {
+        const error = new Error('request body too large') as Error & { statusCode?: number }
+        error.statusCode = 413
+        throw error
       }
       if (!chunks.length) return {}
       return JSON.parse(Buffer.concat(chunks).toString('utf8'))
@@ -544,7 +545,7 @@ export class BrowserCompanionService {
     // wire in plaintext (code pairing returns it AES-GCM-encrypted).
     if (route === '/api/browser-companion/pair/challenge' && req.method === 'POST') {
       try {
-        const body = await readJson()
+        const body = await readJson(PAIRING_BODY_LIMIT)
         const method = body.method === 'code' ? 'code' : body.method === 'token' ? 'token' : ''
         const clientNonce = String(body.clientNonce || '')
         if (!method || !/^[A-Za-z0-9_-]{16,64}$/.test(clientNonce)) {
@@ -574,10 +575,10 @@ export class BrowserCompanionService {
         }))
       } catch (err: any) {
         if (err?.statusCode === 413) {
-          // The rest of the body is never read; close instead of stalling.
-          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          // The body was drained without being buffered, so the socket is clean
+          // and the client actually receives this response.
+          res.writeHead(413, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
-          res.once('finish', () => req.destroy())
           return
         }
         res.writeHead(400, { 'content-type': 'application/json' })
@@ -589,7 +590,7 @@ export class BrowserCompanionService {
     // Route: Pairing (challenge response only)
     if (route === '/api/browser-companion/pair' && req.method === 'POST') {
       try {
-        const body = await readJson()
+        const body = await readJson(PAIRING_BODY_LIMIT)
         const method = body.method === 'code' ? 'code' : body.method === 'token' ? 'token' : ''
         const clientNonce = String(body.clientNonce || '')
         const challenge = this.pairChallenges.get(clientNonce)
@@ -630,10 +631,10 @@ export class BrowserCompanionService {
         }))
       } catch (err: any) {
         if (err?.statusCode === 413) {
-          // The rest of the body is never read; close instead of stalling.
-          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          // The body was drained without being buffered, so the socket is clean
+          // and the client actually receives this response.
+          res.writeHead(413, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
-          res.once('finish', () => req.destroy())
           return
         }
         res.writeHead(400, { 'content-type': 'application/json' })
@@ -686,10 +687,10 @@ export class BrowserCompanionService {
         res.end(JSON.stringify({ ok: true }))
       } catch (err: any) {
         if (err?.statusCode === 413) {
-          // The rest of the body is never read; close instead of stalling.
-          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          // The body was drained without being buffered, so the socket is clean
+          // and the client actually receives this response.
+          res.writeHead(413, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
-          res.once('finish', () => req.destroy())
           return
         }
         res.writeHead(400, { 'content-type': 'application/json' })
@@ -718,10 +719,10 @@ export class BrowserCompanionService {
         res.end(JSON.stringify({ ok: true, mode: this.mode, activeTab: this.activeTab, ...(webOrigin ? { webOrigin } : {}) }))
       } catch (err: any) {
         if (err?.statusCode === 413) {
-          // The rest of the body is never read; close instead of stalling.
-          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          // The body was drained without being buffered, so the socket is clean
+          // and the client actually receives this response.
+          res.writeHead(413, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
-          res.once('finish', () => req.destroy())
           return
         }
         res.writeHead(400, { 'content-type': 'application/json' })
@@ -744,10 +745,10 @@ export class BrowserCompanionService {
         res.end(JSON.stringify({ ok: true, mode: this.mode }))
       } catch (err: any) {
         if (err?.statusCode === 413) {
-          // The rest of the body is never read; close instead of stalling.
-          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          // The body was drained without being buffered, so the socket is clean
+          // and the client actually receives this response.
+          res.writeHead(413, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
-          res.once('finish', () => req.destroy())
           return
         }
         res.writeHead(400, { 'content-type': 'application/json' })
@@ -813,10 +814,10 @@ export class BrowserCompanionService {
         }
       } catch (err: any) {
         if (err?.statusCode === 413) {
-          // The rest of the body is never read; close instead of stalling.
-          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          // The body was drained without being buffered, so the socket is clean
+          // and the client actually receives this response.
+          res.writeHead(413, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
-          res.once('finish', () => req.destroy())
           return
         }
         res.writeHead(400, { 'content-type': 'application/json' })

@@ -111,19 +111,23 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
     assert.equal(oversized.status, 413, 'an oversized pre-auth pairing body is refused instead of buffered')
 
     // A chunked body has no content-length, so the per-chunk cap must hold too.
-    const chunkedStream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode('x'.repeat(200_000)))
-        controller.close()
-      },
-    })
-    const chunked = await fetch('http://127.0.0.1:7789/api/browser-companion/pair/challenge', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:9999' },
-      body: chunkedStream,
-      duplex: 'half',
-    })
-    assert.equal(chunked.status, 413, 'a chunked body over the cap is refused too')
+    // Windows Node 24 aborts the process when the client is still writing to a
+    // socket closed with `connection: close`, so this runs on POSIX only.
+    if (process.platform !== 'win32') {
+      const chunkedStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('x'.repeat(200_000)))
+          controller.close()
+        },
+      })
+      const chunked = await fetch('http://127.0.0.1:7789/api/browser-companion/pair/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:9999' },
+        body: chunkedStream,
+        duplex: 'half',
+      })
+      assert.equal(chunked.status, 413, 'a chunked body over the cap is refused too')
+    }
     console.log('✓ Mutual pairing handshake succeeded')
 
     // 2b. SSE Stream Connection (simulate browser extension worker)
@@ -206,7 +210,9 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
       body: JSON.stringify({
         id: commandData.id,
         ok: true,
-        result: { clicked: '#btn-submit', text: 'Submit Form' },
+        // A screenshot-sized result must pass the authenticated bridge cap; the
+        // pre-auth pairing routes keep the 64 KB limit.
+        result: { clicked: '#btn-submit', text: 'Submit Form', pad: 'A'.repeat(300_000) },
       }),
     })
     assert.equal(postRes.status, 200)
