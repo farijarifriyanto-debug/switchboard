@@ -5,11 +5,11 @@ Historical QA and release notes remain useful as evidence but do not override th
 
 | Delivery | Version | Status | Evidence / note |
 |---|---|---|---|
-| npm `@botconnector/switchboard` | **0.4.5** | Published; `latest` | `npm view @botconnector/switchboard version dist-tags dist.shasum` on 2026-10-18 (`932eddc1c6bad25e5ce25ad11926412f4f71cb6e`, signed provenance) |
-| Source / working tree | **0.4.6** | Unpublished | `master` after PRs #35–#44; verified 2026-10-25, release authorized by the owner |
-| Chrome Web Store Browser Companion | **0.4.4** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`, observed at 0.4.4; packaged `switchboard-chrome.zip` (`0.4.5`, SHA-256 `e520d0a20a8422b70e7a8f3cf2ec712c6c30f3907d1f8081540eacad2243d360`) ready for publisher dashboard upload |
+| npm `@botconnector/switchboard` | **0.4.6** | Published; `latest` | `registry.npmjs.org` on 2026-10-25 (`1b4c01dd393a22edaf9d6598e78c6bed026d479b`, signed provenance `logIndex 3452899083`) |
+| Source / working tree | **0.4.6** | Published | Tagged `v0.4.6` (`25deca9`) on `origin/master` on 2026-10-25 |
+| Chrome Web Store Browser Companion | **0.4.4** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`, observed at 0.4.4; packaged `switchboard-chrome.zip` (`0.4.6`, SHA-256 `ba69194247bcc51d0bdf7adc50085a5e2d141c51980087010a30e3090ea39fe1`) ready for publisher dashboard upload |
 | Microsoft Edge Add-ons | **unknown** | Unverified | No verified listing/version evidence; do not invent a store URL |
-| GitHub Release | **v0.4.5** | Published (`latest`) | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.5` (npm tarball, `Switchboard-0.4.5-Windows-x64.zip`, `switchboard-chrome.zip`, `switchboard-edge.zip`, and SHA-256 checksums) |
+| GitHub Release | **v0.4.6** | Published (`latest`) | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.6` (npm tarball, `Switchboard-0.4.6-Windows-x64.zip`, `switchboard-chrome.zip`, `switchboard-edge.zip`, and SHA-256 checksums) |
 
 ## What 0.4.5 contains
 
@@ -122,9 +122,12 @@ historical Claude in Chrome scenario on the owner's daily profile.
 
 ## Release gate
 
-**GO** for **0.4.6**, authorized by the owner on 2026-10-25 after the real-browser evidence above.
-Version bump, npm publish, tag, GitHub release and Chrome/Edge store upload are the release steps;
-nothing after `v0.4.5` has been published or uploaded until those run.
+**Released.** `0.4.6` was authorized by the owner on 2026-10-25, tagged `v0.4.6` (`25deca9`),
+published to npm (`latest`, shasum `1b4c01dd393a22edaf9d6598e78c6bed026d479b`, signed provenance),
+and published as GitHub Release `v0.4.6` with the npm tarball, Windows x64 portable bundle and
+Chrome/Edge extension packages. Chrome Web Store upload of `switchboard-chrome.zip` (`0.4.6`,
+SHA-256 `ba69194247bcc51d0bdf7adc50085a5e2d141c51980087010a30e3090ea39fe1`) and the Edge Add-ons
+listing remain manual publisher actions.
 
 Owner authorized **GO** for the **0.4.5** package and GitHub/npm release on 2026-10-18 after all six
 audit blockers, cloud vision QA (`test-browser-panel-vision-real.mjs`), unpacked Microsoft Edge
