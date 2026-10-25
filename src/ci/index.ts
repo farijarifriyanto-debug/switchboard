@@ -4,7 +4,7 @@ import { newRunId, saveRun } from './store.js'
 import type { RunRecord } from './types.js'
 
 export { SetupError, listWorkflows, loadWorkflow, parseWorkflow } from './workflows.js'
-export { CronError, evaluateSchedules, loadScheduleState, nextFire, parseCron, saveScheduleState, scheduleStateFile } from './schedule.js'
+export { CronError, evaluateSchedules, loadScheduleState, nextFire, parseCron, runningWorkflows, saveScheduleState, scheduleStateFile } from './schedule.js'
 export type { CronSpec, ScheduleCandidate, ScheduleDecision, ScheduleState } from './schedule.js'
 export { getRun, listRuns, newRunId, resolveKeepRuns, runsDir, saveRun } from './store.js'
 export { buildCiEnv, CI_BASE_ENV_ALLOWLIST, run } from './runner.js'

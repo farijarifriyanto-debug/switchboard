@@ -18,7 +18,7 @@ import { SwitchboardUpdateService } from '../services/switchboard-updates.js'
 import { recommendBotConnectorLocal } from '../services/botconnector-local-recommendations.js'
 import { listModels as discoverModels } from '../llm/discovery.js'
 import type { ProviderProfile } from '../llm/adapters.js'
-import { evaluateSchedules, getRun, isCiTrusted, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, saveScheduleState } from '../ci/index.js'
+import { evaluateSchedules, getRun, isCiTrusted, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, runningWorkflows, saveScheduleState } from '../ci/index.js'
 
 export interface WebUiConfig {
   /** Port to listen on. Defaults to 7777. */
@@ -1324,10 +1324,8 @@ export const webUi = {
         if (!candidates.length) return { fired: [], skipped: [] }
         const state = await loadScheduleState(root)
         const { runs } = await listRuns(root, { limit: Number.MAX_SAFE_INTEGER })
-        // spec §4: the overlap check uses each workflow's LAST run (list is newest-first → first occurrence wins)
-        const lastRun = new Map<string, { status: string }>()
-        for (const run of runs) if (!lastRun.has(run.workflow)) lastRun.set(run.workflow, run)
-        const running = new Set([...lastRun].filter(([, r]) => r.status === 'running').map(([id]) => id))
+        // Every run still executing blocks its workflow, not only the newest one.
+        const running = runningWorkflows(runs)
         const decision = evaluateSchedules(candidates, state, now, running)
         if (decision.changed) await saveScheduleState(root, decision.state)
         for (const id of decision.skipped) ctx.logger('web-ui').info('ci schedule: %s still running, skipped', id)

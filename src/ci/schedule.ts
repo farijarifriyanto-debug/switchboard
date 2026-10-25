@@ -178,6 +178,15 @@ export interface ScheduleDecision {
  * equivalent to jumping to the most recent missed slot (no slot exists between
  * them), so catch-up collapses to one run without scanning missed slots.
  */
+/**
+ * Workflows with any run still marked running. A workflow's newest run is not
+ * enough: a manual run that finished later hides the older run still executing,
+ * which would let the scheduler start a second copy in the same workspace.
+ */
+export function runningWorkflows(runs: Array<{ workflow: string; status: string }>): Set<string> {
+  return new Set(runs.filter((run) => run.status === 'running').map((run) => run.workflow))
+}
+
 export function evaluateSchedules(
   candidates: ScheduleCandidate[],
   state: ScheduleState,

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { evaluateSchedules, loadScheduleState, listWorkflows, nextFire, parseCron, parseWorkflow, runsDir, saveScheduleState, scheduleStateFile, SetupError } from '../dist/ci/index.js'
+import { evaluateSchedules, loadScheduleState, listWorkflows, nextFire, parseCron, parseWorkflow, runningWorkflows, runsDir, saveScheduleState, scheduleStateFile, SetupError } from '../dist/ci/index.js'
 
 const scratch = await mkdtemp(path.join(tmpdir(), 'sb-sched-'))
 
@@ -214,6 +214,18 @@ try {
     evaluateSchedules([{ id: 'manual', schedule: [] }], { version: 1, workflows: {} }, due).changed,
     false,
     'workflows without a schedule are ignored',
+  )
+
+  // audit #9: a manual run that finished later must not hide the older run that
+  // is still executing; the overlap guard needs every running workflow.
+  assert.deepEqual(
+    [...runningWorkflows([
+      { workflow: 'deploy', status: 'success', startedAt: '2026-10-25T08:03:00Z' },
+      { workflow: 'deploy', status: 'running', startedAt: '2026-10-25T08:00:00Z' },
+      { workflow: 'test', status: 'failed', startedAt: '2026-10-25T08:02:00Z' },
+    ])],
+    ['deploy'],
+    'an older running run still counts as running',
   )
 
   console.log('schedule: OK')
