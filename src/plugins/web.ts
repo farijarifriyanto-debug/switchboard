@@ -18,7 +18,7 @@ import { SwitchboardUpdateService } from '../services/switchboard-updates.js'
 import { recommendBotConnectorLocal } from '../services/botconnector-local-recommendations.js'
 import { listModels as discoverModels } from '../llm/discovery.js'
 import type { ProviderProfile } from '../llm/adapters.js'
-import { evaluateSchedules, getRun, isCiTrusted, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, saveScheduleState } from '../ci/index.js'
+import { evaluateSchedules, getRun, isCiTrusted, listRuns, listWorkflows, loadScheduleState, newRunId, resolveKeepRuns, runWorkflow, runningWorkflows, saveScheduleState } from '../ci/index.js'
 
 export interface WebUiConfig {
   /** Port to listen on. Defaults to 7777. */
@@ -77,7 +77,11 @@ async function readBody(req: http.IncomingMessage, limit = 1_000_000): Promise<a
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > limit) throw new Error('request body too large')
+    if (size > limit) {
+      const error = new Error('request body too large') as Error & { statusCode?: number }
+      error.statusCode = 413
+      throw error
+    }
     chunks.push(chunk as Buffer)
   }
   if (!chunks.length) return {}
@@ -331,7 +335,7 @@ export const webUi = {
         if (!res.headersSent) {
           // Settings failures carry an HTTP status + recovery hint (spec §6).
           if (error instanceof SettingsError) json(res, error.status, { error: message, hint: error.hint })
-          else json(res, 500, { error: message })
+          else json(res, (error as { statusCode?: number }).statusCode ?? 500, { error: message })
         } else res.end()
       }
     })
@@ -904,7 +908,10 @@ export const webUi = {
       }
 
       if (route === '/api/chat' && req.method === 'POST') {
-        const body = await readBody(req, 12_000_000)
+        // The attachment validation below accepts four ~5 MB images (~27 MB of
+        // base64 JSON), so the body cap must sit above that or a normal photo
+        // upload fails as "too large" before it is ever validated.
+        const body = await readBody(req, 32_000_000)
         const prompt = String(body.prompt ?? '').trim()
         if (!prompt) return json(res, 400, { error: 'prompt is required' })
         const session = body.sessionId ? ctx.sessions.find(String(body.sessionId)) : undefined
@@ -1317,10 +1324,8 @@ export const webUi = {
         if (!candidates.length) return { fired: [], skipped: [] }
         const state = await loadScheduleState(root)
         const { runs } = await listRuns(root, { limit: Number.MAX_SAFE_INTEGER })
-        // spec §4: the overlap check uses each workflow's LAST run (list is newest-first → first occurrence wins)
-        const lastRun = new Map<string, { status: string }>()
-        for (const run of runs) if (!lastRun.has(run.workflow)) lastRun.set(run.workflow, run)
-        const running = new Set([...lastRun].filter(([, r]) => r.status === 'running').map(([id]) => id))
+        // Every run still executing blocks its workflow, not only the newest one.
+        const running = runningWorkflows(runs)
         const decision = evaluateSchedules(candidates, state, now, running)
         if (decision.changed) await saveScheduleState(root, decision.state)
         for (const id of decision.skipped) ctx.logger('web-ui').info('ci schedule: %s still running, skipped', id)

@@ -181,6 +181,16 @@ try {
   assert.equal((await fetch(`${url}api/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 400)
   assert.equal((await fetch(`${url}api/chat`, { method: 'POST', body: '{}' })).status, 415, 'non-JSON POST is refused before parsing')
 
+  // audit #12: the validation allows four images under 5 MB each (~27 MB of JSON),
+  // so a legitimate multi-photo upload must not hit the body cap as HTTP 500.
+  const photo = 'data:image/jpeg;base64,' + 'A'.repeat(6_900_000)
+  const twoPhotos = await fetch(`${url}api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: 'what is in these photos?', attachments: [{ dataUrl: photo }, { dataUrl: photo }] }),
+  })
+  assert.equal(twoPhotos.status, 422, 'two normal photos reach the model check instead of failing as too large')
+
   // ------------------------------------------------- workspace/files/plugins
   const ws = await (await fetch(`${url}api/workspace`)).json()
   assert.equal(ws.root, path.resolve(''), 'workspace root defaults to the process cwd')

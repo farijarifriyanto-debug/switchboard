@@ -269,6 +269,7 @@ export const agentLoop = {
           yield { type: 'turn_started' } as unknown as AgentEvent
 
           let steps = 0
+          let toolRan = false
           let aborted = false
           let failed = false
           // Pixels from browser_screenshot are short-lived vision input, not
@@ -350,18 +351,30 @@ export const agentLoop = {
               }
 
               if (!calls.length) {
+                const answer = turn.content.trim()
+                if (!answer && !toolRan) {
+                  // Nothing was done and nothing was said: report it. Inventing a
+                  // sentence would hand the parent job a fake "ok" result.
+                  failed = true
+                  ctx.trace?.runEvent(runEvent(session.id, 'error', {
+                    status: 'failed',
+                    label: 'Model returned an empty answer',
+                  }))
+                  yield { type: 'error', error: 'the model returned an empty answer' }
+                  break
+                }
                 // Some models stop after a tool result without writing a summary. Say so
                 // instead of ending the run with an empty answer.
-                const answer = turn.content.trim() || 'Selesai. Model tidak menulis ringkasan; hasil tiap langkah ada di detail tool di atas.'
-                ctx.sessions.append(session.id, { ...assistant, content: answer })
+                const finalAnswer = answer || 'Selesai. Model tidak menulis ringkasan; hasil tiap langkah ada di detail tool di atas.'
+                ctx.sessions.append(session.id, { ...assistant, content: finalAnswer })
                 setStatus(session.id, 'completed')
                 ctx.trace?.runEvent(runEvent(session.id, 'turn_completed', {
                   status: 'completed',
                   label: 'Finished',
                 }))
-                ctx.emit('agent/done', { sessionId: session.id, steps, content: answer })
+                ctx.emit('agent/done', { sessionId: session.id, steps, content: finalAnswer })
                 endEmitted = true
-                yield { type: 'final', content: answer, steps, stopReason: 'answer' }
+                yield { type: 'final', content: finalAnswer, steps, stopReason: 'answer' }
                 return
               }
 
@@ -444,6 +457,7 @@ export const agentLoop = {
                   beforeFile = previous.startsWith('Error:') ? '' : previous
                 }
                 let result = (await ctx.tools.callPrepared(prepared)).content
+                toolRan = true
                 if (call.function.name === 'browser_screenshot' && !result.startsWith('Error:')) {
                   // A page must never trigger a screenshot upload by inserting
                   // its own instructions: only an explicit user visual task
@@ -633,7 +647,9 @@ export const agentLoop = {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        if (opts.signal?.aborted || message.includes('aborted')) {
+        // Cancellation is the caller's signal, not any error that mentions an
+        // abort: the per-request timeout aborts the same controller.
+        if (opts.signal?.aborted) {
           return undefined // cancellation: not a failure
         }
         ctx.logger('agent-loop').error('turn failed for session %c: %s', sessionId, message)

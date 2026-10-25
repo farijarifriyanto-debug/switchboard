@@ -380,7 +380,8 @@ export class LLMService extends Service {
       if (opts.signal.aborted) controller.abort()
       else opts.signal.addEventListener('abort', onAbort, { once: true })
     }
-    const timer = setTimeout(() => controller.abort(), this.settings.timeoutMs)
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, this.settings.timeoutMs)
 
     let ttftMs = 0
     try {
@@ -420,6 +421,13 @@ export class LLMService extends Service {
       this.lastMetrics = result
       this.ctx.emit('llm/metrics', result)
       yield { type: 'done', result }
+    } catch (error) {
+      // The per-request timer aborts the same controller the caller uses, so
+      // without this the abort looked exactly like the user pressing Stop.
+      if (timedOut && !opts.signal?.aborted) {
+        throw new Error(`request timed out after ${Math.round(this.settings.timeoutMs / 1000)}s without a complete answer`)
+      }
+      throw error
     } finally {
       clearTimeout(timer)
       if (opts.signal) opts.signal.removeEventListener('abort', onAbort)
