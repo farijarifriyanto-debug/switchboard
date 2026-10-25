@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.6
 
 - Stop losing data or the host: a cancelled tool batch now answers every `tool_call` id, an unreadable `automations.json` is never overwritten and one bad schedule cannot exit the process, CI run records are written atomically and privately, and a session larger than the reader limit keeps its newest turns plus a searchable archive instead of vanishing.
 - Browser safety: "allow for this session" now applies to the granted tool in that session (screenshots, downloads and page quarantine still ask every time), pre-auth pairing bodies are capped at 64 KB, a quarantined page withholds its title and selectors, and a download is attributed only to the approved tab and origin.

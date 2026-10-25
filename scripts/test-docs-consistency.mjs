@@ -30,7 +30,17 @@ assert.equal(lock.packages?.['']?.version, pkg.version, 'package-lock workspace 
 assert.match(status, new RegExp(`Source / working tree \\| \\*\\*${pkg.version.replaceAll('.', '\\.')}\\*\\* \\| (?:Unpublished|Published)`), 'release-status must show the source version')
 assert.match(status, /Chrome Web Store Browser Companion \| \*\*0\.4\.4\*\* \| Published/, 'release-status must show the published Chrome version')
 assert.match(status, /Microsoft Edge Add-ons \| \*\*unknown\*\* \| Unverified/, 'release-status must not invent an Edge status')
-assert.match(status, new RegExp(`npm \`@botconnector\\/switchboard\` \\| \\*\\*${pkg.version.replaceAll('.', '\\.')}\\*\\* \\| Published`), 'release-status must show the published npm version')
+// The npm row records what is actually published, which may lag the source
+// while a release is in flight; it must never claim a newer version than the tree.
+const npmRow = status.match(/npm `@botconnector\/switchboard` \| \*\*(\d+\.\d+\.\d+)\*\* \| Published/)
+assert.ok(npmRow, 'release-status must show the published npm version')
+const versionCmp = (a, b) => {
+  const left = a.split('.').map(Number)
+  const right = b.split('.').map(Number)
+  for (let i = 0; i < 3; i += 1) if (left[i] !== right[i]) return left[i] - right[i]
+  return 0
+}
+assert.ok(versionCmp(npmRow[1], pkg.version) <= 0, 'published npm version cannot be newer than the source version')
 
 for (const doc of [readme, extensionReadme]) {
   assert.match(doc, /17 browser/, 'current browser docs must use the 17-tool count')
