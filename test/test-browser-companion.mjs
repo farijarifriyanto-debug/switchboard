@@ -100,6 +100,30 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
     assert.equal(pairData.ok, true)
     assert.equal(pairData.token, undefined, 'token pairing does not send the secret back')
     assert.equal(pairData.mode, 'auto', 'new companion sessions use the modern side-panel default')
+
+    // audit #6: the pairing routes run before authentication, so an unbounded
+    // body would let any loopback page exhaust the host heap.
+    const oversized = await fetch('http://127.0.0.1:7789/api/browser-companion/pair/challenge', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:9999' },
+      body: JSON.stringify({ method: 'token', clientNonce: 'n'.repeat(20), pad: 'x'.repeat(400_000) }),
+    })
+    assert.equal(oversized.status, 413, 'an oversized pre-auth pairing body is refused instead of buffered')
+
+    // A chunked body has no content-length, so the per-chunk cap must hold too.
+    const chunkedStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('x'.repeat(200_000)))
+        controller.close()
+      },
+    })
+    const chunked = await fetch('http://127.0.0.1:7789/api/browser-companion/pair/challenge', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:9999' },
+      body: chunkedStream,
+      duplex: 'half',
+    })
+    assert.equal(chunked.status, 413, 'a chunked body over the cap is refused too')
     console.log('✓ Mutual pairing handshake succeeded')
 
     // 2b. SSE Stream Connection (simulate browser extension worker)
