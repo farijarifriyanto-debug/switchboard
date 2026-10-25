@@ -975,10 +975,15 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
           targetOrigin: origin,
           content: JSON.stringify(projection),
         }, toolCtx.signal)
+    const quarantined = screened.verdict !== 'clean'
     const safeSnapshot = {
-      title: projection.title,
+      // The screener judges this JSON, but a quarantined page's own title and
+      // selectors are still page-authored text. Withhold them instead of
+      // returning a verdict-cleared body next to raw instructions.
+      title: quarantined ? '[page title withheld]' : projection.title,
       origin,
-      elements,
+      // Keep the locally generated snapshot ref so the agent can still act.
+      elements: quarantined ? elements.map((element: (typeof elements)[number]) => ({ ...element, selector: element.ref })) : elements,
       text: screened.content,
       hash: raw.hash,
       isDiff: Boolean(raw.isDiff),
