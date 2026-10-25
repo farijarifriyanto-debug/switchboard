@@ -352,4 +352,19 @@ const HISTORY = [
   console.log('discovery: OK')
 }
 
+// audit #10b: a stream cut before [DONE] and before finish_reason is not a complete answer.
+{
+  const server = await stub(async (req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write('data: {"choices":[{"delta":{"content":"half an ans"}}]}\n\n')
+    res.end() // proxy cut: no finish_reason, no [DONE]
+  })
+  const profile = { id: 'cut-chat', baseURL: `${server.base}/v1`, protocol: 'openai-chat', apiKey: 'k' }
+  const request = buildRequest(profile, { model: 'm1', messages: [{ role: 'user', content: 'hi' }] })
+  const res = await post(request)
+  await assert.rejects(drain(res, profile), /ended before completion/i)
+  await server.close()
+  console.log('truncated stream: OK')
+}
+
 console.log('adapters: OK (openai-chat + openai-responses + anthropic-messages + discovery)')

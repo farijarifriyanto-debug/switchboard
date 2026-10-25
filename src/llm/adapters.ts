@@ -354,7 +354,7 @@ export function buildRequest(profile: ProviderProfile, opts: AdapterRequestOpts)
 // ------------------------------------------------------------ parseStream
 
 /** Reads `data:` payloads from an SSE body (abort propagates to the caller). */
-async function* ssePayloads(body: ReadableStream<Uint8Array>): AsyncGenerator<unknown> {
+async function* ssePayloads(body: ReadableStream<Uint8Array>, terminal?: { done: boolean }): AsyncGenerator<unknown> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -368,7 +368,11 @@ async function* ssePayloads(body: ReadableStream<Uint8Array>): AsyncGenerator<un
       buffer = buffer.slice(nl + 1)
       if (!raw.startsWith('data:')) continue
       const payload = raw.slice(5).trim()
-      if (!payload || payload === '[DONE]') continue
+      if (!payload) continue
+      if (payload === '[DONE]') {
+        if (terminal) terminal.done = true
+        continue
+      }
       let json: unknown
       try {
         json = JSON.parse(payload)
@@ -397,8 +401,9 @@ async function* parseOpenAIChat(body: ReadableStream<Uint8Array>, profile: Provi
   let usage: Usage = {}
   const toolAcc = new Map<number, { id: string; name: string; args: string }>()
   const splitter = new InlineReasoningSplitter()
+  const terminal = { done: false }
 
-  for await (const json of ssePayloads(body)) {
+  for await (const json of ssePayloads(body, terminal)) {
     const frame = json as Record<string, any>
     if (frame.error) throw adapterError(profile.id, 0, String(frame.error.message ?? JSON.stringify(frame.error)))
     if (frame.usage) {
@@ -449,6 +454,13 @@ async function* parseOpenAIChat(body: ReadableStream<Uint8Array>, profile: Provi
       reasoning += piece.text
       yield { type: 'reasoning', text: piece.text }
     }
+  }
+
+  // A gateway or proxy can close the body mid-answer without an error frame and
+  // without [DONE]. Without a terminal marker there is no complete answer, and
+  // committing the partial text would pass a truncated reply off as final.
+  if (!terminal.done && finishReason === undefined) {
+    throw adapterError(profile.id, 0, 'stream ended before completion')
   }
 
   const toolCalls: ToolCall[] = []
