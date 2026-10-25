@@ -4,7 +4,7 @@
  *   node scripts/test-ci.mjs
  */
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { listWorkflows, loadWorkflow, parseWorkflow, SetupError } from '../dist/ci/index.js'
@@ -115,6 +115,7 @@ try {
   })
 
   await saveRun(scratch, record('run-a', iso()))
+
   const round = await getRun(scratch, 'run-a')
   assert.equal(round.status, 'success')
   assert.equal(round.jobs[0].steps[0].log, 'hello-log')
@@ -567,6 +568,30 @@ try {
     process.exitCode = keepExit
     await rm(sigDir, { recursive: true, force: true })
     await rm(path.dirname(runsDir(sigDir)), { recursive: true, force: true })
+  }
+
+  // audit #5: run records are rewritten on every step and hold step output that
+  // may include values from ci.envAllowlist. Readers poll while a run writes, so
+  // they must never observe a half-written file, and on POSIX the file and its
+  // directory must not be world-readable.
+  {
+    const target = path.join(runsDir(scratch), 'run-atomic.json')
+    await saveRun(scratch, { ...record('run-atomic', iso()), error: 'o'.repeat(64) })
+    const beforeSize = (await stat(target)).size
+    const writing = saveRun(scratch, { ...record('run-atomic', iso()), error: 'n'.repeat(8_000_000) })
+    const seen = new Set()
+    for (;;) {
+      const settled = await Promise.race([writing.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 1))])
+      seen.add((await stat(target)).size)
+      if (settled) break
+    }
+    const afterSize = (await stat(target)).size
+    assert.notEqual(afterSize, beforeSize, 'the new record was written')
+    assert.deepEqual([...seen].filter((size) => size !== beforeSize && size !== afterSize), [], 'a reader never sees a half-written record')
+    if (process.platform !== 'win32') {
+      assert.equal(((await stat(target)).mode & 0o777).toString(8), '600', 'run record is private')
+      assert.equal(((await stat(runsDir(scratch))).mode & 0o777).toString(8), '700', 'run dir is private')
+    }
   }
 
   console.log('ci workflows: OK')

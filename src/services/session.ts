@@ -1,29 +1,11 @@
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
-import { mkdir, readdir, rename, unlink, writeFile, lstat } from 'node:fs/promises'
+import { mkdir, readdir, unlink, writeFile, lstat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { validBackground, type BackgroundState } from './background-jobs.js'
-import { readBoundedText } from './text-file.js'
+import { readBoundedText, renameWithRetry } from './text-file.js'
 import path from 'node:path'
 import type { SessionUsage, AgentMessage } from '../types.js'
-
-const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
-/**
- * Windows can reject an atomic replace with EPERM/EACCES while another reader
- * has the target open. Retrying briefly preserves atomic checkpoints instead of
- * dropping a completed job's delivery on a transient sharing violation.
- */
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  let delay = 10
-  for (let attempt = 0; ; attempt++) {
-    try { return await rename(from, to) } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (!code || !RENAME_RETRY_CODES.has(code) || attempt >= 8) throw error
-      await new Promise((resolve) => setTimeout(resolve, delay))
-      delay = Math.min(delay * 2, 160)
-    }
-  }
-}
 
 export interface SessionConfig {
   /** Directory holding one JSON file per session. `~` is expanded; `""` disables persistence. */
@@ -268,13 +250,57 @@ export class SessionService extends Service {
     await Promise.all(ids.map((id) => this.checkpoint(id).catch(() => { this.dirty.add(id) })))
   }
 
+  /** Bound the file the reader accepts (8 MB): recent turns + searchable archive. */
+  private static readonly FILE_LIMIT = 8_000_000
+  private static readonly LIVE_BUDGET = 6_000_000
+  private static readonly ARCHIVE_BUDGET = 1_500_000
+
+  /**
+   * Keeps the live transcript intact but bounds what is written to disk. The
+   * reader refuses files over FILE_LIMIT, so an oversized session used to vanish
+   * on restart. The newest turns stay in the saved transcript; older turns move
+   * to `archived` (still searchable via recall) as far as the archive budget
+   * allows, and only the oldest entries are dropped beyond that.
+   */
+  private snapshotForDisk(data: SessionData): SessionData {
+    if (JSON.stringify(data, null, 2).length <= SessionService.FILE_LIMIT) return data
+    const messages = data.messages
+    const start = messages[0]?.role === 'system' ? 1 : 0
+    const bytes = (message: AgentMessage): number => JSON.stringify(message).length + 2
+    const turnStarts: number[] = []
+    for (let i = start; i < messages.length; i++) if (messages[i].role === 'user') turnStarts.push(i)
+    let keepFrom = messages.length
+    let live = 0
+    for (let t = turnStarts.length - 1; t >= 0; t--) {
+      const from = turnStarts[t]
+      const to = t + 1 < turnStarts.length ? turnStarts[t + 1] : messages.length
+      let turn = 0
+      for (let i = from; i < to; i++) turn += bytes(messages[i])
+      if (live + turn > SessionService.LIVE_BUDGET && keepFrom < messages.length) break
+      live += turn
+      keepFrom = from
+    }
+    const archived = [...(data.archived ?? []), ...messages.slice(start, keepFrom)]
+    let archiveBytes = archived.reduce((total, message) => total + bytes(message), 0)
+    let drop = 0
+    while (archiveBytes > SessionService.ARCHIVE_BUDGET && drop < archived.length - 1) {
+      archiveBytes -= bytes(archived[drop])
+      drop++
+    }
+    return {
+      ...data,
+      messages: [...messages.slice(0, start), ...messages.slice(keepFrom)],
+      archived: archived.slice(drop, drop + 2_000),
+    }
+  }
+
   /** Strict serialized persistence: dispatchers must await this before starting work. */
   async checkpoint(id: string): Promise<void> {
     const data = this.sessions.get(id)
     if (!data || !this.dir) return
     const target = this.file(id)
     const dir = this.dir
-    const snapshot = JSON.stringify(data, null, 2)
+    const snapshot = JSON.stringify(this.snapshotForDisk(data), null, 2)
     const prior = this.writes.get(id) ?? Promise.resolve()
     const next = prior.catch(() => {}).then(async () => {
       const tmp = `${target}.${randomUUID()}.tmp`

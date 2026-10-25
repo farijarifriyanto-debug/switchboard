@@ -151,6 +151,10 @@ export class AutomationService extends Service {
   private writeChain: Promise<void> = Promise.resolve()
   private timer?: ReturnType<typeof setInterval>
   private busy = false
+  /** Set when the store exists but cannot be understood; writes are refused until fixed. */
+  private broken: string | undefined
+  /** First read of the store; awaited by `ready()` so later calls never clobber live state. */
+  private loading?: Promise<void>
   /** Sessions owned by a run: approval requests there are rejected immediately. */
   private readonly unattended = new Set<string>()
 
@@ -161,7 +165,7 @@ export class AutomationService extends Service {
     ctx.on('approval/request', ({ id, sessionId }) => {
       if (sessionId && this.unattended.has(sessionId)) ctx.get('approvals', false)?.decide(id, 'rejected')
     })
-    void this.load()
+    this.loading = this.load()
   }
 
   private get file(): string {
@@ -169,20 +173,39 @@ export class AutomationService extends Service {
   }
 
   private async load(): Promise<void> {
+    this.broken = undefined
+    let text: string
     try {
-      const parsed = JSON.parse(await readFile(this.file, 'utf8')) as { version?: number; automations?: Automation[] }
-      if (parsed.version === 1 && Array.isArray(parsed.automations)) this.items = parsed.automations
+      text = await readFile(this.file, 'utf8')
+    } catch (error) {
+      // A fresh install has no file yet. Any other read error means the store is
+      // there but unusable, and it must never be replaced by an empty one.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      this.broken = String(error)
+      return
+    }
+    try {
+      const parsed = JSON.parse(text) as { version?: number; automations?: Automation[] }
+      if (parsed.version === 1 && Array.isArray(parsed.automations)) {
+        this.items = parsed.automations
+        return
+      }
+      this.broken = 'unsupported store version'
     } catch {
-      /* none yet */
+      this.broken = 'store is not valid JSON'
     }
   }
 
   /** Resolves once the file has been read (tests, `sbx automations`). */
   async ready(): Promise<void> {
-    await this.load()
+    this.loading ??= this.load()
+    await this.loading
   }
 
   private persist(): Promise<void> {
+    if (this.broken) {
+      return Promise.reject(new SettingsError(`automations.json could not be read (${this.broken}); fix or remove the file before saving.`, { status: 409 }))
+    }
     const text = JSON.stringify({ version: 1, automations: this.items }, null, 2)
     const run = this.writeChain.then(async () => {
       await mkdir(this.dir, { recursive: true })
@@ -264,7 +287,11 @@ export class AutomationService extends Service {
   /** Starts the 30 s scheduler. Only long-lived commands (`sbx web`, `sbx channels`) call this. */
   start(): void {
     if (this.timer) return
-    this.timer = setInterval(() => void this.tick(), 30_000)
+    this.timer = setInterval(() => {
+      // start() is fire-and-forget: an unhandled rejection here would take the
+      // whole host (runs, channels, console) down with it.
+      void this.tick().catch((error) => this.ctx.logger('automations').warn('scheduler tick failed: %s', String(error)))
+    }, 30_000)
     this.timer.unref?.()
     this.ctx.effect(() => () => {
       if (this.timer) clearInterval(this.timer)
@@ -279,19 +306,26 @@ export class AutomationService extends Service {
     this.busy = true
     try {
       for (const item of this.items) {
-        if (!item.enabled || item.nextRun === undefined || item.nextRun > now.getTime()) continue
-        const late = now.getTime() - item.nextRun
-        const due = item.nextRun
-        item.nextRun = nextFire(parseCron(item.schedule), now)?.getTime()
-        if (late > MISSED_AFTER_MS) {
-          this.record(item, { id: `r-${due.toString(36)}`, at: due, endedAt: now.getTime(), status: 'missed', output: '', error: `skipped: the scheduler was not running (${Math.round(late / 60_000)} min late)` })
-          out.missed.push(item.id)
-          continue
+        try {
+          if (!item.enabled || item.nextRun === undefined || item.nextRun > now.getTime()) continue
+          const late = now.getTime() - item.nextRun
+          const due = item.nextRun
+          item.nextRun = nextFire(parseCron(item.schedule), now)?.getTime()
+          if (late > MISSED_AFTER_MS) {
+            this.record(item, { id: `r-${due.toString(36)}`, at: due, endedAt: now.getTime(), status: 'missed', output: '', error: `skipped: the scheduler was not running (${Math.round(late / 60_000)} min late)` })
+            out.missed.push(item.id)
+            continue
+          }
+          await this.execute(item)
+          out.ran.push(item.id)
+        } catch (error) {
+          // One bad item (hand-edited store, older build) must not stop the
+          // others or reject the tick. Park it until the schedule is edited.
+          item.nextRun = undefined
+          this.ctx.logger('automations').warn('automation %c could not be scheduled: %s', item.id, String(error))
         }
-        await this.execute(item)
-        out.ran.push(item.id)
       }
-      await this.persist()
+      if (!this.broken) await this.persist()
     } finally {
       this.busy = false
     }

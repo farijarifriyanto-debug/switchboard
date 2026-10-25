@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { renameWithRetry } from '../services/text-file.js'
 import type { RunRecord, RunSummary } from './types.js'
 
 const STALE_MS = 60 * 60 * 1000
@@ -55,9 +56,19 @@ async function prune(dir: string, keep: number): Promise<void> {
 
 export async function saveRun(root: string, record: RunRecord, keepRuns?: number): Promise<void> {
   const dir = runsDir(root)
-  await fs.mkdir(dir, { recursive: true })
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 })
   const stamped: RunRecord = { ...record, updatedAt: new Date().toISOString() }
-  await fs.writeFile(path.join(dir, `${stamped.id}.json`), JSON.stringify(stamped, null, 2), 'utf8')
+  const target = path.join(dir, `${stamped.id}.json`)
+  const tmp = `${target}.${randomUUID()}.tmp`
+  try {
+    // The console polls while a run writes. Truncating the real file first would
+    // show readers a torn record, and a crash mid-write would lose the run for
+    // good. Step output can hold ci.envAllowlist values, so keep it private.
+    await fs.writeFile(tmp, JSON.stringify(stamped, null, 2), { encoding: 'utf8', mode: 0o600 })
+    await renameWithRetry(tmp, target)
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => {})
+  }
   await prune(dir, resolveKeepRuns(keepRuns))
 }
 
