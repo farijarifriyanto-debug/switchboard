@@ -18,7 +18,7 @@ let host,chrome,server;
 try{
  server=http.createServer((_req,res)=>{res.writeHead(200,{'Content-Type':'text/html'});res.end('<html><head><title>Switchboard Real Chrome Test</title></head><body><button id="counter" onclick="this.textContent=\'Clicks: \'+(Number(this.dataset.n||0)+1);this.dataset.n=Number(this.dataset.n||0)+1">Clicks: 0</button><h1>Chrome DOM test</h1></body></html>')});
  await new Promise(r=>server.listen(pagePort,'127.0.0.1',r));
- host=await createHost({settings:{dir:profile},llm:{baseURL:localBaseURL,apiKey:'ollama',defaultModel:localModel,retries:0,timeoutMs:120000},agent:{maxSteps:5,maxTokens:384,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'auto_safe'},web:{enabled:true,port:webPort,host:'127.0.0.1',token:randomBytes(24).toString('hex')}});
+ host=await createHost({settings:{dir:profile},llm:{baseURL:localBaseURL,apiKey:process.env.SBX_LOCAL_API_KEY||'ollama',defaultModel:localModel,retries:0,timeoutMs:Number(process.env.SBX_LOCAL_TIMEOUT_MS||120000)},agent:{maxSteps:5,maxTokens:384,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'auto_safe'},web:{enabled:true,port:webPort,host:'127.0.0.1',token:randomBytes(24).toString('hex')}});
  const chromeBin=process.env.SBX_TEST_CHROME_PATH; if(!chromeBin)throw Error('Set SBX_TEST_CHROME_PATH to Chrome for Testing chrome.exe');
  // Load the real shipping extension unmodified: the panel must discover this
  // run's dynamic console port from the paired server, not a hardcoded 7777.

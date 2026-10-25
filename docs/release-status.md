@@ -7,6 +7,7 @@ Historical QA and release notes remain useful as evidence but do not override th
 |---|---|---|---|
 | npm `@botconnector/switchboard` | **0.4.5** | Published; `latest` | `npm view @botconnector/switchboard version dist-tags dist.shasum` on 2026-10-18 (`932eddc1c6bad25e5ce25ad11926412f4f71cb6e`, signed provenance) |
 | Source / working tree | **0.4.5** | Published | Tagged `v0.4.5` (`6f343b2`) on `origin/master` on 2026-10-18 |
+| Source after `v0.4.5` (`master`) | **0.4.5+** | Unreleased, verified 2026-10-25 | Audit waves 1–3 and the console design review are merged; npm and the tag remain `0.4.5`, Chrome Web Store remains `0.4.4` |
 | Chrome Web Store Browser Companion | **0.4.4** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`, observed at 0.4.4; packaged `switchboard-chrome.zip` (`0.4.5`, SHA-256 `e520d0a20a8422b70e7a8f3cf2ec712c6c30f3907d1f8081540eacad2243d360`) ready for publisher dashboard upload |
 | Microsoft Edge Add-ons | **unknown** | Unverified | No verified listing/version evidence; do not invent a store URL |
 | GitHub Release | **v0.4.5** | Published (`latest`) | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.5` (npm tarball, `Switchboard-0.4.5-Windows-x64.zip`, `switchboard-chrome.zip`, `switchboard-edge.zip`, and SHA-256 checksums) |
@@ -94,7 +95,37 @@ Version 0.4.5 hardens local trust boundaries:
   Microsoft Edge Add-ons store listing, and manual side-by-side comparison of every historical Claude
   in Chrome scenario on the owner's daily profile.
 
+## Verification evidence (25 October 2026, `master` after PRs #35–#38)
+
+Verified on Windows, Node 24:
+
+- `npm run build`, `npm run typecheck` and `npm test` pass on the merged tree.
+- Real Chrome for Testing `155.0.8059.79`, unpacked extension from this source, real model
+  `gpt-oss-120b` through `https://api.botconnector.id/v1`:
+  - `test-browser-claude-parity-readonly.mjs` **PASS** — `QA-BICO-731`, button `Ready`.
+  - `test-browser-panel-real-ai-skip-e2e.mjs` **PASS** — real DOM `Clicks: 1`, multi-tab bound
+    agent context, reconnect without duplicate action.
+- These runs found a regression from the pre-auth body cap: the 64 KB limit also applied to the
+  authenticated `/api/browser-companion/response` route, so a screenshot result (up to ~7 MB) was
+  refused with 413 and `browser_screenshot` timed out twice. Fixed: the 64 KB cap applies only to
+  `pair` and `pair/challenge`; bridge routes accept up to 8 MB, and the dispatch test posts a
+  300 KB tool result to lock the behaviour.
+
+Not verified on 2026-10-25 — blocked by provider capacity, no known defect:
+
+- `test-browser-panel-long-local-e2e.mjs` (five operator approvals): reached two real operator
+  approvals and executed `browser_type`, then the gateway returned HTTP 429
+  `cloud_capacity_limit`; the local fallback (`granite4.2:8b` on Ollama `100.95.146.3:11434`)
+  exceeded the 360 s harness timeout.
+- `test-browser-panel-vision-real.mjs`: `agnes-3.0-flash` returned HTTP 429
+  `cloud_capacity_limit`; `gemini-2.5-flash-lite` reports `model_not_available` for the Cloud API.
+- Microsoft Edge `155.0.4283.45` run for this revision.
+
 ## Release gate
+
+**NO-GO for any release after `v0.4.5`.** The three unverified items in the 25 October section
+must be re-run green with a real model and real browsers first. Nothing on `master` after
+`v0.4.5` has been published, tagged, or uploaded to a store.
 
 Owner authorized **GO** for the **0.4.5** package and GitHub/npm release on 2026-10-18 after all six
 audit blockers, cloud vision QA (`test-browser-panel-vision-real.mjs`), unpacked Microsoft Edge

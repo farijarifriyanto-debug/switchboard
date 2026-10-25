@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Stop losing data or the host: a cancelled tool batch now answers every `tool_call` id, an unreadable `automations.json` is never overwritten and one bad schedule cannot exit the process, CI run records are written atomically and privately, and a session larger than the reader limit keeps its newest turns plus a searchable archive instead of vanishing.
+- Browser safety: "allow for this session" now applies to the granted tool in that session (screenshots, downloads and page quarantine still ask every time), pre-auth pairing bodies are capped at 64 KB, a quarantined page withholds its title and selectors, and a download is attributed only to the approved tab and origin.
+- Report failures instead of faking success: provider timeouts say `request timed out after Ns`, a stream cut before its terminal marker is rejected, an empty model answer fails the run instead of storing a canned sentence, and a workflow with an older running run no longer starts a second copy.
+- Chat accepts the four ~5 MB images it documents (body cap raised, oversize mapped to 413).
+- Console: status chips and counts meet 4.5:1 in light and dark, the delete button meets the 24×24 target, and the Run trace pane has empty and error states.
+
 ## 0.4.5
 
 - Harden local trust boundaries: project-local CI is disabled by default behind an explicit per-project trust decision, runs only a base environment plus `ci.envAllowlist`, and executes steps in the configured sandbox.
