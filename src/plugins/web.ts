@@ -77,7 +77,11 @@ async function readBody(req: http.IncomingMessage, limit = 1_000_000): Promise<a
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > limit) throw new Error('request body too large')
+    if (size > limit) {
+      const error = new Error('request body too large') as Error & { statusCode?: number }
+      error.statusCode = 413
+      throw error
+    }
     chunks.push(chunk as Buffer)
   }
   if (!chunks.length) return {}
@@ -331,7 +335,7 @@ export const webUi = {
         if (!res.headersSent) {
           // Settings failures carry an HTTP status + recovery hint (spec §6).
           if (error instanceof SettingsError) json(res, error.status, { error: message, hint: error.hint })
-          else json(res, 500, { error: message })
+          else json(res, (error as { statusCode?: number }).statusCode ?? 500, { error: message })
         } else res.end()
       }
     })
@@ -904,7 +908,10 @@ export const webUi = {
       }
 
       if (route === '/api/chat' && req.method === 'POST') {
-        const body = await readBody(req, 12_000_000)
+        // The attachment validation below accepts four ~5 MB images (~27 MB of
+        // base64 JSON), so the body cap must sit above that or a normal photo
+        // upload fails as "too large" before it is ever validated.
+        const body = await readBody(req, 32_000_000)
         const prompt = String(body.prompt ?? '').trim()
         if (!prompt) return json(res, 400, { error: 'prompt is required' })
         const session = body.sessionId ? ctx.sessions.find(String(body.sessionId)) : undefined
