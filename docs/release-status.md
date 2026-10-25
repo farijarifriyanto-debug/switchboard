@@ -97,35 +97,36 @@ Version 0.4.5 hardens local trust boundaries:
 
 ## Verification evidence (25 October 2026, `master` after PRs #35–#38)
 
-Verified on Windows, Node 24:
+Verified on Windows, Node 24. `npm run build`, `npm run typecheck`, `npm test` and
+`test:docs` pass on the merged tree. Real browsers, unpacked extension built from this source,
+models through `https://api.botconnector.id/v1`:
 
-- `npm run build`, `npm run typecheck` and `npm test` pass on the merged tree.
-- Real Chrome for Testing `155.0.8059.79`, unpacked extension from this source, real model
-  `gpt-oss-120b` through `https://api.botconnector.id/v1`:
-  - `test-browser-claude-parity-readonly.mjs` **PASS** — `QA-BICO-731`, button `Ready`.
-  - `test-browser-panel-real-ai-skip-e2e.mjs` **PASS** — real DOM `Clicks: 1`, multi-tab bound
-    agent context, reconnect without duplicate action.
-- These runs found a regression from the pre-auth body cap: the 64 KB limit also applied to the
-  authenticated `/api/browser-companion/response` route, so a screenshot result (up to ~7 MB) was
-  refused with 413 and `browser_screenshot` timed out twice. Fixed: the 64 KB cap applies only to
-  `pair` and `pair/challenge`; bridge routes accept up to 8 MB, and the dispatch test posts a
-  300 KB tool result to lock the behaviour.
+| Browser | Model | Suite | Result |
+|---|---|---|---|
+| Chrome for Testing `155.0.8059.79` | `gpt-oss-120b` | `test-browser-claude-parity-readonly.mjs` | **PASS** — `QA-BICO-731`, button `Ready` |
+| Chrome for Testing `155.0.8059.79` | `gpt-oss-120b` | `test-browser-panel-real-ai-skip-e2e.mjs` | **PASS** — real DOM `Clicks: 1`, multi-tab bound context, reconnect without duplicate action |
+| Chrome for Testing `155.0.8059.79` | `glm-5.3-flash` | `test-browser-panel-long-local-e2e.mjs` | **PASS** — five operator approvals, six tools, real DOM `Clicks: 1`, name `Bico`, city `Bandung`, recovery, reconnect |
+| Chrome for Testing `155.0.8059.79` | `glm-5.3-flash` | `test-browser-panel-stop-real-ai-e2e.mjs` | **PASS** — backend `cancelled`, no browser write |
+| Chrome for Testing `155.0.8059.79` | `glm-5.3-flash` | `test-browser-panel-vision-real.mjs` | **PASS** — `SATURN 42` + blue from pixels, screenshot approved and forwarded, no `data:image/` leak |
+| Microsoft Edge `155.0.4283.62` | `glm-5.3-flash` | `test-browser-panel-real-ai-skip-e2e.mjs` | **PASS** — real DOM `Clicks: 1`, multi-tab, reconnect |
+| Microsoft Edge `155.0.4283.62` | `glm-5.3-flash` | `test-browser-claude-parity-readonly.mjs` | **PASS** — `QA-BICO-731`, button `Ready` |
 
-Not verified on 2026-10-25 — blocked by provider capacity, no known defect:
+The same runs found a regression from the pre-auth body cap: the 64 KB limit also applied to the
+authenticated `/api/browser-companion/response` route, so a screenshot result (up to ~7 MB) was
+refused with 413 and `browser_screenshot` timed out twice. Fixed: the 64 KB cap applies only to
+`pair` and `pair/challenge`; bridge routes accept up to 8 MB, and the dispatch test posts a
+300 KB tool result to lock the behaviour. The vision run above is the end-to-end proof of the fix.
 
-- `test-browser-panel-long-local-e2e.mjs` (five operator approvals): reached two real operator
-  approvals and executed `browser_type`, then the gateway returned HTTP 429
-  `cloud_capacity_limit`; the local fallback (`granite4.2:8b` on Ollama `100.95.146.3:11434`)
-  exceeded the 360 s harness timeout.
-- `test-browser-panel-vision-real.mjs`: `agnes-3.0-flash` returned HTTP 429
-  `cloud_capacity_limit`; `gemini-2.5-flash-lite` reports `model_not_available` for the Cloud API.
-- Microsoft Edge `155.0.4283.45` run for this revision.
+Still not verified: a Chrome Web Store-installed update, an Edge Add-ons store listing, Edge runs
+for the long/vision/stop suites on this revision, and manual side-by-side comparison of every
+historical Claude in Chrome scenario on the owner's daily profile.
 
 ## Release gate
 
-**NO-GO for any release after `v0.4.5`.** The three unverified items in the 25 October section
-must be re-run green with a real model and real browsers first. Nothing on `master` after
-`v0.4.5` has been published, tagged, or uploaded to a store.
+**GO** for the next patch release of `master` after `v0.4.5` (suggested `0.4.6`), authorized by the
+owner on 2026-10-25 after the real-browser evidence above. Version bump, npm publish, tag, GitHub
+release and Chrome/Edge store upload remain explicit owner actions; nothing after `v0.4.5` has been
+published or uploaded.
 
 Owner authorized **GO** for the **0.4.5** package and GitHub/npm release on 2026-10-18 after all six
 audit blockers, cloud vision QA (`test-browser-panel-vision-real.mjs`), unpacked Microsoft Edge
