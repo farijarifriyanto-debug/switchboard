@@ -1285,8 +1285,22 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 // -----------------------------------------------------------------------------
 // Unified Agent Tool Execution Engine (All 13 Tools)
 // -----------------------------------------------------------------------------
+// Chrome reports every download that starts, not only the one this click caused.
+// Attribute a download only when it belongs to the approved tab and page origin.
+function downloadMatches(item, tab, expectedOrigin) {
+  if (!item || !tab || !expectedOrigin) return false;
+  if (item.tabId !== tab.id) return false;
+  try {
+    return new URL(item.url).origin === expectedOrigin;
+  } catch {
+    return false;
+  }
+}
+
 // Downloads start from a click on the page. The download is reported only when Chrome actually starts it.
 async function downloadViaClick(tab, args) {
+  let expectedOrigin = '';
+  try { expectedOrigin = new URL(tab.url).origin; } catch { throw new Error('Valid active HTTP(S) tab required'); }
   let onCreated;
   let timer;
   const started = new Promise((resolve, reject) => {
@@ -1295,6 +1309,7 @@ async function downloadViaClick(tab, args) {
       reject(new Error('No download started within 15 seconds after the click.'));
     }, 15000);
     onCreated = item => {
+      if (!downloadMatches(item, tab, expectedOrigin)) return;
       clearTimeout(timer);
       chrome.downloads.onCreated.removeListener(onCreated);
       resolve(item);
