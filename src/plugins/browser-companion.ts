@@ -502,9 +502,31 @@ export class BrowserCompanionService {
       return
     }
 
+    // A declared body over the cap is refused before any route (including the
+    // pre-auth pairing ones) starts buffering it.
+    if (req.method === 'POST' && Number(req.headers['content-length'] ?? 0) > 64 * 1024) {
+      res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+      res.end(JSON.stringify({ error: 'request body too large' }))
+      return
+    }
+
+    const MAX_JSON_BODY = 64 * 1024
     const readJson = async (): Promise<any> => {
       const chunks: Buffer[] = []
-      for await (const chunk of req) chunks.push(chunk as Buffer)
+      let size = 0
+      for await (const chunk of req) {
+        const buffer = chunk as Buffer
+        size += buffer.length
+        // These routes include pre-auth pairing: an unbounded body would let any
+        // loopback page exhaust the host heap.
+        if (size > MAX_JSON_BODY) {
+          const error = new Error('request body too large') as Error & { statusCode?: number }
+          error.statusCode = 413
+          req.resume()
+          throw error
+        }
+        chunks.push(buffer)
+      }
       if (!chunks.length) return {}
       return JSON.parse(Buffer.concat(chunks).toString('utf8'))
     }
@@ -551,6 +573,13 @@ export class BrowserCompanionService {
           serverProof: this.pairProof(secret, 'server', method, clientNonce, serverNonce),
         }))
       } catch (err: any) {
+        if (err?.statusCode === 413) {
+          // The rest of the body is never read; close instead of stalling.
+          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          res.end(JSON.stringify({ error: err.message }))
+          res.once('finish', () => req.destroy())
+          return
+        }
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
       }
@@ -600,6 +629,13 @@ export class BrowserCompanionService {
           ...(encrypted ?? {}),
         }))
       } catch (err: any) {
+        if (err?.statusCode === 413) {
+          // The rest of the body is never read; close instead of stalling.
+          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          res.end(JSON.stringify({ error: err.message }))
+          res.once('finish', () => req.destroy())
+          return
+        }
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
       }
@@ -649,6 +685,13 @@ export class BrowserCompanionService {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true }))
       } catch (err: any) {
+        if (err?.statusCode === 413) {
+          // The rest of the body is never read; close instead of stalling.
+          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          res.end(JSON.stringify({ error: err.message }))
+          res.once('finish', () => req.destroy())
+          return
+        }
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
       }
@@ -674,6 +717,13 @@ export class BrowserCompanionService {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true, mode: this.mode, activeTab: this.activeTab, ...(webOrigin ? { webOrigin } : {}) }))
       } catch (err: any) {
+        if (err?.statusCode === 413) {
+          // The rest of the body is never read; close instead of stalling.
+          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          res.end(JSON.stringify({ error: err.message }))
+          res.once('finish', () => req.destroy())
+          return
+        }
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
       }
@@ -693,6 +743,13 @@ export class BrowserCompanionService {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true, mode: this.mode }))
       } catch (err: any) {
+        if (err?.statusCode === 413) {
+          // The rest of the body is never read; close instead of stalling.
+          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          res.end(JSON.stringify({ error: err.message }))
+          res.once('finish', () => req.destroy())
+          return
+        }
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
       }
@@ -755,6 +812,13 @@ export class BrowserCompanionService {
           res.end(JSON.stringify({ ok: true, scheduled: { name, cron, prompt } }))
         }
       } catch (err: any) {
+        if (err?.statusCode === 413) {
+          // The rest of the body is never read; close instead of stalling.
+          res.writeHead(413, { 'content-type': 'application/json', connection: 'close' })
+          res.end(JSON.stringify({ error: err.message }))
+          res.once('finish', () => req.destroy())
+          return
+        }
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: err.message }))
       }
@@ -911,10 +975,15 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
           targetOrigin: origin,
           content: JSON.stringify(projection),
         }, toolCtx.signal)
+    const quarantined = screened.verdict !== 'clean'
     const safeSnapshot = {
-      title: projection.title,
+      // The screener judges this JSON, but a quarantined page's own title and
+      // selectors are still page-authored text. Withhold them instead of
+      // returning a verdict-cleared body next to raw instructions.
+      title: quarantined ? '[page title withheld]' : projection.title,
       origin,
-      elements,
+      // Keep the locally generated snapshot ref so the agent can still act.
+      elements: quarantined ? elements.map((element: (typeof elements)[number]) => ({ ...element, selector: element.ref })) : elements,
       text: screened.content,
       hash: raw.hash,
       isDiff: Boolean(raw.isDiff),
@@ -1042,7 +1111,12 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
       if (page?.screening.verdict === 'require_approval') {
         return { verdict: 'require_approval' as const, reason: page.screening.reason || 'Page content requires review.' }
       }
-      if (manualApproval) return { verdict: 'require_approval' as const, reason: 'Manual mode requires approval for each browser action.' }
+      // "Allow for this session" (approved_session) is stored per tool and
+      // session. Honouring it here stops a 25-step task from asking 25 times.
+      // Protected actions (screenshot, download) and page-quarantine approvals
+      // above still ask every time.
+      const sessionGranted = !protectedApproval && Boolean(ctx.get('approvals', false)?.hasSessionGrant(spec.name, toolCtx.sessionId))
+      if (manualApproval && !sessionGranted) return { verdict: 'require_approval' as const, reason: 'Manual mode requires approval for each browser action.' }
       if (service.currentMode === 'auto' && browserActions.has(spec.name)) {
         let targetOrigin = page?.origin || tabTarget?.origin || ''
         let pageContext = page?.screening.content || ''
