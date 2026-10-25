@@ -378,8 +378,20 @@ export const agentLoop = {
                 : assistant
               ctx.sessions.append(session.id, storedAssistant)
 
-              for (const call of calls) {
+              for (let callIndex = 0; callIndex < calls.length; callIndex++) {
+                const call = calls[callIndex]
                 if (controller.signal.aborted) {
+                  // The assistant message above is already committed, so every id it
+                  // announces needs a result. Providers reject a tool_calls turn whose
+                  // ids have no answers, which would brick the session for good.
+                  for (const skipped of calls.slice(callIndex)) {
+                    ctx.sessions.append(session.id, {
+                      role: 'tool',
+                      content: 'Error: tool call cancelled before execution.',
+                      tool_call_id: skipped.id,
+                      name: skipped.function.name,
+                    })
+                  }
                   aborted = true
                   break
                 }

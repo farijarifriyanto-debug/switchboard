@@ -122,6 +122,15 @@ function createStubLlm() {
       res.write('data: [DONE]\n\n')
       res.end()
     }
+    const multiToolCall = (calls) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+      calls.forEach((call, index) => {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index, id: call.id, function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] })}\n\n`)
+      })
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })}\n\n`)
+      res.write('data: [DONE]\n\n')
+      res.end()
+    }
     try {
       if (isChild && state.failChildWhen && lastUser.includes(state.failChildWhen)) {
         res.writeHead(500, { 'content-type': 'text/plain' })
@@ -148,6 +157,17 @@ function createStubLlm() {
           return
         }
         finish('after tool.')
+        return
+      }
+      if (mode === 'two_tools') {
+        if (!sawTool) {
+          multiToolCall([
+            { id: 'call_abort', name: 'abort_now', args: {} },
+            { id: 'call_second', name: 'list_dir', args: { path: '.' } },
+          ])
+          return
+        }
+        finish('after tools.')
         return
       }
       if (isChild && state.forceChildTask && !sawTool) {
@@ -426,6 +446,42 @@ try {
     assert.ok(!rest.some((e) => e.type === 'final'), 'no final after abort')
     const next = await collect(h.ctx.agent.stream('reuse', sid))
     assert.ok(next.some((e) => e.type === 'final'), 'reusable')
+  }
+
+  section('audit #4: Stop mid-batch still answers every tool_call id')
+  {
+    const h = await boot()
+    const ac = new AbortController()
+    h.ctx.tools.register({
+      name: 'abort_now',
+      description: 'abort the current run',
+      parameters: { type: 'object', properties: {} },
+      async execute() { ac.abort(); return 'aborted by tool' },
+    })
+    stub.state.parentMode = 'two_tools'
+    const gen = h.ctx.agent.stream('two tools', undefined, { signal: ac.signal })
+    await collect(gen)
+    const sid = h.ctx.sessions.list()[0].id
+    const msgs = h.ctx.sessions.require(sid).messages
+    const requested = msgs.filter((m) => m.role === 'assistant').flatMap((m) => (m.tool_calls ?? []).map((c) => c.id))
+    const answered = new Set(msgs.filter((m) => m.role === 'tool').map((m) => m.tool_call_id))
+    assert.deepEqual(requested, ['call_abort', 'call_second'])
+    assert.deepEqual(requested.filter((id) => !answered.has(id)), [], 'every tool_call has a matching tool result')
+    assert.equal(h.ctx.sessions.require(sid).status, 'cancelled')
+  }
+
+  section('audit #16: a rejected concurrent run leaves the preset untouched')
+  {
+    const h = await boot()
+    stub.state.parentMode = 'answer'
+    stub.state.parentDelayMs = 300
+    const gen = h.ctx.agent.stream('first turn', undefined, { preset: 'browser' })
+    await until(gen, (e) => e.type === 'turn_started', 'turn_started')
+    const sid = h.ctx.sessions.list()[0].id
+    assert.equal(h.ctx.sessions.require(sid).preset, 'browser', 'the accepted run binds its preset')
+    await assert.rejects(async () => { await h.ctx.agent.stream('second turn', sid, { preset: 'reviewer' }).next() }, /is already running/)
+    assert.equal(h.ctx.sessions.require(sid).preset, 'browser', 'a rejected run must not rebind the preset')
+    await collect(gen)
   }
 
   section('13(f): waiting_approval still holds the mutex')
