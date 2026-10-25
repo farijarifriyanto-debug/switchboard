@@ -174,6 +174,49 @@ try {
   assert.equal(legacy.runs[0].status, 'failed')
   assert.match(legacy.runs[0].error, /allowUnattended/i)
   assert.equal(host.ctx.sessions.list().length, sessionsBeforeLegacy, 'blocked legacy item creates no session')
+  // audit #1: a schedule the parser rejects must not escape the scheduler.
+  // `start()` fires tick() without awaiting it, so a throw becomes an
+  // unhandled rejection that takes the whole host down.
+  const brokenPath = path.join(dir, 'automations.json')
+  const current = JSON.parse(await readFile(brokenPath, 'utf8'))
+  current.automations.push({
+    id: 'bad-cron', name: 'Bad cron', schedule: '*/5 * * *', prompt: 'x',
+    preset: 'reviewer', deliver: { type: 'console' }, enabled: true,
+    createdAt: Date.now() - 60_000, failures: 0, runs: [], nextRun: Date.now() - 1_000,
+  })
+  await writeFile(brokenPath, JSON.stringify(current), 'utf8')
+  await host.dispose()
+  host = await boot()
+  await host.ctx.automations.ready()
+  const guarded = await host.ctx.automations.tick(new Date())
+  assert.deepEqual(guarded.ran, [], 'an unparsable item does not run')
+  assert.equal(host.ctx.automations.get('bad-cron').nextRun, undefined, 'the broken item stops rescheduling')
+  assert.ok(host.ctx.automations.get('daily'), 'the rest of the store survives')
+  await host.ctx.automations.create({ ...ok, id: 'after-bad' })
+  assert.ok(host.ctx.automations.get('after-bad'), 'the scheduler is still usable')
+
+  // audit #2: an unreadable store (newer version, hand-edited JSON) must never
+  // be replaced by an empty one just because a tick ran.
+  const unreadable = '{"version": 2, "automations": []}'
+  const otherDir = await mkdtemp(path.join(tmpdir(), 'sbx-auto-bad-'))
+  await writeFile(path.join(otherDir, 'automations.json'), unreadable, 'utf8')
+  const badHost = await createHost({
+    llm: { baseURL: `http://127.0.0.1:${stub.address().port}/v1`, defaultModel: 'stub', retries: 0 },
+    metrics: { persist: '', load: false },
+    sessions: { dir: '' },
+    settings: { dir: otherDir },
+    web: { enabled: false },
+  })
+  try {
+    await badHost.ctx.automations.ready()
+    await badHost.ctx.automations.tick(new Date())
+    assert.equal(await readFile(path.join(otherDir, 'automations.json'), 'utf8'), unreadable, 'an unreadable store is never overwritten')
+    await assert.rejects(badHost.ctx.automations.create({ ...ok, id: 'nope' }), /could not be read/i)
+  } finally {
+    await badHost.dispose()
+    await rm(otherDir, { recursive: true, force: true })
+  }
+
   console.log('automations: OK')
 } finally {
   await host.dispose()
