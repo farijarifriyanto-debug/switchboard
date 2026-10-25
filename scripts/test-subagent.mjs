@@ -1467,6 +1467,16 @@ try {
     // children settling post-dispose must NOT emit (guarded by disposed)
     assert.equal(countAfter, countBefore, 'no subagent/done after unload')
   }
+  section('audit #10c: an empty model answer is a failure, not invented text')
+  {
+    const h = await boot()
+    stub.state.parentAnswer = ''
+    const events = await collect(h.ctx.agent.stream('say nothing'))
+    const sid = h.ctx.sessions.list()[0].id
+    assert.ok(events.some((e) => e.type === 'error' && /empty answer/i.test(e.error)), 'the empty answer is reported')
+    assert.ok(!events.some((e) => e.type === 'final'), 'no answer is invented')
+    assert.equal(h.ctx.sessions.require(sid).status, 'failed')
+  }
 } finally {
   for (const host of hosts) await host.dispose()
   await stubLlm.close()
