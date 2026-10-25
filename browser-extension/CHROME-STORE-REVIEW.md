@@ -2,7 +2,7 @@
 
 **Extension:** Switchboard Browser Companion (BotConnector)
 **Draft Chrome Web Store item:** existing item in the publisher dashboard; **do not create a new item**.
-**Extension package:** v0.4.5 (web console origin discovery and the previously tested browser bridge).
+**Extension package:** v0.4.6 (web console origin discovery and the previously tested browser bridge).
 **Publishing recommendation:** Unlisted / All regions / Free / manual publication after successful Google review.
 
 ## Distribution fields (Dashboard > Distribution)
@@ -20,7 +20,7 @@ Switchboard Browser Companion is a **local** browser companion and has no login 
 
 **Quick test (no AI provider key needed):**
 
-1. Install Node.js 20+ and run `npm install -g @botconnector/switchboard@0.4.5`.
+1. Install Node.js 20+ and run `npm install -g @botconnector/switchboard@0.4.6`.
 2. Start the local app in a terminal: `sbx web --no-open`. The terminal shows a 12-character, one-use Browser Companion pairing code; leave this terminal running.
 3. Open `http://127.0.0.1:7777` in Chrome. Switchboard's local Web UI opens without a BotConnector account. Select the **Browser** preset. If the local onboarding row does not appear in an older npm line, the extension's own **Connection** tab works independently.
 4. Open the installed Switchboard Browser Companion from Chrome's extensions toolbar. Go to **Connection** and connect to `http://127.0.0.1:7778` using the pairing code from the running Switchboard terminal. If pairing expired, restart Switchboard for a fresh code.
@@ -45,14 +45,22 @@ https://github.com/farijarifriyanto-debug/switchboard/blob/master/browser-extens
 
 An earlier v0.4.0 package was uploaded to the draft **before** the revised Bico v2 artwork was embedded. Consequently, it is **not identical** to the corrected submission ZIP.
 
-**Required:** Dashboard > **Package** > **Upload New Package**, select the v0.4.5 Chrome ZIP provided for this draft (same existing item ID, NOT Add new item). After upload confirm manifest version **0.4.5**, extension name and six permissions and two explicit localhost host matches. Save draft.
+**Required:** Dashboard > **Package** > **Upload New Package**, select the v0.4.6 Chrome ZIP provided for this draft (same existing item ID, NOT Add new item). After upload confirm manifest version **0.4.6**, extension name, **11 permissions** (`activeTab`, `alarms`, `debugger`, `downloads`, `nativeMessaging`, `notifications`, `scripting`, `sidePanel`, `storage`, `tabGroups`, `tabs`), two explicit localhost host matches (`http://127.0.0.1/*`, `http://localhost/*`) and optional HTTP/HTTPS host permissions. Save draft.
+
+## What changed in 0.4.6 (reviewer note)
+
+- The authenticated local bridge now accepts tool results up to 8 MB (screenshots) while the pre-auth pairing routes stay capped at 64 KB. A 0.4.6 QA run proved this end to end with a real screenshot.
+- "Allow for this session" now applies to the granted tool in that session; screenshots, downloads, page-quarantine and authorization/consent actions still ask every time.
+- A page the safety screen quarantines no longer passes its own `<title>` or element selectors through; the locally generated snapshot ref is used instead.
+- A download is attributed to the approved click only when it comes from the approved tab and page origin.
+- No new permission, no new host permission, no remote code.
 
 Check each archive entry against the version-controlled files, rather than relying on the filename or archive hash alone. ZIP timestamps and compression can change its overall SHA-256 despite identical source file bytes. To prove the exact bytes installed on Google's side, the publisher must provide a downloaded draft package from Google or review the Package tab and confirm its version/content; **local equality cannot independently prove the previously uploaded Google's stored bytes**.
 
 ## Final gating
 
 - Publish the privacy document publicly on master with a working URL and a correct publisher contact in the account.
-- Replace the outdated store ZIP with matching 0.4.5, and complete all other required Privacy/Store listing fields.
+- Replace the outdated store ZIP with matching 0.4.6, and complete all other required Privacy/Store listing fields.
 - Confirm Distribution and reviewer instructions against the actual dashboard.
 - CI, typecheck, full regression, Chrome extension tests, ZIP root manifest + icons and per-file equality to Git commit must all pass.
 - Only then request review; acceptance and store publication remain Google's decision. Do not claim approval before an actual store status change.
