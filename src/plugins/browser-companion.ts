@@ -1042,7 +1042,12 @@ export function registerBrowserTools(ctx: Context, service: BrowserCompanionServ
       if (page?.screening.verdict === 'require_approval') {
         return { verdict: 'require_approval' as const, reason: page.screening.reason || 'Page content requires review.' }
       }
-      if (manualApproval) return { verdict: 'require_approval' as const, reason: 'Manual mode requires approval for each browser action.' }
+      // "Allow for this session" (approved_session) is stored per tool and
+      // session. Honouring it here stops a 25-step task from asking 25 times.
+      // Protected actions (screenshot, download) and page-quarantine approvals
+      // above still ask every time.
+      const sessionGranted = !protectedApproval && Boolean(ctx.get('approvals', false)?.hasSessionGrant(spec.name, toolCtx.sessionId))
+      if (manualApproval && !sessionGranted) return { verdict: 'require_approval' as const, reason: 'Manual mode requires approval for each browser action.' }
       if (service.currentMode === 'auto' && browserActions.has(spec.name)) {
         let targetOrigin = page?.origin || tabTarget?.origin || ''
         let pageContext = page?.screening.content || ''

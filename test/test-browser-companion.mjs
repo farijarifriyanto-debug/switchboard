@@ -770,4 +770,40 @@ console.log('=== Running Browser Companion Bridge & Tools Integration Tests ==='
   }
 }
 
+// audit #7: "allow for this session" must stop repeating the same manual prompt.
+{
+  const host = await createHost({ sessions: { dir: '', load: false }, approval: { mode: 'off' } })
+  try {
+    const service = host.ctx.browserCompanion
+    service.isClientConnected = () => true
+    service.executeOnBrowser = async (tool) => {
+      if (tool === 'browser_tabs_list') return { ok: true, tabs: [{ id: 77, url: 'https://forms.example.test/contact', active: true }] }
+      if (tool === 'browser_dom_snapshot') {
+        return { ok: true, tabId: 77, title: 'Form', url: 'https://forms.example.test/contact', origin: 'https://forms.example.test', hash: 'dom-a', text: 'Contact form', headings: [], elements: [{ selector: '#email', tag: 'input', type: 'email', text: 'Email' }] }
+      }
+      return { ok: true, result: 'Typed' }
+    }
+    service.setMode('manual')
+    const session = host.ctx.sessions.create({ title: 'session grant' })
+    const toolCtx = () => ({ sessionId: session.id, userIntent: 'Fill the contact form.' })
+
+    const first = host.ctx.tools.callResult('browser_type', { selector: '#email', text: 'Budi' }, toolCtx())
+    for (let i = 0; i < 40 && host.ctx.approvals.pending().length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+    const [gate] = host.ctx.approvals.pending()
+    assert.ok(gate, 'manual mode asks for the first action')
+    host.ctx.approvals.decide(gate.id, 'approved_session')
+    assert.equal((await first).isError, undefined)
+
+    const again = await host.ctx.tools.prepare('browser_type', { selector: '#email', text: 'Budi' }, toolCtx())
+    assert.equal(again.needsApproval, false, 'the granted tool is not asked again in this session')
+    const otherTool = await host.ctx.tools.prepare('browser_click', { selector: '#email' }, toolCtx())
+    assert.equal(otherTool.needsApproval, true, 'the grant covers one tool, not every browser action')
+    const otherSession = await host.ctx.tools.prepare('browser_type', { selector: '#email', text: 'Budi' }, { sessionId: 'another-session', userIntent: 'Fill the contact form.' })
+    assert.equal(otherSession.needsApproval, true, 'the grant is scoped to one session')
+    console.log('✓ "Allow for this session" is honoured per tool and per session')
+  } finally {
+    await host.dispose()
+  }
+}
+
 console.log('=== All Browser Companion Bridge Tests PASSED ===')
