@@ -12,6 +12,8 @@ let companionToken = '';
 // may run on any `--port`); this default only applies to older servers.
 let webOrigin = 'http://127.0.0.1:7777';
 let recordedWorkflowSteps = [];
+let cloudConfig = null;
+let cloudHistory = [];
 
 // -----------------------------------------------------------------------------
 // UI utilities
@@ -43,8 +45,131 @@ document.querySelectorAll('nav button').forEach((btn) => {
 // -----------------------------------------------------------------------------
 // Tab & State Synchronization
 // -----------------------------------------------------------------------------
+let cloudTabsState = { selectedId:null, attached:[], available:[] };
+function renderCloudTabManager(state) {
+  cloudTabsState = state;
+  const chip = $('tab-chip');
+  chip.hidden = false;
+  $('tab-add-open').hidden = false;
+  $('tab-detach-current').hidden = !state.selectedId;
+  $('tab-manage-toggle').disabled = false;
+  const selected = state.attached.find(tab => tab.id === state.selectedId);
+  $('tab-chip-title').textContent = selected?.title ||
+    (state.attached.length ? 'Pilih tab terikat' : 'Belum ada tab terikat');
+  $('tab-chip-title').title = selected?.origin || 'Klik + Tab untuk menambah tab Chrome';
+  const list = $('tab-bound-list');
+  list.replaceChildren();
+  if (!state.attached.length) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Belum ada tab terikat. Klik + Tab lalu pilih situs yang ingin dibaca.';
+    empty.className = 'model-catalog-hint';
+    list.append(empty);
+  }
+  for (const tab of state.attached) {
+    const row = document.createElement('div');
+    row.className = 'tab-bound-row';
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'tab-select';
+    select.textContent = (tab.id === state.selectedId ? '● ' : '') + tab.title;
+    select.title = tab.origin;
+    select.setAttribute('aria-current', String(tab.id === state.selectedId));
+    select.disabled = Boolean(activeTask);
+    select.addEventListener('click', () => void runCloudTabCommand('SWITCHBOARD_CLOUD_SELECT',tab.id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Hapus';
+    remove.title = 'Lepas ikatan; tab Chrome tidak ditutup';
+    remove.setAttribute('aria-label','Hapus ikatan '+tab.title);
+    remove.disabled = Boolean(activeTask);
+    remove.addEventListener('click', () => void runCloudTabCommand('SWITCHBOARD_CLOUD_DETACH',tab.id));
+    row.append(select,remove);
+    list.append(row);
+  }
+  const available = $('tab-available');
+  available.replaceChildren();
+  if (!state.available.length) {
+    available.add(new Option('Tidak ada tab HTTP(S) lain', ''));
+  } else {
+    for (const tab of state.available) {
+      available.add(new Option(tab.title + ' · ' + tab.origin, String(tab.id)));
+    }
+  }
+  $('tab-add-confirm').disabled = !state.available.length || Boolean(activeTask);
+  $('tab-detach-current').disabled = !selected || Boolean(activeTask);
+  $('tab-add-open').disabled = Boolean(activeTask);
+  $('tab-manager-status').textContent = selected
+    ? 'Aktif untuk AI: ' + selected.origin + '. Menghapus ikatan tidak menutup tab atau mengubah izin situs.'
+    : state.attached.length ? 'Pilih salah satu tab terikat untuk dipakai AI. Belum ada tab aktif.' :
+      'Pilih tab HTTP(S) untuk mengizinkan AI bekerja pada tab tersebut. Tanpa tab terikat, AI tidak dapat membaca halaman.';
+}
+async function refreshCloudTabManager() {
+  const state = await chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TABS'});
+  if (!state?.ok) throw new Error(state?.error || 'Gagal membaca tab Chrome.');
+  renderCloudTabManager(state);
+  const selected = state.attached.find(tab => tab.id === state.selectedId);
+  currentTab = selected ? {id:selected.id,title:selected.title,url:selected.url,origin:selected.origin} : null;
+  return state;
+}
+async function runCloudTabCommand(type,tabId) {
+  if (activeTask) {
+    $('tab-manager-status').textContent = 'Hentikan tugas AI sebelum mengubah ikatan tab.';
+    return;
+  }
+  try {
+    const previous = cloudTabsState.selectedId;
+    const result = await chrome.runtime.sendMessage({type,tabId});
+    if (!result?.ok) throw new Error(result?.error || 'Gagal mengubah tab.');
+    if (result.selectedId !== previous) {
+      cloudHistory = [];
+      conversationId = null;
+    }
+    await refreshActiveTab();
+  } catch (error) {
+    $('tab-manager-status').textContent = 'Gagal: ' + String(error?.message || error).slice(0,175);
+  }
+}
+$('tab-manage-toggle').addEventListener('click', async () => {
+  $('tab-manager').hidden = !$('tab-manager').hidden;
+  $('tab-manage-toggle').setAttribute('aria-expanded',String(!$('tab-manager').hidden));
+  if (!$('tab-manager').hidden) {
+    try {await refreshCloudTabManager();} catch (error) {
+      $('tab-manager-status').textContent = String(error?.message || error);
+    }
+  }
+});
+$('tab-add-open').addEventListener('click', async () => {
+  $('tab-manager').hidden = false;
+  $('tab-manage-toggle').setAttribute('aria-expanded','true');
+  try { await refreshCloudTabManager(); }
+  catch (error) { $('tab-manager-status').textContent = String(error?.message || error); }
+  $('tab-available').focus();
+});
+$('tab-detach-current').addEventListener('click', () => {
+  if (cloudTabsState.selectedId) void runCloudTabCommand('SWITCHBOARD_CLOUD_DETACH',cloudTabsState.selectedId);
+});
+$('tab-add-confirm').addEventListener('click', () => {
+  const id = Number($('tab-available').value);
+  if (Number.isSafeInteger(id) && id > 0) void runCloudTabCommand('SWITCHBOARD_CLOUD_ATTACH',id);
+});
 async function refreshActiveTab() {
   try {
+    if (cloudConfig?.enabled) {
+      const state = await refreshCloudTabManager();
+      $('active-tab-title').textContent = currentTab?.title || 'Belum ada tab terikat';
+      $('active-tab-origin').textContent = currentTab?.origin || 'Klik + Tab untuk memilih tab Chrome.';
+      const access = currentTab?.origin
+        ? await chrome.runtime.sendMessage({type:'SWITCHBOARD_SITE_ACCESS_STATUS',origin:currentTab.origin})
+        : null;
+      $('site-permission-status').textContent = access?.granted ? 'Allowed by Chrome' : 'Permission needed';
+      $('approved-origins-view').textContent = (access?.origins || []).join('\n') || 'None';
+      await updateOverviewStatus();
+      return;
+    }
+    $('tab-add-open').hidden = true;
+    $('tab-detach-current').hidden = true;
+    $('tab-manage-toggle').disabled = true;
+    $('tab-manager').hidden = true;
     const res = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_ACTIVE_TAB' });
     if (res?.ok && res.tab) {
       currentTab = res.tab;
@@ -87,6 +212,19 @@ async function loadStoredConfig() {
   }
   const recording = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_RECORD_STATUS' }).catch(() => null);
   setWorkflowRecordingUi(recording?.recording === true);
+  const storedCloud = await chrome.storage.local.get('cloudConfig');
+  if (SwitchboardCloud.configValid(storedCloud.cloudConfig)) {
+    cloudConfig = storedCloud.cloudConfig;
+    $('byok-provider').value = cloudConfig.provider;
+    $('byok-default').checked = cloudConfig.enabled !== false;
+    renderCloudModels(cloudConfig.model);
+    void refreshCloudCatalog(cloudConfig.apiKey, cloudConfig.model).catch(() => {});
+    $('byok-status').textContent = 'BotConnector Cloud tersimpan pada ekstensi. Tidak perlu sbx web. Koneksi model diuji saat pesan pertama.';
+    $('byok-key').placeholder = 'API key tersimpan; isi untuk mengganti';
+  }
+  if (!cloudConfig && !companionToken) $('byok-panel').open = true;
+  syncProviderModelFields();
+  $('task-open-web').hidden = Boolean(cloudConfig?.enabled);
   $('bridge-url-input').value = bridgeUrl;
   $('bridge-token-input').value = '';
 }
@@ -95,7 +233,13 @@ async function loadStoredConfig() {
 async function refreshBridgeStatus() {
   try {
     const status = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' });
-    setBadge(status?.connected ? 'connected' : 'disconnected', status?.connected ? 'Connected' : 'Offline');
+    $('task-open-web').hidden = Boolean(cloudConfig?.enabled);
+    if (cloudConfig?.enabled && SwitchboardCloud.configValid(cloudConfig)) {
+      setBadge('connected', 'Cloud siap');
+      taskStatus('BotConnector Cloud siap. Koneksi diuji saat pesan dikirim.');
+    } else {
+      setBadge(status?.connected ? 'connected' : 'disconnected', status?.connected ? 'Connected' : 'Offline');
+    }
     if (status?.mode) {
       const serverMode = normalizePermissionMode(status.mode);
       $('permission-mode-select').value = serverMode;
@@ -108,7 +252,7 @@ async function refreshBridgeStatus() {
       $('bridge-diagnostics').textContent = status.error;
     }
   } catch (_) {
-    setBadge('disconnected', 'Offline');
+    setBadge(cloudConfig?.enabled ? 'connected' : 'disconnected', cloudConfig?.enabled ? 'Cloud siap' : 'Offline');
   }
 }
 
@@ -760,8 +904,8 @@ function taskStatus(text) { $('task-status').textContent = text; }
 $('task-open-web').addEventListener('click', () => {
   void chrome.tabs.create({ url: webOrigin + '/' });
 });
-// Configure provider API keys in the existing authenticated loopback console.
-// Never accept, persist or transmit API keys through the browser extension.
+// Optional legacy provider settings use the authenticated local console.
+// Standalone BotConnector BYOK is handled separately in this extension.
 async function openModelKeySettings() {
   // Use the authenticated, paired server's advertised origin, never an
   // unpaired fallback port or a webpage-supplied destination.
@@ -781,9 +925,116 @@ async function openModelKeySettings() {
     $('bridge-diagnostics').textContent = message;
   }
 }
-// Side-panel BYOK: the API key exists only in this password input and the
-// single authorized request body. It is not logged or written to Chrome storage.
+// BotConnector Cloud standalone stores BYOK in Chrome extension-local storage.
+// Other providers retain the original paired-local-backend path.
 let byokPending = null;
+let cloudModelCatalog = [];
+let cloudCatalogPromise = null;
+// The picker follows the same authenticated /v1/models catalog and capability
+// labels used by "sbx models". Never invent model IDs or silently choose one
+// advertised without verified browser tool support.
+function cloudModelLabel(model) {
+  return (model.access === 'free' ? 'Gratis · ' : 'Paket · ') + model.name;
+}
+function setCloudModelInfo(message) {
+  $('byok-model-info').textContent = message;
+}
+function cloudModelById(id) {
+  return cloudModelCatalog.find(model => model.id === id);
+}
+function renderCloudModels(preferred = '') {
+  const picker = $('byok-model');
+  const quick = $('cloud-quick-model');
+  const search = $('byok-model-search').value.trim().toLocaleLowerCase();
+  const filter = $('byok-model-filter').value;
+  const match = cloudModelCatalog.filter(model =>
+    (filter === 'all' || model.access === filter) &&
+    [model.id, model.name, model.family].some(part => String(part).toLocaleLowerCase().includes(search)));
+  const previouslySelected = preferred || picker.value || cloudConfig?.model || 'agnes-3.0-flash';
+  picker.replaceChildren();
+  if (!match.length) {
+    picker.add(new Option(cloudModelCatalog.length ? 'Tidak ada model cocok' : 'Isi API key lalu muat model', ''));
+  } else {
+    for (const model of match) picker.add(new Option(cloudModelLabel(model), model.id));
+    picker.value = match.some(model => model.id === previouslySelected) ? previouslySelected : match[0].id;
+  }
+  quick.replaceChildren();
+  if (cloudModelCatalog.length) {
+    for (const model of cloudModelCatalog) quick.add(new Option(cloudModelLabel(model), model.id));
+    const active = cloudConfig?.model || picker.value;
+    quick.value = cloudModelById(active) ? active : '';
+  } else if (cloudConfig?.model) {
+    quick.add(new Option(cloudConfig.model + ' (katalog belum dimuat)', cloudConfig.model));
+  } else {
+    quick.add(new Option('Pilih AI Cloud', ''));
+  }
+  $('cloud-quick-wrap').hidden = !cloudConfig?.enabled;
+  const selected = cloudModelById(picker.value);
+  const detail = selected ? ' · ' + selected.name + ' · ' + selected.id +
+    (selected.context ? ' · Context ' + Math.round(selected.context / 1000) + 'K' : '') : '';
+  setCloudModelInfo(cloudModelCatalog.length
+    ? cloudModelCatalog.length + ' model bertools terverifikasi · ' +
+        cloudModelCatalog.filter(m => m.access === 'free').length + ' Gratis · ' +
+        cloudModelCatalog.filter(m => m.access === 'plan').length + ' Paket' + detail +
+        '. Paket bukan jaminan akses akun.'
+    : 'Masukkan API key, lalu pilih Muat model. Hanya model dengan browser tools terverifikasi akan ditampilkan.');
+}
+async function refreshCloudCatalog(apiKey, preferred = '') {
+  if (cloudCatalogPromise) return cloudCatalogPromise;
+  $('byok-model-refresh').disabled = true;
+  setCloudModelInfo('Memuat katalog resmi BotConnector...');
+  cloudCatalogPromise = (async () => {
+    const models = await SwitchboardCloud.listModels(apiKey);
+    cloudModelCatalog = models;
+    renderCloudModels(preferred);
+    return models;
+  })();
+  try { return await cloudCatalogPromise; }
+  catch (error) {
+    cloudModelCatalog = [];
+    renderCloudModels();
+    setCloudModelInfo('Katalog gagal dimuat: ' + String(error?.message || error).slice(0,160));
+    throw error;
+  } finally {
+    cloudCatalogPromise = null;
+    $('byok-model-refresh').disabled = false;
+  }
+}
+function syncProviderModelFields() {
+  const cloud = $('byok-provider').value === 'botconnector';
+  $('cloud-model-fields').hidden = !cloud;
+  $('local-model-fields').hidden = cloud;
+  $('byok-model-manual').required = !cloud;
+  if (cloud) renderCloudModels();
+}
+$('byok-model-search').addEventListener('input', () => renderCloudModels());
+$('byok-model-filter').addEventListener('change', () => renderCloudModels());
+$('byok-model').addEventListener('change', () => renderCloudModels($('byok-model').value));
+$('byok-model-refresh').addEventListener('click', async () => {
+  const apiKey = $('byok-key').value || cloudConfig?.apiKey;
+  try { await refreshCloudCatalog(apiKey, cloudConfig?.model || 'agnes-3.0-flash'); }
+  catch (_) { /* Visible catalog error above; do not expose key in logs. */ }
+});
+$('cloud-quick-model').addEventListener('change', async () => {
+  const selected = $('cloud-quick-model').value;
+  if (!cloudConfig || !cloudModelById(selected) || activeTask) {
+    renderCloudModels();
+    return;
+  }
+  const previous = cloudConfig;
+  try {
+    await SwitchboardCloud.saveConfig(chrome.storage.local, {...cloudConfig,model:selected});
+    cloudConfig = {...cloudConfig,model:selected};
+    cloudHistory = [];
+    conversationId = null;
+    renderCloudModels(selected);
+    note('AI Cloud diganti ke ' + cloudModelById(selected).name + '. Percakapan baru dimulai.');
+  } catch (error) {
+    cloudConfig = previous;
+    renderCloudModels(previous.model);
+    note('Gagal mengganti AI Cloud: ' + String(error?.message || error).slice(0,120),'error');
+  }
+});
 $('task-configure-key').addEventListener('click', () => {
   $('byok-panel').open = true;
   $('byok-provider').focus();
@@ -791,12 +1042,24 @@ $('task-configure-key').addEventListener('click', () => {
 $('byok-advanced').addEventListener('click', openModelKeySettings);
 $('configure-model-key-settings').addEventListener('click', openModelKeySettings);
 $('byok-provider').addEventListener('change', () => {
-  $('byok-model').value = $('byok-provider').value === 'botconnector'
-    ? 'agnes-3.0-flash'
-    : $('byok-provider').value === 'groq'
-      ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
-  // Avoid accidentally saving a key entered for another provider.
+  $('byok-model-manual').value = $('byok-provider').value === 'groq'
+    ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
+  // Never reuse the previous provider's typed key in the new provider.
   $('byok-key').value = '';
+  syncProviderModelFields();
+});
+$('cloud-remove-key').addEventListener('click', async () => {
+  activeTask?.abort();
+  await chrome.storage.local.remove('cloudConfig');
+  cloudConfig = null;
+  cloudHistory = [];
+  cloudModelCatalog = [];
+  $('byok-key').value = '';
+  $('byok-key').placeholder = 'Masukkan API key dari provider';
+  renderCloudModels();
+  $('byok-status').textContent = 'API key Cloud dihapus dari ekstensi.';
+  await refreshBridgeStatus();
+  await refreshActiveTab();
 });
 $('byok-cancel').addEventListener('click', () => {
   if (byokPending) byokPending.cancelled = true;
@@ -819,6 +1082,39 @@ async function byokApi(origin, token, path, method = 'GET', payload) {
 $('byok-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if (byokPending) return;
+  if ($('byok-provider').value === 'botconnector') {
+    const saveButton = $('byok-save');
+    saveButton.disabled = true;
+    try {
+      const providedKey = $('byok-key').value;
+      const apiKey = providedKey || cloudConfig?.apiKey;
+      if (!apiKey) throw new Error('Masukkan API key BotConnector terlebih dahulu.');
+      if (!cloudModelCatalog.length || (providedKey && providedKey !== cloudConfig?.apiKey)) {
+        await refreshCloudCatalog(apiKey, $('byok-model').value || cloudConfig?.model || 'agnes-3.0-flash');
+      }
+      const model = $('byok-model').value;
+      if (!cloudModelById(model)) throw new Error('Pilih AI dari katalog yang berhasil dimuat.');
+      await SwitchboardCloud.saveConfig(chrome.storage.local, {
+        provider:'botconnector', apiKey, model, enabled:$('byok-default').checked
+      });
+      cloudConfig = { provider:'botconnector', apiKey, model, enabled:$('byok-default').checked };
+      cloudHistory = [];
+      conversationId = null;
+      renderCloudModels(model);
+      $('byok-status').textContent = cloudModelById(model).name + ' dipilih untuk BotConnector Cloud. ' +
+        (cloudConfig.enabled ? 'Siap digunakan tanpa sbx web.' : 'Belum dijadikan model aktif.') +
+        ' Akses akun dan inferensi diuji saat pesan pertama.';
+      $('byok-key').placeholder = 'API key tersimpan; tidak perlu diisi ulang';
+      await refreshBridgeStatus();
+      await refreshActiveTab();
+    } catch (error) {
+      $('byok-status').textContent = 'Gagal: ' + String(error?.message || error).slice(0,180);
+    } finally {
+      $('byok-key').value = '';
+      saveButton.disabled = false;
+    }
+    return;
+  }
   const token = companionToken;
   const bridge = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' }).catch(() => null);
   const origin = normalizeWebOrigin(bridge?.webOrigin);
@@ -837,7 +1133,7 @@ $('byok-form').addEventListener('submit', async (event) => {
   try {
     const grant = await byokApi(origin, token, 'request', 'POST', {
       provider: $('byok-provider').value,
-      model: $('byok-model').value.trim(),
+      model: $('byok-model-manual').value.trim(),
       setDefault: $('byok-default').checked,
     });
     if (request.cancelled) return;
@@ -860,7 +1156,16 @@ $('byok-form').addEventListener('submit', async (event) => {
     const result = await byokApi(origin, token, 'commit', 'POST', { id: grant.id, apiKey });
     // A previous conversation may be pinned to its earlier provider/model.
     // Do not silently continue an old session after a BYOK default switch.
-    if (result.selected) conversationId = null;
+    if (result.selected) {
+      conversationId = null;
+      if (cloudConfig?.enabled) {
+        await SwitchboardCloud.saveConfig(chrome.storage.local, {...cloudConfig,enabled:false});
+        cloudConfig = {...cloudConfig,enabled:false};
+        cloudHistory = [];
+        renderCloudModels();
+        await refreshBridgeStatus();
+      }
+    }
     say('API key ' + result.provider + ' tersimpan di backend. Model: ' + result.model +
       (result.selected ? ' (aktif untuk obrolan berikutnya).' : '.') +
       ' Koneksi model belum diuji.');
@@ -1007,7 +1312,75 @@ function note(text, kind) {
   log.scrollTop = log.scrollHeight;
 }
 
+// Clipboard copies are triggered only by explicit user clicks. Copy the
+// original plain-text response, not rendered HTML, browser tool arguments,
+// debug events or provider credentials. Never persist transcript contents.
+const COPY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+function makeMessageCopyButton(label, kind, value) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'msg-copy ' + kind;
+  button.innerHTML = COPY_ICON; // Static extension-owned SVG; no user/model HTML.
+  button.dataset.copyLabel = label;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.addEventListener('click', () => void copyConversationText(value(), button));
+  return button;
+}
+async function copyConversationText(value, button) {
+  if (!String(value || '').trim()) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    button.title = 'Berhasil disalin';
+    button.setAttribute('aria-label', 'Berhasil disalin');
+    button.dataset.copied = 'true';
+    setTimeout(() => {
+      if (!button.isConnected) return;
+      const label = button.dataset.copyLabel || (button.id === 'chat-copy' ? 'Salin seluruh percakapan' : 'Salin');
+      button.title = button.id === 'chat-copy' ? 'Salin percakapan' : label;
+      button.setAttribute('aria-label', label);
+      delete button.dataset.copied;
+    }, 1400);
+    return true;
+  } catch (_) {
+    note('Tidak dapat menyalin ke clipboard. Pastikan izin clipboard Chrome tersedia.', 'error');
+    return false;
+  }
+}
+function createUserMessage(question) {
+  const root = document.createElement('div');
+  root.className = 'msg msg-user';
+  const content = document.createElement('div');
+  content.className = 'user-message-text';
+  content.textContent = question;
+  const actions = document.createElement('div');
+  actions.className = 'msg-copy-row user-copy-row';
+  actions.append(makeMessageCopyButton('Salin pertanyaan', 'msg-copy-user', () => question));
+  root.append(content, actions);
+  return root;
+}
+function chatTranscriptPlainText() {
+  return [...$('chat-log').children].flatMap(node => {
+    if (node.classList.contains('msg-user')) return ['Anda:\n' + (node.querySelector('.user-message-text')?.textContent || '')];
+    if (node.classList.contains('msg-agent')) {
+      const answer = node.querySelector('.answer');
+      const text = answer?.dataset.copyText || '';
+      return text.trim() ? ['Switchboard:\n' + text] : [];
+    }
+    return []; // Never copy notes, browser tool diagnostics or system errors.
+  }).join('\n\n');
+}
+$('chat-copy').addEventListener('click', () =>
+  void copyConversationText(chatTranscriptPlainText(), $('chat-copy')));
+function renderAgentAnswer(msg, content) {
+  msg.text = String(content ?? '');
+  msg.answer.innerHTML = formatReply(msg.text);
+  msg.answer.dataset.copyText = msg.text;
+  msg.copyButton.disabled = !msg.text.trim();
+}
+
 function createAgentMessage() {
+  $('chat-copy').disabled = false;
   const root = document.createElement('div');
   root.className = 'msg msg-agent';
   const steps = document.createElement('details');
@@ -1023,12 +1396,19 @@ function createAgentMessage() {
   thinking.setAttribute('role', 'status');
   thinking.setAttribute('aria-label', 'Sedang bekerja');
   thinking.innerHTML = '<i></i><i></i><i></i>';
+  const copyRow = document.createElement('div');
+  copyRow.className = 'msg-copy-row';
+  let msg;
+  const copyButton = makeMessageCopyButton('Salin jawaban AI', 'msg-copy-agent', () => msg.text);
+  copyButton.disabled = true;
+  copyRow.append(copyButton);
   const receipt = document.createElement('div');
   receipt.className = 'task-receipt';
   receipt.hidden = true;
   receipt.setAttribute('aria-label', 'Status hasil tugas');
-  root.append(steps, answer, receipt, thinking);
-  return { root, steps, summary, answer, receipt, thinking, items: new Map(), text: '' };
+  root.append(steps, answer, copyRow, receipt, thinking);
+  msg = { root, steps, summary, answer, copyButton, receipt, thinking, items: new Map(), text: '' };
+  return msg;
 }
 function refreshStepSummary(msg, finished) {
   const total = msg.items.size;
@@ -1068,19 +1448,156 @@ document.querySelectorAll('#chat-chips .chip').forEach(button => {
 $('chat-new')?.addEventListener('click', () => {
   if (activeTask) return;
   conversationId = null;
+  cloudHistory = [];
   $('chat-log').replaceChildren();
+  $('chat-copy').disabled = true;
   $('chat-empty').hidden = false;
   $('task-prompt').value = '';
   autosizePrompt();
   $('task-prompt').focus();
 });
 
+// Cloud standalone: agent orchestrates directly in the trusted side-panel
+// extension page; all DOM/browser actions still run through the existing
+// background-worker browser tools and native Chrome host permissions.
+async function runStandaloneCloudTask(question) {
+  await refreshActiveTab();
+  const selectedTabId = cloudTabsState.selectedId;
+  if (!Number.isSafeInteger(selectedTabId) || !currentTab || currentTab.id !== selectedTabId) {
+    $('tab-manager').hidden = false;
+    $('tab-manage-toggle').setAttribute('aria-expanded','true');
+    note('Belum ada tab terikat yang dipilih. Pilih tab pada daftar, atau klik + Tab untuk menambahkan situs HTTP(S).','error');
+    $('tab-available').focus();
+    return;
+  }
+  activeTask = new AbortController();
+  const controller = activeTask;
+  $('task-send').disabled = true;
+  $('task-stop').disabled = false;
+  const log = $('chat-log');
+  $('chat-empty').hidden = true;
+  log.append(createUserMessage(question));
+  const msg = createAgentMessage();
+  log.append(msg.root);
+  $('task-prompt').value = '';
+  autosizePrompt();
+  log.scrollTop = log.scrollHeight;
+  taskStatus('Menghubungi BotConnector Cloud tanpa backend lokal...');
+  let outcome = 'failed';
+  let approvedTypingOrigin = '';
+  try {
+    const response = await SwitchboardCloud.run({
+      config:cloudConfig, question, currentTab, history:cloudHistory,
+      signal:controller.signal,
+      approveAction:async ({tool,args}) => {
+        approvedTypingOrigin = '';
+        if (controller.signal.aborted) return false;
+        if (tool === 'browser_type') {
+          const approvalTab = await chrome.tabs.get(selectedTabId);
+          if (!/^https?:\/\//i.test(approvalTab.url || '')) return false;
+          approvedTypingOrigin = new URL(approvalTab.url).origin;
+        }
+        // Scrolling is non-destructive in Auto mode, but not in Manual.
+        if (tool === 'browser_scroll' && $('composer-mode').value !== 'manual') return true;
+        const target = String(args.selector || args.url || 'halaman aktif').slice(0,180);
+        let label = '';
+        if (tool === 'browser_click') {
+          // Resolve the actual visible target, not just a CSS selector that
+          // could hide "Pay now" or an irreversible authorization.
+          const snapshot = await chrome.runtime.sendMessage({
+            type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{},tabId:selectedTabId
+          });
+          const element = snapshot?.ok && snapshot.elements?.find(item =>
+            item.ref === args.selector || item.selector === args.selector);
+          if (!element || element.isSensitive) {
+            taskStatus('Klik ditolak: tombol tidak terverifikasi pada snapshot terbaru.');
+            return false;
+          }
+          label = String(element.text || element.tag || '').slice(0,140);
+        }
+        const summary = tool === 'browser_type'
+          ? 'Ketik pada ' + String(args.selector || '') + ':\n' + String(args.text || '')
+          : tool === 'browser_navigate' ? 'Buka URL: ' + String(args.url || '')
+          : tool === 'browser_select' ? 'Pilih opsi ' + String(args.value || '') + ' pada ' + target
+          : tool + ' pada ' + target + (label ? ' (' + label + ')' : '');
+        // Never silently authorize clicks/writes/navigation. Site permission
+        // remains Chrome's native prompt; action consent is separate.
+        return window.confirm('Switchboard Cloud meminta tindakan browser:\n' +
+          summary + '\n\nIzinkan sekali?');
+      },
+      runTool:async (tool,args) => {
+        const approvedOrigin = approvedTypingOrigin;
+        approvedTypingOrigin = '';
+        const reply = await chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool,args,tabId:selectedTabId,approvedOrigin});
+        if (!reply || typeof reply.ok !== 'boolean') throw new Error('Browser Companion tidak merespons.');
+        return reply;
+      },
+      onEvent:item => {
+        if (item.type === 'tool_call') {
+          taskStatus('Browser: ' + String(item.name || 'tool'));
+          const step = document.createElement('div');
+          step.className = 'step running';
+          step.innerHTML = '<span class="step-dot"></span><span class="step-label"></span>';
+          step.querySelector('.step-label').textContent = stepLabel(item.name,item.args);
+          msg.steps.append(step);
+          msg.steps.hidden = false;
+          msg.thinking.hidden = true;
+          msg.items.set(String(item.id),step);
+          refreshStepSummary(msg,false);
+        } else if (item.type === 'tool_result') {
+          const step = msg.items.get(String(item.id));
+          if (step) {
+            step.classList.remove('running');
+            step.classList.add(item.ok ? 'done' : 'failed');
+            refreshStepSummary(msg,false);
+          }
+        } else if (item.type === 'final') {
+          renderAgentAnswer(msg, item.text);
+          msg.thinking.hidden = true;
+        }
+        log.scrollTop = log.scrollHeight;
+      }
+    });
+    renderAgentAnswer(msg, response.text);
+    cloudHistory.push({role:'user',content:question},{role:'assistant',content:response.text});
+    cloudHistory = cloudHistory.slice(-4);
+    outcome = 'completed';
+    taskStatus('BotConnector Cloud selesai. ' + response.toolsUsed + ' panggilan browser tool.');
+  } catch (error) {
+    outcome = controller.signal.aborted || error?.name === 'AbortError' ? 'cancelled' : 'failed';
+    taskStatus(outcome === 'cancelled' ? 'Dihentikan.' : 'Gagal.');
+    if (outcome === 'failed') {
+      const reason = String(error?.message || error).slice(0,200);
+      note('BotConnector Cloud: ' + reason +
+        (reason.includes('Batas penggunaan') ? ' Pilih model lain di menu AI Cloud, atau coba lagi setelah kuota pulih. Tidak ada fallback berbayar otomatis.' : ''),'error');
+    }
+  } finally {
+    msg.thinking.remove();
+    if (msg.items.size) { msg.steps.open = false; refreshStepSummary(msg,true); }
+    if (msg.text || msg.items.size) {
+      msg.receipt.textContent = taskReceiptText(outcome,[...msg.items.values()].map(step =>
+        step.classList.contains('done') ? 'done' : step.classList.contains('failed') ? 'failed' : 'running'));
+      msg.receipt.hidden = false;
+    } else msg.root.remove();
+    activeTask = null;
+    $('task-send').disabled = false;
+    $('task-stop').disabled = true;
+    await refreshPendingSite();
+    await refreshAuditLog();
+    await refreshActiveTab();
+  }
+}
+
 $('task-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (activeTask) return;
   const question = $('task-prompt').value.trim();
   if (!question) return;
-  if (!companionToken) { note('Switchboard belum terhubung. Buka Pengaturan untuk menghubungkannya.', 'error'); return; }
+  if (cloudConfig?.enabled && SwitchboardCloud.configValid(cloudConfig)) {
+    await runStandaloneCloudTask(question);
+    return;
+  }
+  if (!companionToken) { note('Masukkan API key BotConnector Cloud untuk memakai Switchboard tanpa aplikasi lokal, atau hubungkan sbx web.', 'error'); $('byok-panel').open = true; return; }
   activeTask = new AbortController();
   activeTaskSession = null;
   const approvalPoll = setInterval(() => void refreshActionApproval(), 500);
@@ -1088,10 +1605,7 @@ $('task-form').addEventListener('submit', async event => {
   $('task-stop').disabled = false;
   const log = $('chat-log');
   $('chat-empty').hidden = true;
-  const userMsg = document.createElement('div');
-  userMsg.className = 'msg msg-user';
-  userMsg.textContent = question;
-  log.append(userMsg);
+  log.append(createUserMessage(question));
   const msg = createAgentMessage();
   let taskOutcome = 'failed';
   log.append(msg.root);
@@ -1155,16 +1669,14 @@ $('task-form').addEventListener('submit', async event => {
           }
         }
         if (item.type === 'delta' && item.text) {
-          msg.text += item.text;
+          renderAgentAnswer(msg, msg.text + item.text);
           msg.thinking.hidden = true;
-          msg.answer.innerHTML = formatReply(msg.text);
         }
         if (item.type === 'final' && !sawFatalEvent) {
           reachedTerminalEvent = true;
           taskOutcome = item.stopReason === 'step_limit' ? 'step_limit'
             : item.stopReason === 'error' ? 'failed' : 'completed';
-          msg.text = item.content || msg.text || 'Selesai tanpa jawaban tertulis.';
-          msg.answer.innerHTML = formatReply(msg.text);
+          renderAgentAnswer(msg, item.content || msg.text || 'Selesai tanpa jawaban tertulis.');
           taskStatus(item.stopReason === 'step_limit' ? 'Stopped at step limit.' : item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
         if (item.type === 'error') {

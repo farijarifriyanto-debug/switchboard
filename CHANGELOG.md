@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.8
+
+- Added **icon-only Copy** under each user question and AI answer, plus **Salin percakapan** in the side-panel header. Accessible labels and tooltips differentiate copying a question, answer, or entire chat. Clipboard output is original plain text (not rendered HTML); conversation copy contains visible user and AI messages only, omitting browser tool details, internal errors, and API keys. New Chat clears the copy source. Both Cloud and optional local agent paths use the same copy controls.
+
+Release candidate — **unpublished**; Chrome Web Store 0.4.7 submission is a different, earlier build.
+
+- Standalone side-panel tab manager: **+ Tab** attaches one of the currently open HTTP(S) tabs, list enables selecting/switching among up to 12 attached tabs, **Hapus** detaches a tab without closing it. No implicit fallback to an unrelated active Chrome tab after detaching. Cloud model tools cannot select/unbound or override a user-selected tab.
+- BotConnector Cloud now runs directly in the Chrome side panel, with an extension-local BYOK configuration, fixed HTTPS inference gateway, and an agent tool loop using the existing browser tool executor and native Chrome per-site permissions. The AI picker reuses the authenticated BotConnector /v1/models catalog and BCCLI capability labels: searchable Free/Paket verified-tool model dropdown, refresh action, and quick model switching in the chat composer without API-key re-entry. No Switchboard CLI, Web Console, or pairing required. Browser actions request explicit operator confirmation; failed/uncertain mutations are not retried. API keys stay in trusted extension-local storage and may be removed in-panel. New privacy disclosures and standalone Chrome regression coverage.
+
 ## 0.4.7
 
 - The Chrome side panel now has a Provider / Model ID / API key form for BotConnector Cloud, OpenRouter and Groq. BotConnector uses the fixed first-party HTTPS gateway `https://api.botconnector.id/v1` with `agnes-3.0-flash` as its initial model ID. Saving uses independent, one-use approval in the authenticated Web Console; the key is never written to extension storage and the companion bearer never gains access to general settings.

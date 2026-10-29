@@ -1,0 +1,403 @@
+// Visible Chrome acceptance for extension-only BotConnector Cloud with NO sbx web.
+// The fixed HTTPS gateway is intercepted with a deterministic response; this
+// tests real browser DOM tool execution, UI, storage and no backend dependency,
+// not a real paid cloud inference.
+import assert from 'node:assert/strict'
+import http from 'node:http'
+import {spawn} from 'node:child_process'
+import {mkdtemp,rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import path from 'node:path'
+import net from 'node:net'
+const chromeBin=process.env.SBX_TEST_CHROME_PATH
+if(!chromeBin)throw Error('Set SBX_TEST_CHROME_PATH')
+const profile=await mkdtemp(path.join(tmpdir(),'sbx-cloud-standalone-'))
+const fixture=http.createServer((req,res)=>{
+  res.writeHead(200,{'content-type':'text/html'})
+  res.end('<!doctype html><title>QA_SCREEN</title><h1>QA_SCREEN</h1><p>Browser source says qa_731</p><input id="qa-input" value=""><button id="qa-click" onclick="this.dataset.count=Number(this.dataset.count||0)+1">Click test</button>')
+})
+await new Promise(r=>fixture.listen(0,'127.0.0.1',r))
+const url='http://127.0.0.1:'+fixture.address().port+'/'
+const portServer=net.createServer()
+await new Promise(r=>portServer.listen(0,'127.0.0.1',r))
+const port=portServer.address().port
+await new Promise(r=>portServer.close(r))
+const dir=path.resolve('browser-extension')
+const chrome=spawn(chromeBin,[
+  '--no-first-run','--no-default-browser-check','--disable-gpu',
+  '--remote-allow-origins=*','--remote-debugging-port='+port,
+  '--user-data-dir='+profile,'--load-extension='+dir,'--disable-extensions-except='+dir,url
+],{stdio:'ignore'})
+const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+let ws
+try{
+  let version
+  for(let i=0;i<70;i++){try{const r=await fetch('http://127.0.0.1:'+port+'/json/version');if(r.ok){version=await r.json();break}}catch{} await sleep(200)}
+  assert.ok(version,'Chrome starts')
+  ws=new WebSocket(version.webSocketDebuggerUrl)
+  await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject})
+  const pending=new Map();let seq=0,dialogCount=0
+  ws.onmessage=e=>{
+    const m=JSON.parse(e.data)
+    if(m.method==='Page.javascriptDialogOpening'){
+      dialogCount++
+      const id=++seq
+      ws.send(JSON.stringify({id,method:'Page.handleJavaScriptDialog',params:{accept:true},sessionId:m.sessionId}))
+      return
+    }
+    const call=pending.get(m.id);if(!call)return
+    pending.delete(m.id);m.error?call.reject(Error(m.error.message)):call.resolve(m.result)
+  }
+  const cdp=(method,params={},sessionId)=>new Promise((resolve,reject)=>{
+    const id=++seq;pending.set(id,{resolve,reject})
+    ws.send(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})}))
+  })
+  let worker,sw
+  for(let i=0;i<55&&!worker;i++){
+    const targets=(await cdp('Target.getTargets')).targetInfos.filter(t=>t.type==='service_worker' && t.url.endsWith('/background.js'))
+    for(const t of targets){
+      const session=(await cdp('Target.attachToTarget',{targetId:t.targetId,flatten:true})).sessionId
+      await cdp('Runtime.enable',{},session)
+      const probe=await cdp('Runtime.evaluate',{expression:'chrome.runtime?.getManifest?.().name',returnByValue:true},session)
+      if(probe.result?.value==='Switchboard Browser Companion'){worker=t;sw=session;break}
+      await cdp('Target.detachFromTarget',{sessionId:session}).catch(()=>{})
+    }
+    if(!worker)await sleep(200)
+  }
+  assert.ok(worker,'real extension worker')
+  const run=async (expr,session=sw)=>{
+    const r=await cdp('Runtime.evaluate',{expression:expr,returnByValue:true,awaitPromise:true},session)
+    if(r.exceptionDetails)throw Error('Chrome runtime: '+r.exceptionDetails.text)
+    return r.result?.value
+  }
+  if(!(await run('chrome.tabs.query({}).then(x=>x.length)')))
+    await run('chrome.tabs.create({url:'+JSON.stringify(url)+'})')
+  let tab
+  for(let i=0;i<60;i++){
+    const tabs=await run('chrome.tabs.query({}).then(x=>x.map(t=>({id:t.id,url:t.url})))')
+    tab=tabs.find(t=>t.url===url)
+    if(tab)break
+    if(tabs[0]&&i===0)await run('chrome.tabs.update('+tabs[0].id+',{url:'+JSON.stringify(url)+'})')
+    await sleep(150)
+  }
+  assert.ok(tab,'fixture tab')
+  assert.equal((await run('bridgeStatus()')).connected,false,'No local sbx pairing/socket')
+  const extId=worker.url.split('/')[2]
+  const target=await cdp('Target.createTarget',{url:'chrome-extension://'+extId+'/panel.html'})
+  const session=(await cdp('Target.attachToTarget',{targetId:target.targetId,flatten:true})).sessionId
+  await cdp('Runtime.enable',{},session)
+  await cdp('Page.enable',{},session)
+  let ready=false
+  for(let i=0;i<65;i++){
+    ready=await run("document.readyState==='complete' && typeof SwitchboardCloud==='object' && !!document.getElementById('byok-form')",session).catch(()=>false)
+    if(ready)break
+    await sleep(150)
+  }
+  assert.ok(ready,'real side panel cloud agent loaded')
+  const live=process.env.SBX_CLOUD_LIVE==='1'
+  const testKey=live ? process.env.BOTCONNECTOR_API_KEY : 'qa-extension-only-key-no-network'
+  if(!testKey)throw Error('SBX_CLOUD_LIVE requires BOTCONNECTOR_API_KEY')
+  if(!live)await run(`(()=>{
+    const orig=window.fetch.bind(window);
+    window.fetch=(url,options)=>{
+      if(String(url)==='https://api.botconnector.id/v1/models'){
+        if(options.headers.authorization!=='Bearer qa-extension-only-key-no-network')throw Error('Wrong catalog auth');
+        return Promise.resolve({ok:true,json:async()=>({data:[
+          {id:'agnes-3.0-flash',botconnector_name:'Agnes 3.0 Flash',botconnector_access:'free',
+            botconnector_family:'Agnes',botconnector_capabilities:{tools:'supported'},
+            botconnector_funding:{available_now:true}},
+          {id:'claude-sonnet-5-5',botconnector_name:'Claude Sonnet 5.5',botconnector_access:'plan',
+            botconnector_family:'Anthropic',botconnector_capabilities:{tools:'supported'},
+            botconnector_funding:{available_now:true}},
+          {id:'no-tools',botconnector_name:'Unsupported',botconnector_access:'plan',
+            botconnector_capabilities:{tools:'unknown'}}
+        ]})});
+      }
+      return orig(url,options);
+    };return true})()`,session)
+  await run("(()=>{document.getElementById('byok-provider').value='botconnector';"+
+    "document.getElementById('byok-key').value="+JSON.stringify(testKey)+";"+
+    "document.getElementById('byok-form').requestSubmit();return true})()",session)
+  let stored=false
+  for(let i=0;i<50;i++){
+    stored=await run("Boolean(cloudConfig?.enabled && document.getElementById('byok-key').value==='')",session).catch(()=>false)
+    if(stored)break
+    await sleep(120)
+  }
+  assert.ok(stored,'Key saved directly by the extension without sbx web')
+  assert.equal((await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session)),'agnes-3.0-flash')
+  const options=await run("Array.from(document.getElementById('byok-model').options).map(o=>({id:o.value,text:o.textContent}))",session)
+  assert.ok(options.some(o=>o.id==='agnes-3.0-flash'), 'Verified free model is in dropdown')
+  assert.ok(options.every(o=>o.id!=='no-tools'), 'Unknown-tools model is excluded')
+  // No implicit fallback to an arbitrary active Chrome tab.
+  const beforeAttach=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{},tabId:"+tab.id+"})",session)
+  assert.equal(beforeAttach?.ok,false,'Cloud tools MUST fail when no tab has been explicitly attached')
+  await run("document.getElementById('tab-add-open').click()",session)
+  for(let i=0;i<40;i++){
+    if(await run("Array.from(document.getElementById('tab-available').options).some(x=>x.value==='"+tab.id+"')",session))break
+    await sleep(100)
+  }
+  assert.ok(await run("Array.from(document.getElementById('tab-available').options).some(x=>x.value==='"+tab.id+"')",session),'Fixture tab offered to user')
+  await run("(()=>{document.getElementById('tab-available').value='"+tab.id+"';document.getElementById('tab-add-confirm').click();return true})()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+tab.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),tab.id,'User successfully attached the first tab')
+  const origin = new URL(url).origin
+  const deniedType = await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_type',args:{selector:'#qa-input',text:'should-not-type',clear:true},tabId:"+tab.id+",approvedOrigin:'https://other.example'})",session)
+  assert.equal(deniedType?.ok,false,'Typing approval from an unrelated origin must fail closed')
+  assert.equal(await run("chrome.scripting.executeScript({target:{tabId:"+tab.id+"},func:()=>document.querySelector('#qa-input').value}).then(r=>r[0].result)",sw),'')
+  const approvedType = await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_type',args:{selector:'#qa-input',text:'qa-approved',clear:true},tabId:"+tab.id+",approvedOrigin:"+JSON.stringify(origin)+"})",session)
+  assert.equal(approvedType?.ok,true,'Typing can only proceed for the approved origin')
+  assert.equal(await run("chrome.scripting.executeScript({target:{tabId:"+tab.id+"},func:()=>document.querySelector('#qa-input').value}).then(r=>r[0].result)",sw),'qa-approved')
+  console.log('PASS browser_type is bound to approved origin; forged cross-origin request rejected')
+  const secondUrl=url+'?second'
+  const second=await run("chrome.tabs.create({url:"+JSON.stringify(secondUrl)+"}).then(t=>({id:t.id,url:t.url}))",sw)
+  await run("document.getElementById('tab-add-open').click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("Array.from(document.getElementById('tab-available').options).some(x=>x.value==='"+second.id+"')",session))break
+    await sleep(100)
+  }
+  await run("(()=>{document.getElementById('tab-available').value='"+second.id+"';document.getElementById('tab-add-confirm').click();return true})()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+second.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.attached.length",session),2,'Two tabs are attached')
+  // A Cloud model can inspect ONLY tabs the operator explicitly attached.
+  const listed=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_tabs_list',args:{},tabId:"+second.id+"})",session)
+  assert.equal(listed.ok,true)
+  assert.equal(listed.tabs.length,2)
+  assert.ok(listed.tabs.every(x=>x.id===tab.id||x.id===second.id))
+  const escaped=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{tabId:"+tab.id+"},tabId:"+second.id+"})",session)
+  assert.equal(escaped?.ok,false,'Cloud model cannot override operator-selected tab')
+  const switchBack=await run("(()=>{const row=Array.from(document.querySelectorAll('.tab-bound-row')).find(x=>x.querySelector('button.tab-select').textContent.includes('QA_SCREEN'));return document.querySelectorAll('.tab-bound-row button.tab-select')[0]?.click(),true})()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+tab.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),tab.id,'User can switch back to first attached tab')
+  // Remove the SELECTED second attachment. The first must not be selected
+  // silently: the operator must explicitly choose it again.
+  await run("document.querySelectorAll('.tab-bound-row')[1]?.querySelector('button.tab-select')?.click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+second.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),second.id)
+  await run("document.getElementById('tab-detach-current').click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.attached.length===1",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.attached.length",session),1)
+  assert.equal(await run("cloudTabsState.selectedId",session),null,'Removing selected tab must not implicitly switch to another')
+  assert.equal(await run("chrome.tabs.get("+second.id+").then(()=>true).catch(()=>false)",sw),true,'Detaching must never close the Chrome tab')
+  await run("document.querySelector('.tab-bound-row button.tab-select')?.click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+tab.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),tab.id,'Remaining attached tab must be selected explicitly')
+  console.log('PASS REAL CHROME: add two tabs, switch, detach active without implicit fallback, Chrome tab remains open')
+  if(!live) {
+    await run("(()=>{document.getElementById('byok-model-search').value='Sonnet';document.getElementById('byok-model-search').dispatchEvent(new Event('input'));return true})()",session)
+    assert.deepEqual(await run("Array.from(document.getElementById('byok-model').options).map(o=>o.value)",session),['claude-sonnet-5-5'])
+    await run("(()=>{document.getElementById('byok-model-search').value='';document.getElementById('byok-model-search').dispatchEvent(new Event('input'));return true})()",session)
+    await run("(()=>{const s=document.getElementById('cloud-quick-model');s.value='claude-sonnet-5-5';s.dispatchEvent(new Event('change'));return true})()",session)
+    for(let i=0;i<25;i++){
+      const picked=await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session)
+      if(picked==='claude-sonnet-5-5')break
+      await sleep(100)
+    }
+    assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session),'claude-sonnet-5-5','Quick-switch persists without reentering API key')
+    await run("(()=>{const s=document.getElementById('cloud-quick-model');s.value='agnes-3.0-flash';s.dispatchEvent(new Event('change'));return true})()",session)
+    for(let i=0;i<25;i++){
+      if((await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session))==='agnes-3.0-flash')break
+      await sleep(100)
+    }
+    assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session),'agnes-3.0-flash')
+    console.log('PASS searchable Cloud model dropdown and composer quick-switch with no key re-entry')
+  }
+  const mock=`(()=>{
+    let n=0;
+    const original=window.fetch.bind(window);
+    window.__cloudProof={calls:0,usedRealSnapshot:false,backendCalls:0};
+    window.fetch=async (target,options)=>{
+      const u=String(target);
+      if(u.includes('127.0.0.1:7777')||u.includes('127.0.0.1:7778')){window.__cloudProof.backendCalls++;throw Error('Backend prohibited')}
+      if(u!=='https://api.botconnector.id/v1/chat/completions')return original(target,options);
+      const payload=JSON.parse(options.body);
+      if(payload.model!=='agnes-3.0-flash')throw Error('Wrong model');
+      window.__cloudProof.calls++;
+      if(++n===1)return {ok:true,json:async()=>({choices:[{message:{content:null,tool_calls:[{
+        id:'qa_snapshot',type:'function',function:{name:'browser_dom_snapshot',arguments:'{}'}
+      }]}}]})};
+      const last=payload.messages.at(-1);
+      if(last.role!=='tool'||!last.content.includes('QA_SCREEN'))throw Error('No real Chrome DOM evidence');
+      window.__cloudProof.usedRealSnapshot=true;
+      return {ok:true,json:async()=>({choices:[{message:{content:'Ringkasan terverifikasi: QA_SCREEN qa_731'}}]})};
+    };return true})()`
+  if(!live)await run(mock,session)
+  await run("(()=>{document.getElementById('task-prompt').value='Baca halaman yang sedang terbuka dan sebutkan kode unik yang tertulis di sana, jangan menebak';"+
+    "document.getElementById('task-form').requestSubmit();return true})()",session)
+  let done=false
+  for(let i=0;i<(live?260:120);i++){
+    done=await run("Boolean(!activeTask && document.getElementById('chat-log').textContent.includes('qa_731'))",session).catch(()=>false)
+    if(done)break
+    await sleep(live?250:120)
+  }
+  const status=await run("document.getElementById('task-status').textContent",session)
+  if(!done) {
+    const diagnostic=await run("(()=>({busy:Boolean(activeTask),catalog:cloudModelCatalog.length,model:cloudConfig?.model,chat:document.getElementById('chat-log').textContent.slice(-380),status:document.getElementById('byok-status').textContent.slice(0,180)}))()",session)
+    // No API keys printed. Fixture only; do not dump secrets or request headers.
+    console.log('QA_DIAGNOSIS '+JSON.stringify(diagnostic))
+  }
+  assert.ok(done,'standalone task must read actual DOM and answer from browser evidence; status '+status)
+  if(live){
+    const toolEvidence=await run("document.getElementById('chat-log').querySelectorAll('.step.done').length",session)
+    assert.ok(toolEvidence>=1,'Real provider must use at least one browser tool')
+    console.log('PASS REAL CLOUD standalone E2E: actual BotConnector gateway + Chrome DOM tool + qa_731; no sbx web')
+  }else{
+    const proof=await run('window.__cloudProof',session)
+    assert.equal(proof.backendCalls,0,'No localhost backend traffic from cloud agent')
+    assert.equal(proof.calls,2,'Two cloud completion calls')
+    assert.equal(proof.usedRealSnapshot,true,'AI completion receives actual Chrome DOM snapshot')
+    console.log('PASS REAL CHROME standalone: saved key, direct HTTPS agent, real DOM snapshot, final answer; NO sbx web')
+    // Simulate a one-time explicit user approval and prove a real Chrome click
+    // happens exactly once through the existing background browser executor.
+    const clickMock = `(()=>{
+      let n=0;
+      window.fetch=async (target,options)=>{
+        if(String(target)!=='https://api.botconnector.id/v1/chat/completions')throw Error('Unexpected local/backend fetch');
+        const data=JSON.parse(options.body);
+        if(++n===1)return {ok:true,json:async()=>({choices:[{message:{content:null,tool_calls:[{
+          id:'qa_click_tool',type:'function',function:{name:'browser_click',arguments:'{"selector":"#qa-click"}'}
+        }]}}]})};
+        if(!data.messages.at(-1).content.includes('"ok":true'))throw Error('Click not confirmed');
+        return {ok:true,json:async()=>({choices:[{message:{content:'Klik QA berhasil'}}]})};
+      };
+      return true
+    })()`
+    await run(clickMock,session)
+    await run("(()=>{document.getElementById('task-prompt').value='Klik tombol test';"+
+      "document.getElementById('task-form').requestSubmit();return true})()",session)
+    let clicked=false
+    for(let i=0;i<100;i++){
+      clicked=await run("Boolean(!activeTask && document.getElementById('chat-log').textContent.includes('Klik QA berhasil'))",session).catch(()=>false)
+      if(clicked)break
+      await sleep(120)
+    }
+    assert.ok(clicked,'Cloud agent completed a user-approved click')
+    assert.equal(dialogCount,1,'Real Chrome displayed one native confirmation dialog before clicking')
+    const clickCount=await run("chrome.scripting.executeScript({target:{tabId:"+tab.id+"},func:()=>Number(document.querySelector('#qa-click').dataset.count||0)}).then(x=>x[0].result)",sw)
+    assert.equal(clickCount,1,'Real browser click exactly once')
+    console.log('PASS REAL CHROME cloud action: approved visible-label click, real DOM count=1, no local backend')
+    // The copy buttons must copy original answer text and the currently
+    // displayed conversation, never rendered HTML, browser tool logs, or API keys.
+    await run(`(()=>{
+      window.__clipboardCopies=[];
+      Object.defineProperty(navigator.clipboard,'writeText',{
+        configurable:true, value:async value=>{window.__clipboardCopies.push(value)}
+      });
+      return true
+    })()`,session)
+    assert.equal(await run("document.querySelectorAll('.msg-copy-agent:not(:disabled)').length",session),2,
+      'Every completed AI answer has a visible enabled Copy icon')
+    assert.equal(await run("document.querySelectorAll('.msg-copy-user').length",session),2,
+      'Every user question has its own visible Copy icon')
+    assert.equal(await run("Array.from(document.querySelectorAll('.msg-copy')).every(b=>!!b.querySelector('svg') && b.textContent.trim()==='')",session),true,
+      'User and AI Copy controls are icon-only, not textual buttons')
+    assert.equal(await run("document.querySelector('.msg-copy-user').getAttribute('aria-label')",session),'Salin pertanyaan',
+      'Icon-only question copy remains accessible')
+    assert.equal(await run("document.querySelector('.msg-copy-agent').getAttribute('aria-label')",session),'Salin jawaban AI')
+    await run("document.querySelector('.msg-copy-user').click()",session)
+    for(let i=0;i<20;i++){
+      if(await run("window.__clipboardCopies.length===1",session))break
+      await sleep(60)
+    }
+    const questionCopy=await run("window.__clipboardCopies[0]",session)
+    assert.equal(questionCopy,'Baca halaman yang sedang terbuka dan sebutkan kode unik yang tertulis di sana, jangan menebak',
+      'Question copy contains only the user question, not action icon text')
+    await run("document.querySelector('.msg-copy-agent').click()",session)
+    for(let i=0;i<20;i++){
+      if(await run("window.__clipboardCopies.length===2",session))break
+      await sleep(60)
+    }
+    const answerCopy=await run("window.__clipboardCopies[1]",session)
+    assert.equal(answerCopy,'Ringkasan terverifikasi: QA_SCREEN qa_731')
+    assert.equal(await run("document.querySelector('.msg-copy-agent').querySelector('svg')!==null",session),true,
+      'Copying must preserve the AI Copy icon')
+    await run("document.getElementById('chat-copy').click()",session)
+    for(let i=0;i<20;i++){
+      if(await run("window.__clipboardCopies.length===3",session))break
+      await sleep(60)
+    }
+    const transcript=await run("window.__clipboardCopies[2]",session)
+    assert.ok(transcript.startsWith('Anda:\n'),'Transcript must start with user message')
+    assert.ok(transcript.includes('Switchboard:\nRingkasan terverifikasi: QA_SCREEN qa_731'))
+    assert.ok(transcript.includes('Switchboard:\nKlik QA berhasil'))
+    assert.ok(!transcript.includes('qa-extension-only-key-no-network'),'No provider API key in transcript')
+    assert.ok(!transcript.includes('<p>'),'Clipboard must be plain text, not HTML')
+    assert.equal(await run("document.getElementById('chat-copy').querySelector('svg')!==null",session),true,
+      'Copy success must not replace header icon')
+    assert.equal(await run("document.getElementById('chat-copy').getAttribute('aria-label')",session),'Berhasil disalin',
+      'Copy result is announced to assistive technologies')
+    assert.equal(await run("document.querySelector('.msg-copy-user').dataset.copyLabel",session),'Salin pertanyaan',
+      'Copy icon keeps its accessible label even when the browser throttles background timeouts')
+    assert.equal(await run("document.getElementById('chat-copy').querySelector('svg')!==null",session),true,
+      'Header copy icon is never replaced by text after copying')
+    console.log('PASS REAL CHROME copy question, AI reply and full transcript as SVG icons without key or HTML')
+    await run("document.getElementById('chat-new').click()",session)
+    assert.equal(await run("document.getElementById('chat-copy').disabled",session),true,
+      'New conversation disables Copy until new messages are present')
+    assert.equal(await run("chatTranscriptPlainText()",session),'',
+      'New chat has no previous content to copy')
+    console.log('PASS REAL CHROME New Chat clears clipboard source')
+  }
+  // Cloud can be disabled and re-enabled without deleting/re-entering the key.
+  await run("(()=>{document.getElementById('byok-default').checked=false;document.getElementById('byok-form').requestSubmit();return true})()",session)
+  for(let i=0;i<30;i++){
+    if(await run("cloudConfig?.enabled===false",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.enabled)",session),false,'Cloud disabled with key retained')
+  assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.apiKey.length)",session),testKey.length)
+  await run("(()=>{document.getElementById('byok-default').checked=true;document.getElementById('byok-form').requestSubmit();return true})()",session)
+  for(let i=0;i<30;i++){
+    if(await run("cloudConfig?.enabled===true",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.enabled)",session),true)
+  console.log('PASS Cloud toggle retains key without requiring re-entry')
+  // Detach the last tab: no task may read the active Chrome tab implicitly.
+  await run("document.getElementById('tab-detach-current').click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.attached.length===0",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),null,'Last tab detach leaves no selected tab')
+  assert.equal(await run("chrome.tabs.get("+tab.id+").then(()=>true).catch(()=>false)",sw),true,'Last tab remains open in Chrome')
+  const denied=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{},tabId:"+tab.id+"})",session)
+  assert.equal(denied?.ok,false,'Without bound tab, Cloud must refuse browser read even if another tab is focused')
+  const foreign=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_ATTACH',tabId:9999999})",session)
+  assert.equal(foreign?.ok,false,'Cannot attach unknown tab ID')
+  console.log('PASS remove last tab: no implicit re-bind, browser tab remains open, invalid IDs rejected')
+  // Key revocation must clear extension-local credentials; no local CLI needed.
+  await run("document.getElementById('cloud-remove-key').click()",session)
+  let cleared=false
+  for(let i=0;i<40;i++){
+    cleared=await run("chrome.storage.local.get('cloudConfig').then(x=>!x.cloudConfig)",session).catch(()=>false)
+    if(cleared)break
+    await sleep(100)
+  }
+  assert.ok(cleared,'Cloud API key is removed from extension local storage')
+  console.log('PASS Chrome Cloud credential deletion directly in side panel')
+}finally{
+  try{ws?.close()}catch{}
+  chrome.kill()
+  await new Promise(r=>fixture.close(r))
+  await sleep(500)
+  await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:250})
+}

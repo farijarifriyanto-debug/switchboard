@@ -133,12 +133,30 @@ assert.match(html,/id="byok-key" type="password"/,'BYOK secret is masked in the 
 assert.match(html,/id="byok-provider"/,'BYOK provider choice is present')
 assert.match(html,/<option value="botconnector">BotConnector Cloud<\/option>/,
   'BotConnector Cloud is selectable directly in the side panel')
-assert.match(html,/id="byok-model"/,'BYOK model input is present')
+assert.match(html,/<select id="byok-model"/,'BotConnector uses a model dropdown, not a manually typed Model ID')
+assert.match(html,/id="byok-model-search" type="search"/,'Cloud model picker provides name search')
+assert.match(html,/id="byok-model-filter"/,'Cloud model picker has Free/Plan filtering')
+assert.match(html,/id="cloud-quick-model"/,'Chat composer exposes direct AI selection')
+assert.match(html,/id="chat-copy"[^>]*aria-label="Salin seluruh percakapan"/,'Chat header has accessible Copy Conversation button')
+assert.match(panel,/function createUserMessage\(question\)/,'User questions have their own copy icon')
+assert.match(panel,/makeMessageCopyButton\('Salin pertanyaan', 'msg-copy-user'/,'Question copy uses icon-only button')
+assert.match(panel,/makeMessageCopyButton\('Salin jawaban AI', 'msg-copy-agent'/,'AI reply copy also uses icon-only button')
+assert.match(panel,/querySelector\('\.user-message-text'\)/,'Transcript excludes question copy button content')
+assert.match(panel,/function chatTranscriptPlainText\(/,'Chat transcript copy uses a dedicated plaintext source')
+assert.match(panel,/button\.addEventListener\('click', \(\) => void copyConversationText\(value\(\), button\)\)/,'Each copy icon invokes clipboard with its own message text')
+assert.match(panel,/function renderAgentAnswer\(/,'Both local and cloud answers retain copyable plain text')
+for (const id of ['tab-add-open','tab-add-confirm','tab-detach-current','tab-bound-list','tab-available','tab-manager']) {
+  assert.ok(html.includes('id="'+id+'"'),'Cloud tab manager control present: '+id)
+}
+assert.match(panel,/SWITCHBOARD_CLOUD_ATTACH/,'Explicit cloud tab attachment is available')
+assert.match(panel,/SWITCHBOARD_CLOUD_DETACH/,'Cloud tab can be detached without closing Chrome')
+assert.match(panel,/SWITCHBOARD_CLOUD_TOOL/,'Cloud agent uses scoped tab tool dispatcher')
+assert.match(html,/id="byok-model-manual"/,'Legacy local providers retain their manual model input')
 assert.match(panel,/keyField\.value = ''/,'API key is cleared after save or failure')
 assert.match(panel,/api\/companion-byok\/request|byokApi\(origin, token, 'request'/)
 assert.match(consoleSource,/showCompanionByokApproval/,'Separate local console consent stays explicit')
 const openSettingsFn = new Function('chrome', 'normalizeWebOrigin', 'taskStatus', '$',
-  extract(panel, 'async function openModelKeySettings()', "$('task-configure-key')") +
+  extract(panel, 'async function openModelKeySettings()', '// BotConnector Cloud standalone stores BYOK') +
   '\nreturn openModelKeySettings')
 let settingsUrls = [], settingsHint = ''
 const diagnostics = {textContent: ''}

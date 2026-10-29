@@ -1,6 +1,6 @@
 {
   "name": "@botconnector/switchboard",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "Switchboard - the plugin-native agent harness for BotConnector. Everything is a plugin.",
   "type": "module",
   "license": "MIT",
@@ -57,7 +57,8 @@
     "test:browser-tab-key": "node test/test-browser-tab-key.mjs",
     "test:browser-security": "node test/test-browser-security.mjs",
     "test:browser-workflow": "node test/test-browser-workflow.mjs",
-    "test:tasks": "node test/test-browser-tasks-ux.mjs && node test/test-companion-byok.mjs",
+    "test:tasks": "node test/test-browser-tasks-ux.mjs && node test/test-companion-byok.mjs && node test/test-cloud-standalone.mjs",
+    "test:cloud:chrome": "node test/test-cloud-standalone-chrome.mjs",
     "test:tasks:chrome": "node test/test-browser-tasks-chrome.mjs",
     "test:browser-regression": "node test/test-browser-regression.mjs",
     "test:browser-e2e": "node test/test-browser-e2e-chrome.mjs",
