@@ -2,7 +2,7 @@
 
 ## Status
 
-> Status 18 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` is published at **0.4.4**. Source version **0.4.5** is an unpublished security candidate and has not been submitted. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source. Older version instructions below are historical.
+> Status 29 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` is published at **0.4.6**. Version **0.4.7** is a new release candidate pending submission. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source; older version instructions below are historical.
 
 **Historical update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
@@ -94,7 +94,7 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 
 **Remaining human step:** Connect or create Chrome Web Store and Microsoft Edge Add-ons developer publisher accounts, enter real publisher details, and submit each extension for review. This cannot be completed merely by publishing Switchboard to npm or GitHub.
 
-## Update acceptance requirements for 0.4.5
+## Historical update acceptance requirements for 0.4.5
 
 - Explain optional per-origin HTTP/HTTPS access in the Chrome Web Store permission disclosure and privacy policy.
 - Verify the actual Chrome native site permission dialog, not just Switchboard local allowlist state.

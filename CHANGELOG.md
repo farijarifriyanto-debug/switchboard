@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (Switchboard Tasks / direct side-panel BYOK; not published)
+## 0.4.7
 
 - The Chrome side panel now has a Provider / Model ID / API key form for BotConnector Cloud, OpenRouter and Groq. BotConnector uses the fixed first-party HTTPS gateway `https://api.botconnector.id/v1` with `agnes-3.0-flash` as its initial model ID. Saving uses independent, one-use approval in the authenticated Web Console; the key is never written to extension storage and the companion bearer never gains access to general settings.
 
