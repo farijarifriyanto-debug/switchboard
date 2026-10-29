@@ -5,11 +5,11 @@ Historical QA and release notes remain useful as evidence but do not override th
 
 | Delivery | Version | Status | Evidence / note |
 |---|---|---|---|
-| npm `@botconnector/switchboard` | **0.4.6** | Published; `latest` | `registry.npmjs.org` on 2026-10-25 (`1b4c01dd393a22edaf9d6598e78c6bed026d479b`, signed provenance `logIndex 3452899083`) |
-| Source / working tree | **0.4.7** | Unpublished | BotConnector Cloud BYOK, direct API key input in Chrome side panel, task receipts and safe workflows. Release candidate; no 0.4.7 tag or marketplace publication verified yet |
-| Chrome Web Store Browser Companion | **0.4.6** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`; public listing read on 2026-10-25 shows version 0.4.6 (browser read of the listing page). Package `switchboard-chrome.zip` (`0.4.6`, SHA-256 `ba69194247bcc51d0bdf7adc50085a5e2d141c51980087010a30e3090ea39fe1`) was submitted on 2026-10-25 and approved/published the same day |
+| npm `@botconnector/switchboard` | **0.4.7** | Published; `latest` | `registry.npmjs.org` read 2026-10-29: version and dist-tag `latest` both `0.4.7`, shasum `9d193c271cf7efda555bede6239d16fa93bfcb87`; GitHub Actions signed provenance logIndex `3568973732` |
+| Source / working tree | **0.4.7** | Published in GitHub | PR #51 merged into `master` (`5a9ceca2367e34c9032bdf0decc99a7148e230e6`), tagged `v0.4.7` on 2026-10-29; Browser Companion and Switchboard core aligned to version 0.4.7 |
+| Chrome Web Store Browser Companion | **0.4.6** | Published (existing item); 0.4.7 **NOT submitted/verified** | Existing item `miehnbiiokkciokmepnhgmlhjpabbkna`; published version 0.4.6 observed 2026-10-25. Release 0.4.7 Chrome ZIP is available under the GitHub Release and as `C:\Users\farij\Downloads\switchboard-chrome-0.4.7.zip` on owner's laptop, SHA-256 `ff7bbc6cac7869ee046f891afee284a5c24ce3e98d19f29a461e3913f2aee475`. Publisher dashboard submission awaits authenticated Google account verification; do not claim 0.4.7 live |
 | Microsoft Edge Add-ons | **unknown** | Unverified | No verified listing/version evidence; do not invent a store URL |
-| GitHub Release | **v0.4.6** | Published (`latest`) | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.6` (npm tarball, `Switchboard-0.4.6-Windows-x64.zip`, `switchboard-chrome.zip`, `switchboard-edge.zip`, and SHA-256 checksums) |
+| GitHub Release | **v0.4.7** | Published | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.7` published 2026-10-29; npm tarball, Windows x64 bundle, Chrome/Edge ZIPs, and SHA-256 checksums; workflow `40888992753` succeeded |
 
 ## What 0.4.5 contains
 
