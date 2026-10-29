@@ -1315,21 +1315,30 @@ function note(text, kind) {
 // Clipboard copies are triggered only by explicit user clicks. Copy the
 // original plain-text response, not rendered HTML, browser tool arguments,
 // debug events or provider credentials. Never persist transcript contents.
+const COPY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+function makeMessageCopyButton(label, kind, value) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'msg-copy ' + kind;
+  button.innerHTML = COPY_ICON; // Static extension-owned SVG; no user/model HTML.
+  button.dataset.copyLabel = label;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.addEventListener('click', () => void copyConversationText(value(), button));
+  return button;
+}
 async function copyConversationText(value, button) {
   if (!String(value || '').trim()) return false;
   try {
     await navigator.clipboard.writeText(value);
-    const header = button.id === 'chat-copy';
-    const original = button.textContent;
-    if (!header) button.textContent = 'Disalin';
     button.title = 'Berhasil disalin';
     button.setAttribute('aria-label', 'Berhasil disalin');
     button.dataset.copied = 'true';
     setTimeout(() => {
       if (!button.isConnected) return;
-      if (!header) button.textContent = original;
-      button.title = header ? 'Salin percakapan' : 'Salin teks jawaban AI';
-      button.setAttribute('aria-label', header ? 'Salin seluruh percakapan' : 'Salin jawaban AI');
+      const label = button.dataset.copyLabel || (button.id === 'chat-copy' ? 'Salin seluruh percakapan' : 'Salin');
+      button.title = button.id === 'chat-copy' ? 'Salin percakapan' : label;
+      button.setAttribute('aria-label', label);
       delete button.dataset.copied;
     }, 1400);
     return true;
@@ -1338,9 +1347,21 @@ async function copyConversationText(value, button) {
     return false;
   }
 }
+function createUserMessage(question) {
+  const root = document.createElement('div');
+  root.className = 'msg msg-user';
+  const content = document.createElement('div');
+  content.className = 'user-message-text';
+  content.textContent = question;
+  const actions = document.createElement('div');
+  actions.className = 'msg-copy-row user-copy-row';
+  actions.append(makeMessageCopyButton('Salin pertanyaan', 'msg-copy-user', () => question));
+  root.append(content, actions);
+  return root;
+}
 function chatTranscriptPlainText() {
   return [...$('chat-log').children].flatMap(node => {
-    if (node.classList.contains('msg-user')) return ['Anda:\n' + node.textContent];
+    if (node.classList.contains('msg-user')) return ['Anda:\n' + (node.querySelector('.user-message-text')?.textContent || '')];
     if (node.classList.contains('msg-agent')) {
       const answer = node.querySelector('.answer');
       const text = answer?.dataset.copyText || '';
@@ -1377,12 +1398,8 @@ function createAgentMessage() {
   thinking.innerHTML = '<i></i><i></i><i></i>';
   const copyRow = document.createElement('div');
   copyRow.className = 'msg-copy-row';
-  const copyButton = document.createElement('button');
-  copyButton.type = 'button';
-  copyButton.className = 'msg-copy';
-  copyButton.textContent = 'Salin jawaban';
-  copyButton.title = 'Salin teks jawaban AI';
-  copyButton.setAttribute('aria-label', 'Salin jawaban AI');
+  let msg;
+  const copyButton = makeMessageCopyButton('Salin jawaban AI', 'msg-copy-agent', () => msg.text);
   copyButton.disabled = true;
   copyRow.append(copyButton);
   const receipt = document.createElement('div');
@@ -1390,8 +1407,7 @@ function createAgentMessage() {
   receipt.hidden = true;
   receipt.setAttribute('aria-label', 'Status hasil tugas');
   root.append(steps, answer, copyRow, receipt, thinking);
-  const msg = { root, steps, summary, answer, copyButton, receipt, thinking, items: new Map(), text: '' };
-  copyButton.addEventListener('click', () => void copyConversationText(msg.text, copyButton));
+  msg = { root, steps, summary, answer, copyButton, receipt, thinking, items: new Map(), text: '' };
   return msg;
 }
 function refreshStepSummary(msg, finished) {
@@ -1460,10 +1476,7 @@ async function runStandaloneCloudTask(question) {
   $('task-stop').disabled = false;
   const log = $('chat-log');
   $('chat-empty').hidden = true;
-  const userMsg = document.createElement('div');
-  userMsg.className = 'msg msg-user';
-  userMsg.textContent = question;
-  log.append(userMsg);
+  log.append(createUserMessage(question));
   const msg = createAgentMessage();
   log.append(msg.root);
   $('task-prompt').value = '';
@@ -1582,10 +1595,7 @@ $('task-form').addEventListener('submit', async event => {
   $('task-stop').disabled = false;
   const log = $('chat-log');
   $('chat-empty').hidden = true;
-  const userMsg = document.createElement('div');
-  userMsg.className = 'msg msg-user';
-  userMsg.textContent = question;
-  log.append(userMsg);
+  log.append(createUserMessage(question));
   const msg = createAgentMessage();
   let taskOutcome = 'failed';
   log.append(msg.root);

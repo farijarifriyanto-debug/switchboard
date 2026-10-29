@@ -295,21 +295,38 @@ try{
       });
       return true
     })()`,session)
-    assert.equal(await run("document.querySelectorAll('.msg-copy:not(:disabled)').length",session),2,
-      'Every completed AI answer has a visible enabled Copy button')
-    await run("document.querySelectorAll('.msg-copy')[0].click()",session)
+    assert.equal(await run("document.querySelectorAll('.msg-copy-agent:not(:disabled)').length",session),2,
+      'Every completed AI answer has a visible enabled Copy icon')
+    assert.equal(await run("document.querySelectorAll('.msg-copy-user').length",session),2,
+      'Every user question has its own visible Copy icon')
+    assert.equal(await run("Array.from(document.querySelectorAll('.msg-copy')).every(b=>!!b.querySelector('svg') && b.textContent.trim()==='')",session),true,
+      'User and AI Copy controls are icon-only, not textual buttons')
+    assert.equal(await run("document.querySelector('.msg-copy-user').getAttribute('aria-label')",session),'Salin pertanyaan',
+      'Icon-only question copy remains accessible')
+    assert.equal(await run("document.querySelector('.msg-copy-agent').getAttribute('aria-label')",session),'Salin jawaban AI')
+    await run("document.querySelector('.msg-copy-user').click()",session)
     for(let i=0;i<20;i++){
       if(await run("window.__clipboardCopies.length===1",session))break
       await sleep(60)
     }
-    const answerCopy=await run("window.__clipboardCopies[0]",session)
-    assert.equal(answerCopy,'Ringkasan terverifikasi: QA_SCREEN qa_731')
-    await run("document.getElementById('chat-copy').click()",session)
+    const questionCopy=await run("window.__clipboardCopies[0]",session)
+    assert.equal(questionCopy,'Baca halaman yang sedang terbuka dan sebutkan kode unik yang tertulis di sana, jangan menebak',
+      'Question copy contains only the user question, not action icon text')
+    await run("document.querySelector('.msg-copy-agent').click()",session)
     for(let i=0;i<20;i++){
       if(await run("window.__clipboardCopies.length===2",session))break
       await sleep(60)
     }
-    const transcript=await run("window.__clipboardCopies[1]",session)
+    const answerCopy=await run("window.__clipboardCopies[1]",session)
+    assert.equal(answerCopy,'Ringkasan terverifikasi: QA_SCREEN qa_731')
+    assert.equal(await run("document.querySelector('.msg-copy-agent').querySelector('svg')!==null",session),true,
+      'Copying must preserve the AI Copy icon')
+    await run("document.getElementById('chat-copy').click()",session)
+    for(let i=0;i<20;i++){
+      if(await run("window.__clipboardCopies.length===3",session))break
+      await sleep(60)
+    }
+    const transcript=await run("window.__clipboardCopies[2]",session)
     assert.ok(transcript.startsWith('Anda:\n'),'Transcript must start with user message')
     assert.ok(transcript.includes('Switchboard:\nRingkasan terverifikasi: QA_SCREEN qa_731'))
     assert.ok(transcript.includes('Switchboard:\nKlik QA berhasil'))
@@ -319,7 +336,11 @@ try{
       'Copy success must not replace header icon')
     assert.equal(await run("document.getElementById('chat-copy').getAttribute('aria-label')",session),'Berhasil disalin',
       'Copy result is announced to assistive technologies')
-    console.log('PASS REAL CHROME copy individual AI reply and entire user/AI transcript without key or HTML')
+    assert.equal(await run("document.querySelector('.msg-copy-user').dataset.copyLabel",session),'Salin pertanyaan',
+      'Copy icon keeps its accessible label even when the browser throttles background timeouts')
+    assert.equal(await run("document.getElementById('chat-copy').querySelector('svg')!==null",session),true,
+      'Header copy icon is never replaced by text after copying')
+    console.log('PASS REAL CHROME copy question, AI reply and full transcript as SVG icons without key or HTML')
     await run("document.getElementById('chat-new').click()",session)
     assert.equal(await run("document.getElementById('chat-copy').disabled",session),true,
       'New conversation disables Copy until new messages are present')

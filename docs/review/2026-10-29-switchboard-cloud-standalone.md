@@ -32,7 +32,7 @@ Status: **implementation and bounded real Chrome/provider E2E PASS; 0.4.8 releas
 
 ## Chat copy acceptance (0.4.8 test extension)
 
-- Each AI message (both direct Cloud and optional local backend) exposes **Salin jawaban** when reply text is available; the header copy icon exports only the current panel's user/AI transcript, not browser tool outputs, errors or API keys. Original raw answer text is used rather than DOM-derived HTML. Neither operation saves a transcript to disk or extension storage.
+- Every user question and AI message (both Cloud and optional local backend) exposes an **icon-only Copy button**. User-copy sends only the original user question; reply-copy sends only the AI answer. Accessible labels and tooltips distinguish the targets. The header Copy icon exports the current user/AI transcript, not browser tool outputs, errors or API keys. Original raw answer text is used rather than DOM-derived HTML. Neither operation saves a transcript to disk or extension storage.
 - Disposable real Chrome QA validates both buttons, clipboard text contents (intercepted clipboard write to avoid mutating operator clipboard), absence of API key/HTML, SVG icon preservation, and New Chat clearing and disabling copy until the next response. This test checks the user action and payload; ordinary OS clipboard write requires a user gesture and browser permissions.
 
 ## Mandatory limitations / publication controls

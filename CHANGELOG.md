@@ -2,7 +2,7 @@
 
 ## 0.4.8
 
-- Added **Salin jawaban** below every AI answer and a **Salin percakapan** button in the side-panel header. Clipboard output is original plain text (not rendered HTML); conversation copy contains visible user and AI messages only, omitting browser tool details, internal errors, and API keys. New Chat clears the copy source. Both Cloud and optional local agent paths use the same copy controls.
+- Added **icon-only Copy** under each user question and AI answer, plus **Salin percakapan** in the side-panel header. Accessible labels and tooltips differentiate copying a question, answer, or entire chat. Clipboard output is original plain text (not rendered HTML); conversation copy contains visible user and AI messages only, omitting browser tool details, internal errors, and API keys. New Chat clears the copy source. Both Cloud and optional local agent paths use the same copy controls.
 
 Release candidate — **unpublished**; Chrome Web Store 0.4.7 submission is a different, earlier build.
 

@@ -138,8 +138,12 @@ assert.match(html,/id="byok-model-search" type="search"/,'Cloud model picker pro
 assert.match(html,/id="byok-model-filter"/,'Cloud model picker has Free/Plan filtering')
 assert.match(html,/id="cloud-quick-model"/,'Chat composer exposes direct AI selection')
 assert.match(html,/id="chat-copy"[^>]*aria-label="Salin seluruh percakapan"/,'Chat header has accessible Copy Conversation button')
+assert.match(panel,/function createUserMessage\(question\)/,'User questions have their own copy icon')
+assert.match(panel,/makeMessageCopyButton\('Salin pertanyaan', 'msg-copy-user'/,'Question copy uses icon-only button')
+assert.match(panel,/makeMessageCopyButton\('Salin jawaban AI', 'msg-copy-agent'/,'AI reply copy also uses icon-only button')
+assert.match(panel,/querySelector\('\.user-message-text'\)/,'Transcript excludes question copy button content')
 assert.match(panel,/function chatTranscriptPlainText\(/,'Chat transcript copy uses a dedicated plaintext source')
-assert.match(panel,/copyButton\.addEventListener\('click'/,'Every agent response has its own copy action')
+assert.match(panel,/button\.addEventListener\('click', \(\) => void copyConversationText\(value\(\), button\)\)/,'Each copy icon invokes clipboard with its own message text')
 assert.match(panel,/function renderAgentAnswer\(/,'Both local and cloud answers retain copyable plain text')
 for (const id of ['tab-add-open','tab-add-confirm','tab-detach-current','tab-bound-list','tab-available','tab-manager']) {
   assert.ok(html.includes('id="'+id+'"'),'Cloud tab manager control present: '+id)
