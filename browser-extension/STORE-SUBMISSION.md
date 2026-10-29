@@ -79,7 +79,7 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 ## Privacy review
 
 - Browser page content and action results can be returned to Switchboard and then sent to whichever AI provider the user configured. Do **not** claim all website content stays on the device.
-- Disclose website content handling accurately in both marketplaces. The extension itself does not independently obtain AI-provider API keys.
+- Disclose website content handling accurately in both marketplaces. The optional BYOK form now briefly accepts a user-entered provider API key in a password field, sends it only to the locally authenticated Switchboard backend after independent one-use console approval, and does not persist it in extension storage. Update Chrome/Edge data-handling questionnaires and privacy disclosures before submission; the pairing credential is separate from a provider API key.
 - The user can approve/revoke site origins, see bounded browser audit entries and disconnect Companion.
 - Do not include user chats, passwords, payment information, keys or tokens in public listing screenshots.
 - A browser page can spoof its own install-detection display; this is only visual advice. The Switchboard server is authoritative about the authenticated background connection.

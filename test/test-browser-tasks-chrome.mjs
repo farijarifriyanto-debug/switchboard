@@ -220,6 +220,66 @@ try {
   assert.match(receipt.text, /bukan verifikasi independen/i)
   assert.match(receipt.noActions, /tanpa aksi browser/i)
   console.log('PASS visible Chrome task receipt distinguishes reported tool success from independent verification')
+
+  // Real Chrome BYOK setup: typed into side panel, independent console click,
+  // committed once to the isolated backend. No live cloud spend or real key.
+  const byokTarget = await cdp('Target.createTarget', {url: 'chrome-extension://' + extensionId + '/panel.html'})
+  const byokSession = (await cdp('Target.attachToTarget', {targetId:byokTarget.targetId,flatten:true})).sessionId
+  await cdp('Runtime.enable', {}, byokSession)
+  let byokReady = false
+  for (let i = 0; i < 55; i++) {
+    byokReady = await evaluate("document.readyState === 'complete' && typeof byokApi === 'function' && Boolean(companionToken)",byokSession)
+    if (byokReady) break
+    await sleep(150)
+  }
+  assert.ok(byokReady, 'Real side panel BYOK form initialized')
+  const apiTestKey = 'qa-fixture-key-not-real-abcdef'
+  await evaluate(`(() => {
+    document.getElementById('task-configure-key').click();
+    document.getElementById('byok-provider').value = 'openrouter';
+    document.getElementById('byok-model').value = 'qwen/qwen3.8-flash';
+    document.getElementById('byok-key').value = ${JSON.stringify(apiTestKey)};
+    conversationId = 'qa-old-model-session';
+    document.getElementById('byok-form').requestSubmit();
+    return true;
+  })()`, byokSession)
+  let approvalTarget
+  for (let i = 0; i < 65; i++) {
+    approvalTarget = (await cdp('Target.getTargets')).targetInfos.find(t =>
+      t.type === 'page' && t.url.includes('/?byok=') && /^[a-f0-9]{32}$/.test(t.url.split('byok=')[1]))
+    if (approvalTarget) break
+    await sleep(150)
+  }
+  assert.ok(approvalTarget, 'Side panel requested approval in a console tab')
+  assert.ok(!approvalTarget.url.includes(apiTestKey),'Secret was not present in approval URL')
+  const approvalSession = (await cdp('Target.attachToTarget',{targetId:approvalTarget.targetId,flatten:true})).sessionId
+  await cdp('Runtime.enable',{},approvalSession)
+  let approveReady=false
+  for(let i=0;i<60;i++) {
+    approveReady = await evaluate("Boolean(document.getElementById('byok-console-allow'))",approvalSession)
+    if(approveReady)break
+    await sleep(150)
+  }
+  assert.ok(approveReady,'Authenticated Web Console displays one-time authorization')
+  const approvalDescription = await evaluate("document.getElementById('byok-console-description').textContent",approvalSession)
+  assert.match(approvalDescription,/OpenRouter/)
+  assert.ok(approvalDescription.includes('qwen/qwen3.8-flash'))
+  await evaluate("document.getElementById('byok-console-allow').click()",approvalSession)
+  let saved = false
+  for(let i=0;i<70;i++){
+    const state = await evaluate("({message:document.getElementById('byok-status').textContent,key:document.getElementById('byok-key').value})",byokSession)
+    if(state.message.includes('tersimpan di backend')){saved=true;assert.equal(state.key,'','Input secret cleared after save');break}
+    if(state.message.startsWith('Gagal:'))throw Error('BYOK UI failed: '+state.message)
+    await sleep(150)
+  }
+  assert.ok(saved,'UI stored approved key through backend')
+  assert.equal(await evaluate('conversationId',byokSession),null,'Switching the default model resets the next conversation session')
+  assert.equal(host.ctx.providers.default().provider,'byok-openrouter')
+  assert.equal(host.ctx.providers.default().model,'qwen/qwen3.8-flash')
+  assert.equal(host.ctx.credentials.describe(host.ctx.providers.require('byok-openrouter')).configured,true)
+  const allChromeStored = await evaluate("chrome.storage.local.get(null)")
+  assert.equal(JSON.stringify(allChromeStored).includes(apiTestKey),false,'No API key in Chrome storage')
+  console.log('PASS visible Chrome side-panel API key form -> authenticated one-time consent -> backend credential store; no extension persistence')
 } finally {
   try { ws?.close() } catch {}
   await host?.dispose().catch(() => {})

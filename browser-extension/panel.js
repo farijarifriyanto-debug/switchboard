@@ -781,8 +781,94 @@ async function openModelKeySettings() {
     $('bridge-diagnostics').textContent = message;
   }
 }
-$('task-configure-key').addEventListener('click', openModelKeySettings);
+// Side-panel BYOK: the API key exists only in this password input and the
+// single authorized request body. It is not logged or written to Chrome storage.
+let byokPending = null;
+$('task-configure-key').addEventListener('click', () => {
+  $('byok-panel').open = true;
+  $('byok-provider').focus();
+});
+$('byok-advanced').addEventListener('click', openModelKeySettings);
 $('configure-model-key-settings').addEventListener('click', openModelKeySettings);
+$('byok-provider').addEventListener('change', () => {
+  $('byok-model').value = $('byok-provider').value === 'groq'
+    ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
+});
+$('byok-cancel').addEventListener('click', () => {
+  if (byokPending) byokPending.cancelled = true;
+  $('byok-key').value = '';
+  $('byok-status').textContent = 'Permintaan dibatalkan. Key tidak disimpan.';
+});
+async function byokApi(origin, token, path, method = 'GET', payload) {
+  const response = await fetch(origin + '/api/companion-byok/' + path, {
+    method,
+    headers: {
+      authorization: 'Bearer ' + token,
+      ...(payload ? { 'content-type': 'application/json' } : {})
+    },
+    ...(payload ? { body: JSON.stringify(payload) } : {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Error(String(data.error || 'Pengaturan API key gagal (HTTP ' + response.status + ')').slice(0, 180));
+  return data;
+}
+$('byok-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (byokPending) return;
+  const token = companionToken;
+  const bridge = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' }).catch(() => null);
+  const origin = normalizeWebOrigin(bridge?.webOrigin);
+  const keyField = $('byok-key');
+  if (!bridge?.connected || !origin || !token) {
+    keyField.value = '';
+    $('byok-status').textContent = 'Hubungkan Browser Companion dan sbx web sebelum menyimpan API key.';
+    return;
+  }
+  if (!keyField.value || keyField.value.length > 4096) return;
+  const request = { cancelled: false };
+  byokPending = request;
+  $('byok-save').disabled = true;
+  $('byok-cancel').hidden = false;
+  const say = (message) => { $('byok-status').textContent = message; };
+  try {
+    const grant = await byokApi(origin, token, 'request', 'POST', {
+      provider: $('byok-provider').value,
+      model: $('byok-model').value.trim(),
+      setDefault: $('byok-default').checked,
+    });
+    if (request.cancelled) return;
+    say('Setujui penyimpanan API key melalui tab Web Console yang baru dibuka (maksimal 2 menit).');
+    await chrome.tabs.create({ url: origin + '/?byok=' + encodeURIComponent(grant.id) });
+    let approved = false;
+    for (let i = 0; i < 110 && !request.cancelled; i++) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (request.cancelled) break;
+      const status = await byokApi(origin, token, 'status', 'POST', { id: grant.id });
+      if (status.approved) { approved = true; break; }
+    }
+    if (request.cancelled) { say('Dibatalkan. Tidak ada API key disimpan.'); return; }
+    if (!approved) throw Error('Persetujuan kedaluwarsa. Coba kembali.');
+    // Clear the DOM input before the credential request finishes. The secret
+    // survives only in one ephemeral request payload, not logs or storage.
+    const apiKey = keyField.value;
+    keyField.value = '';
+    if (!apiKey) throw Error('API key sudah dikosongkan; ulangi.');
+    const result = await byokApi(origin, token, 'commit', 'POST', { id: grant.id, apiKey });
+    // A previous conversation may be pinned to its earlier provider/model.
+    // Do not silently continue an old session after a BYOK default switch.
+    if (result.selected) conversationId = null;
+    say('API key ' + result.provider + ' tersimpan di backend. Model: ' + result.model +
+      (result.selected ? ' (aktif untuk obrolan berikutnya).' : '.') +
+      ' Koneksi model belum diuji.');
+  } catch (error) {
+    say('Gagal: ' + String(error?.message || 'Permintaan gagal').slice(0, 180));
+  } finally {
+    keyField.value = '';
+    byokPending = null;
+    $('byok-save').disabled = false;
+    $('byok-cancel').hidden = true;
+  }
+});
 $('task-stop').addEventListener('click', async () => {
   const sessionToCancel = activeTaskSession;
   activeTask?.abort();

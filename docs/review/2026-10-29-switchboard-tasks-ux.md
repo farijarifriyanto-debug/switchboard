@@ -11,16 +11,17 @@ See `docs/claude-in-chrome-reference-20261011.md` and
 was not exercised side-by-side for this new branch. Existing chat and
 permissions are retained; no new site allowlist or new agent approval mode.
 
-The owner explicitly requested user-entered API keys. That is a BYOK
-capability of Switchboard, implemented in its existing local Web Console
-(Settings > Models), not a claim of equivalence to Claude's credentials.
+The owner explicitly requested user-entered API keys. Switchboard now
+accepts keys through a masked field in the Browser Companion, requires
+independent one-use consent from the authenticated local Web Console, and
+reuses the backend's credential store. This is not a proprietary Claude feature.
 
 ## Function / behavior / evidence / status / next step
 
 | Function | Reference / expected behavior | Switchboard change | Evidence | Assessment | Next |
 |---|---|---|---|---|---|
 | Chat panel | Chat-first, permission inline, Stop visible | Kept existing main panel; added read-only extract-data prompt | `node test/test-browser-tasks-ux.mjs`, existing panel tests | ADAPTASI SETARA in source, live Claude comparison UNVERIFIED | Compare against installed reference on owner laptop before release |
-| Own API key | Owner explicitly requests BYOK, not a proprietary Claude feature | Shortcut uses the authenticated paired server's live loopback origin and existing Settings > Models; key stays in backend's write-only credential store | Existing settings API/UI tests; real Chrome paired host + separate Web Console cookie opens the actual Models dialog | PASS for authenticated UI; real credential entry not exercised | Verify a non-sensitive test provider/key in an isolated local profile before release |
+| Own API key | Owner explicitly requests direct side-panel BYOK | Side panel has provider, model and masked API key input; separate one-use authenticated Web Console consent; backend write-only credential store | Real Chrome form + fake-key consent/save + no extension storage, and server security tests; see `2026-10-29-switchboard-sidepanel-byok.md` | **PASS bounded real Chrome** | Verify with a real user-selected provider credential before publishing |
 | Workflow recording | Workflow recording available in classic side panel; browser safety must hold | Only explicit agent actions; saves click/scroll/navigate; does not capture typing/password, unknown actions or query strings | `node test/test-browser-tasks-ux.mjs`; real Chrome opt-in test observes a recorded click | PASS for bounded fixture; original application comparison UNVERIFIED | Exercise full workflow in user-visible Chrome |
 | Workflow import/export | Imported steps must be reviewable and not execute arbitrary actions | Validates format, size and safe action fields; old stored typed values cannot be exported | Contract + visible Chrome refusal for legacy typed-value export | PASS bounded fixtures | Visual QA of file selection and failure states |
 | Workflow replay | Browser state / native permissions must remain authoritative | Replays only limited safe actions; click retry disabled; high-risk selectors and actual button labels are screened after Chrome permission; operator confirms click batch; refuses unbound personal tabs | Real Chrome fixture: Clicks: 1 then Clicks: 2, exactly one replay; contract tests for fail and cancel | PASS limited fixture; original comparison UNVERIFIED | Test deny/revoke, high-risk button labels, and browser Auto mode before release |
@@ -53,9 +54,11 @@ field or provider secret storage is added to the extension. Workflow replay
 fails closed for unbound personal tabs and identifiable risky click targets.
 The branch follows the existing chat-first surface.
 
-**Requested behavior:** The direct API-key button opens the existing
-Web Console Models dialog (not a new extension key-entry form), requiring
-the operator's normal Web Console authentication. The initial workflow
+**Requested behavior:** The initial direct API-key shortcut opened Web Console Models. Subsequent
+work added a Provider / Model ID / API key form directly in the Chrome side
+panel (OpenRouter / Groq), using a one-time, separately authenticated
+Web Console approval. Companion bearer never authorizes generic settings.
+The credential is stored by the backend and the extension clears the input. The initial workflow
 record/import/replay/Stop and extract-data shortcut are implemented and
 tested on bounded fixtures. An additive task-result footer now distinguishes
 tool-reported success, failure, cancellation, step limit, and answers without

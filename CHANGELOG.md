@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased (Switchboard Tasks / BYOK shortcut; not published)
+## Unreleased (Switchboard Tasks / direct side-panel BYOK; not published)
 
-- Browser Companion opens the existing local Settings → Models provider/API-key form directly. Credentials continue to use Switchboard's write-only local store; no API key is accepted or kept by the extension.
+- The Chrome side panel now has a Provider / Model ID / API key form for OpenRouter and Groq. It uses an independent, one-use approval in the authenticated Web Console before saving credentials to Switchboard; the key is never written to extension storage and the companion bearer never gains access to general settings.
+
+- Advanced provider settings still open the existing local Settings → Models form. Secrets typed into the side-panel BYOK field are only handled transiently in memory, never persisted in the extension.
 - Add a read-only extract-data prompt shortcut. Preserve the current chat-first panel, native Chrome site permissions, and Manual/Auto/Skip semantics.
 - Make workflow recording opt-in for successful agent click, scroll, and navigation actions, without recording typed values or sensitive URL query strings. Safely import/export bounded JSON, cancel replay after the in-flight action, and never retry uncertain clicks. High-risk selectors and actual click labels are screened (after Chrome site permission); replay clicks require an explicit operator review. Replay refuses to take over an unbound personal tab.
 - Add a compact task result footer distinguishing tool-reported success, failed steps, cancellation, step limit, and answers without tool evidence; it does not claim independent verification.

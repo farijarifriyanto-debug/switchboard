@@ -129,6 +129,12 @@ console.log('PASS replay refuses unbound/personal tabs')
 
 assert.ok(html.includes('id="task-configure-key"'))
 assert.ok(html.includes('id="configure-model-key-settings"'))
+assert.match(html,/id="byok-key" type="password"/,'BYOK secret is masked in the side panel')
+assert.match(html,/id="byok-provider"/,'BYOK provider choice is present')
+assert.match(html,/id="byok-model"/,'BYOK model input is present')
+assert.match(panel,/keyField\.value = ''/,'API key is cleared after save or failure')
+assert.match(panel,/api\/companion-byok\/request|byokApi\(origin, token, 'request'/)
+assert.match(consoleSource,/showCompanionByokApproval/,'Separate local console consent stays explicit')
 const openSettingsFn = new Function('chrome', 'normalizeWebOrigin', 'taskStatus', '$',
   extract(panel, 'async function openModelKeySettings()', "$('task-configure-key')") +
   '\nreturn openModelKeySettings')

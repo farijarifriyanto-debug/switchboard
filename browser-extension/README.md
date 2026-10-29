@@ -32,11 +32,15 @@ See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard ste
 
 ## Site access and AI tasks
 
-**Use your own API key:** start `sbx web`, pair the Browser Companion,
-then select **Atur model & API key** in the companion's settings.
-This opens the existing local Switchboard **Settings → Models** screen.
-Add an OpenAI-compatible provider (or choose an existing provider),
-enter its API key in the password field, save it, and select a model.
+**Enter your own API key directly in the side panel:** start `sbx web`,
+pair the Browser Companion, then click **Atur model & API key** in the chat.
+Choose **OpenRouter** or **Groq**, enter the model ID and provider API key,
+then click **Simpan API key**. An authenticated Web Console tab opens with
+the provider/model and a one-time **Izinkan sekali** confirmation; click it
+to authorize the save. The side panel saves the key and clears the input.
+For other providers or advanced settings, use **Pengaturan lengkap**.
+You can keep your existing Web Console session; no second credential store
+or model manager is created.
 The key is write-only in Switchboard's local credentials store; it is
 never saved in Chrome extension storage or a page URL. If `sbx web`
 uses an access token, first open the authenticated console URL printed
@@ -63,7 +67,7 @@ Example prompt in Switchboard:
 
 > Open the current tab, take a DOM snapshot, click the login button only after the selector is verified, and report what changed.
 
-The extension never requires a separate AI-provider API key. The pairing code is **not** an AI key.
+Pairing the extension does not require an AI-provider API key. Entering one through the optional side-panel BYOK form is supported; the pairing code is **not** an AI key.
 
 ## Security and permissions
 

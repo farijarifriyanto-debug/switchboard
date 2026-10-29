@@ -3111,7 +3111,7 @@ $('settings-dialog')?.addEventListener('input', (event) => {
   if (count) count.textContent = `${shown} / ${total} shown`
 })
 
-// Guide contains instructions only: keys are never collected in the browser.
+// This guide contains instructions only; it does not collect credentials.
 const setupGuide = $('getting-started')
 dockComposer()
 $('btn-guide').addEventListener('click', () => setupGuide.showModal())
@@ -3137,6 +3137,51 @@ async function reconnect() {
 }
 $('btn-reconnect').addEventListener('click', reconnect)
 
+// A paired extension may request BYOK, but only this separately
+// authenticated Web Console can approve one single credential write.
+async function showCompanionByokApproval(id) {
+  if (!/^[a-f0-9]{32}$/.test(id)) return;
+  const response = await fetch('/api/companion-byok/details?id=' + encodeURIComponent(id), { cache: 'no-store' });
+  if (!response.ok) throw Error('Persetujuan API key kedaluwarsa atau tidak dapat dibuka.');
+  const detail = await response.json();
+  if (detail.approved) return;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'setup-dialog';
+  dialog.setAttribute('aria-label', 'Persetujuan API key Browser Companion');
+  dialog.innerHTML = '<h2>Izinkan simpan API key?</h2>' +
+    '<p id="byok-console-description"></p>' +
+    '<p>Anda hanya mengizinkan satu penyimpanan API key dari ekstensi Chrome yang sudah terhubung. ' +
+    'Kuncinya tidak ditampilkan di konsol ini. Izin ini berlaku maksimal dua menit.</p>' +
+    '<p id="byok-console-status" role="status"></p>' +
+    '<div class="row"><button id="byok-console-allow" type="button">Izinkan sekali</button>' +
+    '<button id="byok-console-deny" type="button" class="secondary">Batal</button></div>';
+  document.body.append(dialog);
+  dialog.querySelector('#byok-console-description').textContent =
+    'Provider: ' + detail.provider + ' | Model: ' + detail.model +
+    (detail.setDefault ? ' | Jadikan model aktif' : ' | Simpan saja');
+  const status = dialog.querySelector('#byok-console-status');
+  const allow = dialog.querySelector('#byok-console-allow');
+  const close = () => { dialog.close(); dialog.remove(); };
+  dialog.querySelector('#byok-console-deny').addEventListener('click', close);
+  allow.addEventListener('click', async () => {
+    allow.disabled = true;
+    try {
+      const result = await fetch('/api/companion-byok/approve', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!result.ok) throw Error('Persetujuan gagal atau kedaluwarsa.');
+      status.textContent = 'Disetujui. Kembali ke side panel untuk menyelesaikan penyimpanan.';
+      allow.textContent = 'Disetujui';
+    } catch (error) {
+      status.textContent = error.message;
+      allow.disabled = false;
+    }
+  });
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  dialog.showModal();
+}
+
 loadState()
   .then(async (data) => {
     setStatus('idle', 'Ready')
@@ -3149,7 +3194,11 @@ loadState()
     const params = new URLSearchParams(location.search)
     const requestedPlugin = params.get('plugin')
     const requestedSettings = params.get('settings')
-    if (requestedSettings === 'models') {
+    const byokApprovalId = params.get('byok')
+    if (byokApprovalId) {
+      history.replaceState(null, '', location.pathname + location.hash)
+      await showCompanionByokApproval(byokApprovalId)
+    } else if (requestedSettings === 'models') {
       // The extension only opens this loopback UI. Secrets stay in the
       // existing write-only provider credential store, never in the URL.
       await openSettings('models')

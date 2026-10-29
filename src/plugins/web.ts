@@ -4,7 +4,7 @@ import { readFile, stat, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { AgentEvent, RunEvent } from '../types.js'
 import type { McpServiceApi } from './mcp.js'
 import type { BrowserCompanionService } from './browser-companion.js'
@@ -274,6 +274,19 @@ export const webUi = {
     /** Live runs: sessionId -> AbortController, so Stop cancels the right run. */
     const runs = new Map<string, AbortController>()
 
+    // One-use, memory-only credential setup grants. The companion bearer can
+    // request a grant but cannot approve it, view credentials, or access
+    // /api/settings. Only the authenticated Web Console can approve.
+    type ByokRequest = { origin: string; provider: 'openrouter' | 'groq'; model: string; setDefault: boolean; expires: number; approved: boolean }
+    const byokRequests = new Map<string, ByokRequest>()
+    const byokPresets = {
+      openrouter: { id: 'byok-openrouter', displayName: 'OpenRouter (BYOK)', baseURL: 'https://openrouter.ai/api/v1' },
+      groq: { id: 'byok-groq', displayName: 'Groq (BYOK)', baseURL: 'https://api.groq.com/openai/v1' },
+    } as const
+    const pruneByok = (): void => {
+      for (const [id, req] of byokRequests) if (req.expires < Date.now()) byokRequests.delete(id)
+    }
+
     const server = http.createServer(async (req, res) => {
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
       const route = url.pathname
@@ -285,6 +298,10 @@ export const webUi = {
         const extensionOrigin = String(req.headers.origin ?? '');
         const requestedMethod = String(req.headers['access-control-request-method'] ?? '').toUpperCase();
         const companionRoute = route === '/api/chat' || route === '/api/state'
+          || ((route === '/api/companion-byok/request' || route === '/api/companion-byok/commit')
+              && (req.method === 'POST' || (req.method === 'OPTIONS' && requestedMethod === 'POST')))
+          || (route === '/api/companion-byok/status'
+              && (req.method === 'POST' || (req.method === 'OPTIONS' && requestedMethod === 'POST')))
           || /^\/api\/runs\/[^/]+\/cancel$/.test(route)
           || (route === '/api/approvals' && (req.method === 'GET' || (req.method === 'OPTIONS' && requestedMethod === 'GET')))
           || (/^\/api\/approvals\/[^/]+$/.test(route) && (req.method === 'POST' || (req.method === 'OPTIONS' && requestedMethod === 'POST')));
@@ -588,6 +605,89 @@ export const webUi = {
         }
         const ok = ctx.approvals.decide(id, decision)
         return ok ? json(res, 200, { id, decision }) : json(res, 404, { error: 'no such pending approval' })
+      }
+
+      // ------------------------------------------------ Companion BYOK (one-use)
+      // Never accept a companion bearer for generic settings. It can only
+      // request/commit one explicitly approved preset provider setup.
+      if (route.startsWith('/api/companion-byok/')) {
+        res.setHeader('Cache-Control', 'no-store')
+        pruneByok()
+        const isConsole = !isCompanionRequest
+        const isPaired = isCompanionRequest
+          && Boolean(browserService?.isClientConnected())
+          && origin === browserService?.connectedExtensionOrigin
+        const idFromUrl = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).searchParams.get('id') ?? ''
+        const getGrant = (id: string): ByokRequest | undefined =>
+          /^[a-f0-9]{32}$/.test(id) ? byokRequests.get(id) : undefined
+
+        if (route === '/api/companion-byok/request' && req.method === 'POST') {
+          if (!isPaired) return json(res, 403, { error: 'Paired Browser Companion required.' })
+          const body = await readBody(req, 2048)
+          const provider = body.provider
+          const model = typeof body.model === 'string' ? body.model.trim() : ''
+          if ((provider !== 'openrouter' && provider !== 'groq')
+              || !/^[a-zA-Z0-9_.:/-]{2,160}$/.test(model)) {
+            return json(res, 400, { error: 'Choose a supported provider and valid model ID.' })
+          }
+          const pending = [...byokRequests.values()].filter(g => g.origin === origin).length
+          if (pending >= 5) return json(res, 429, { error: 'Too many pending setup requests.' })
+          const id = randomBytes(16).toString('hex')
+          byokRequests.set(id, { origin, provider, model, setDefault: body.setDefault !== false,
+            expires: Date.now() + 120_000, approved: false })
+          return json(res, 201, { id, expiresInSeconds: 120 })
+        }
+        if (route === '/api/companion-byok/status' && req.method === 'POST') {
+          if (!isPaired) return json(res, 403, { error: 'Paired Browser Companion required.' })
+          const body = await readBody(req, 2048)
+          const grant = getGrant(body.id)
+          if (!grant || grant.origin !== origin) return json(res, 404, { error: 'Setup expired or unavailable.' })
+          return json(res, 200, { approved: grant.approved })
+        }
+        if (route === '/api/companion-byok/details' && req.method === 'GET') {
+          if (!isConsole) return json(res, 403, { error: 'Console authorization required.' })
+          const grant = getGrant(idFromUrl)
+          if (!grant) return json(res, 404, { error: 'Setup expired or unavailable.' })
+          return json(res, 200, {
+            provider: byokPresets[grant.provider].displayName,
+            model: grant.model,
+            setDefault: grant.setDefault,
+            approved: grant.approved,
+          })
+        }
+        if (route === '/api/companion-byok/approve' && req.method === 'POST') {
+          if (!isConsole) return json(res, 403, { error: 'Console authorization required.' })
+          const body = await readBody(req, 2048)
+          const grant = getGrant(body.id)
+          if (!grant || grant.approved) return json(res, 404, { error: 'Setup expired or already approved.' })
+          grant.approved = true
+          return json(res, 200, { approved: true })
+        }
+        if (route === '/api/companion-byok/commit' && req.method === 'POST') {
+          if (!isPaired) return json(res, 403, { error: 'Paired Browser Companion required.' })
+          const body = await readBody(req, 8192)
+          const grant = getGrant(body.id)
+          if (!grant || grant.origin !== origin || !grant.approved) {
+            return json(res, 403, { error: 'One-time console approval required.' })
+          }
+          const key = body.apiKey
+          if (typeof key !== 'string' || key.trim().length < 4 || key.length > 4096 || /[\r\n]/.test(key)) {
+            return json(res, 400, { error: 'API key format invalid.' })
+          }
+          // Consume grant before any async mutation, preventing parallel re-use.
+          byokRequests.delete(body.id)
+          const preset = byokPresets[grant.provider]
+          const existing = ctx.providers.get(preset.id)
+          if (existing && (existing.baseURL !== preset.baseURL || existing.protocol !== 'openai-chat')) {
+            return json(res, 409, { error: 'Provider preset conflicts with an existing provider.' })
+          }
+          const entry = existing ?? await ctx.providers.create({ ...preset, protocol: 'openai-chat', models: [] })
+          await ctx.credentials.set(entry.id, key)
+          if (grant.setDefault) await ctx.providers.setDefault({ provider: entry.id, model: grant.model })
+          return json(res, 200, { configured: true, provider: entry.displayName,
+            model: grant.model, selected: grant.setDefault })
+        }
+        return json(res, 404, { error: 'Unknown BYOK setup action.' })
       }
 
       // ------------------------------------------------------------ settings
