@@ -131,6 +131,8 @@ assert.ok(html.includes('id="task-configure-key"'))
 assert.ok(html.includes('id="configure-model-key-settings"'))
 assert.match(html,/id="byok-key" type="password"/,'BYOK secret is masked in the side panel')
 assert.match(html,/id="byok-provider"/,'BYOK provider choice is present')
+assert.match(html,/<option value="botconnector">BotConnector Cloud<\/option>/,
+  'BotConnector Cloud is selectable directly in the side panel')
 assert.match(html,/id="byok-model"/,'BYOK model input is present')
 assert.match(panel,/keyField\.value = ''/,'API key is cleared after save or failure')
 assert.match(panel,/api\/companion-byok\/request|byokApi\(origin, token, 'request'/)

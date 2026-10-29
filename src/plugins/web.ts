@@ -277,9 +277,10 @@ export const webUi = {
     // One-use, memory-only credential setup grants. The companion bearer can
     // request a grant but cannot approve it, view credentials, or access
     // /api/settings. Only the authenticated Web Console can approve.
-    type ByokRequest = { origin: string; provider: 'openrouter' | 'groq'; model: string; setDefault: boolean; expires: number; approved: boolean }
+    type ByokRequest = { origin: string; provider: 'botconnector' | 'openrouter' | 'groq'; model: string; setDefault: boolean; expires: number; approved: boolean }
     const byokRequests = new Map<string, ByokRequest>()
     const byokPresets = {
+      botconnector: { id: 'byok-botconnector', displayName: 'BotConnector Cloud (BYOK)', baseURL: 'https://api.botconnector.id/v1' },
       openrouter: { id: 'byok-openrouter', displayName: 'OpenRouter (BYOK)', baseURL: 'https://openrouter.ai/api/v1' },
       groq: { id: 'byok-groq', displayName: 'Groq (BYOK)', baseURL: 'https://api.groq.com/openai/v1' },
     } as const
@@ -626,7 +627,7 @@ export const webUi = {
           const body = await readBody(req, 2048)
           const provider = body.provider
           const model = typeof body.model === 'string' ? body.model.trim() : ''
-          if ((provider !== 'openrouter' && provider !== 'groq')
+          if ((provider !== 'botconnector' && provider !== 'openrouter' && provider !== 'groq')
               || !/^[a-zA-Z0-9_.:/-]{2,160}$/.test(model)) {
             return json(res, 400, { error: 'Choose a supported provider and valid model ID.' })
           }

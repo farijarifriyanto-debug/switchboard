@@ -423,11 +423,12 @@
           <form id="byok-form" autocomplete="off">
             <label for="byok-provider">Provider AI</label>
             <select id="byok-provider" required>
+              <option value="botconnector">BotConnector Cloud</option>
               <option value="openrouter">OpenRouter</option>
               <option value="groq">Groq</option>
             </select>
             <label for="byok-model">Model ID</label>
-            <input id="byok-model" maxlength="160" required spellcheck="false" value="qwen/qwen3.8-flash" placeholder="qwen/qwen3.8-flash">
+            <input id="byok-model" maxlength="160" required spellcheck="false" value="agnes-3.0-flash" placeholder="agnes-3.0-flash">
             <label for="byok-key">API key provider</label>
             <input id="byok-key" type="password" maxlength="4096" required autocomplete="new-password" spellcheck="false" placeholder="Masukkan API key dari provider">
             <label class="byok-toggle"><input id="byok-default" type="checkbox" checked> Jadikan model aktif</label>

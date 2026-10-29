@@ -56,7 +56,7 @@ The branch follows the existing chat-first surface.
 
 **Requested behavior:** The initial direct API-key shortcut opened Web Console Models. Subsequent
 work added a Provider / Model ID / API key form directly in the Chrome side
-panel (OpenRouter / Groq), using a one-time, separately authenticated
+panel (BotConnector Cloud / OpenRouter / Groq), using a one-time, separately authenticated
 Web Console approval. Companion bearer never authorizes generic settings.
 The credential is stored by the backend and the extension clears the input. The initial workflow
 record/import/replay/Stop and extract-data shortcut are implemented and

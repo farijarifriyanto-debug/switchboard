@@ -7,7 +7,7 @@ This work is on a local branch, **not** published to npm / Chrome Web Store.
 
 Chrome Browser Companion chat has a collapsible **AI Cloud — masukkan API key**
 form. Click **Atur model & API key** to open it. The user enters a
-provider (OpenRouter / Groq), exact model ID, and API key directly inside the
+provider (BotConnector Cloud / OpenRouter / Groq), exact model ID, and API key directly inside the
 side panel. The existing "Pengaturan lengkap" button still opens local Web
 Console > Models for advanced provider setup. No new model manager was created.
 
@@ -35,8 +35,12 @@ An active model switch starts the next conversation in a new session.
   five pending per origin. The commit consumes the grant **before** awaiting
   credential writes; a parallel replay cannot reuse it.
 - Only predeclared HTTPS endpoints/protocols are accepted, avoiding arbitrary
-  key exfiltration via user-supplied URLs. Support for arbitrary endpoints
-  remains restricted to Web Console advanced settings.
+  key exfiltration via user-supplied URLs. BotConnector Cloud uses the existing
+  first-party endpoint `https://api.botconnector.id/v1` (`openai-chat`),
+  provider ID `byok-botconnector`, and the existing repository default
+  `agnes-3.0-flash`; users may enter a supported model ID explicitly.
+  Support for arbitrary endpoints remains restricted to Web Console advanced
+  settings.
 - Provider/model values are fixed/validated on request; they cannot be
   changed at commit time. Model IDs are bounded and allowlisted for syntax.
 - The backend only returns `configured`, selected provider/model metadata.
@@ -50,12 +54,16 @@ An active model switch starts the next conversation in a new session.
 `node test/test-companion-byok.mjs` PASS:
 unauthorized/foreign-origin calls rejected; no self-approval; no preapproval
 commit; one-use approval; correct provider allowlist; write-only storage;
-optional default does not override active selection.
+optional default does not override active selection. BotConnector Cloud is
+accepted through the same one-use consent process, rejects preapproval and
+replay writes, and is pinned to the first-party HTTPS gateway; values from
+the commit body cannot redirect the key to another provider.
 
 `npm run test:tasks:chrome` PASS:
 real disposable Chrome + paired worker + separate Web Console authentication,
-side-panel key form input, Web Console consent, backend credential save,
-input cleared, and explicit assertion that the test key is absent from
+side-panel BotConnector Cloud selection/model default, key form input,
+Web Console consent, backend credential save, input cleared, and explicit
+assertion that the test key is absent from
 `chrome.storage.local`. Uses a **fake local test key** and does not
 call any cloud provider, charge an account or use the user's live Chrome profile.
 
@@ -64,5 +72,7 @@ call any cloud provider, charge an account or use the user's live Chrome profile
 Developer QA only. Existing public 0.4.6 is unaffected. Independent owner
 profile acceptance, Chrome Store disclosure review and explicit publish
 authorization remain necessary. Provider choices in this quick form are
-OpenRouter and Groq only; other providers remain available through the
-existing Web Console settings.
+BotConnector Cloud, OpenRouter and Groq; other providers remain available
+through existing Web Console settings. The test used a fake key: real
+BotConnector API-key validity and a fresh live inference through this newly
+selected preset have **not** been independently verified in this change.

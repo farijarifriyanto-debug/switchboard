@@ -114,6 +114,39 @@ try {
   })).status,200)
   assert.equal(host.ctx.providers.require('byok-groq').baseURL,'https://api.groq.com/openai/v1')
   assert.equal(host.ctx.providers.default().provider,'byok-openrouter','Save without select does not replace active model')
+  // BotConnector's first-party gateway must be a fixed, trusted preset,
+  // with the same one-time consent and credential write-only guarantees.
+  const bcRequest = await post('/api/companion-byok/request', {
+    provider:'botconnector', model:'agnes-3.0-flash', setDefault:true
+  })
+  assert.equal(bcRequest.status, 201, 'BotConnector is accepted by BYOK allowlist')
+  assert.equal((await post('/api/companion-byok/commit', {
+    id:bcRequest.body.id, apiKey:'fake-botconnector-qa-key'
+  })).status,403,'BotConnector cannot bypass independent console approval')
+  const bcDetails = await consoleApi('/api/companion-byok/details?id=' + bcRequest.body.id)
+  assert.equal(bcDetails.status,200)
+  assert.equal(bcDetails.body.provider,'BotConnector Cloud (BYOK)')
+  assert.equal(bcDetails.body.model,'agnes-3.0-flash')
+  assert.equal((await consoleApi('/api/companion-byok/approve',{
+    method:'POST',body:{id:bcRequest.body.id}
+  })).status,200)
+  const bcSave = await post('/api/companion-byok/commit', {
+    id:bcRequest.body.id, apiKey:'fake-botconnector-qa-key',
+    provider:'openrouter',model:'model-override-ignored'
+  })
+  assert.equal(bcSave.status,200)
+  assert.equal(bcSave.body.provider,'BotConnector Cloud (BYOK)')
+  assert.equal(bcSave.body.model,'agnes-3.0-flash')
+  assert.equal(host.ctx.providers.require('byok-botconnector').baseURL,'https://api.botconnector.id/v1')
+  assert.equal(host.ctx.providers.require('byok-botconnector').protocol,'openai-chat')
+  assert.equal(host.ctx.credentials.describe(host.ctx.providers.require('byok-botconnector')).configured,true)
+  assert.equal(host.ctx.providers.default().provider,'byok-botconnector')
+  assert.equal(host.ctx.providers.default().model,'agnes-3.0-flash')
+  assert.equal((await post('/api/companion-byok/commit', {
+    id:bcRequest.body.id,apiKey:'unapproved-replay-key'
+  })).status,403,'BotConnector grant cannot be reused')
+  assert.equal(JSON.stringify(bcSave).includes('fake-botconnector-qa-key'),false)
+  console.log('PASS direct BotConnector API key, trusted HTTPS gateway, authenticated one-use consent, active model and no secret leakage')
   console.log('PASS side-panel BYOK one-time consent / console authentication / provider allowlist / write-only credential / consume-once / optional default')
 } finally {
   socket?.close()

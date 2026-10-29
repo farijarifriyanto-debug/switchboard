@@ -34,11 +34,11 @@ See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard ste
 
 **Enter your own API key directly in the side panel:** start `sbx web`,
 pair the Browser Companion, then click **Atur model & API key** in the chat.
-Choose **OpenRouter** or **Groq**, enter the model ID and provider API key,
+Choose **BotConnector Cloud**, **OpenRouter** or **Groq**, enter the model ID and provider API key,
 then click **Simpan API key**. An authenticated Web Console tab opens with
 the provider/model and a one-time **Izinkan sekali** confirmation; click it
 to authorize the save. The side panel saves the key and clears the input.
-For other providers or advanced settings, use **Pengaturan lengkap**.
+For BotConnector Cloud, the quick form presets `https://api.botconnector.id/v1` and suggests `agnes-3.0-flash`; you may enter another supported model ID. Switching providers clears the key input to prevent applying the wrong provider's key. For other providers or advanced settings, use **Pengaturan lengkap**.
 You can keep your existing Web Console session; no second credential store
 or model manager is created.
 The key is write-only in Switchboard's local credentials store; it is

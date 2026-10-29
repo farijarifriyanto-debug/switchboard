@@ -791,8 +791,12 @@ $('task-configure-key').addEventListener('click', () => {
 $('byok-advanced').addEventListener('click', openModelKeySettings);
 $('configure-model-key-settings').addEventListener('click', openModelKeySettings);
 $('byok-provider').addEventListener('change', () => {
-  $('byok-model').value = $('byok-provider').value === 'groq'
-    ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
+  $('byok-model').value = $('byok-provider').value === 'botconnector'
+    ? 'agnes-3.0-flash'
+    : $('byok-provider').value === 'groq'
+      ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
+  // Avoid accidentally saving a key entered for another provider.
+  $('byok-key').value = '';
 });
 $('byok-cancel').addEventListener('click', () => {
   if (byokPending) byokPending.cancelled = true;
