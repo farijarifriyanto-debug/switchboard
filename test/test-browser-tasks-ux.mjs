@@ -133,12 +133,16 @@ assert.match(html,/id="byok-key" type="password"/,'BYOK secret is masked in the 
 assert.match(html,/id="byok-provider"/,'BYOK provider choice is present')
 assert.match(html,/<option value="botconnector">BotConnector Cloud<\/option>/,
   'BotConnector Cloud is selectable directly in the side panel')
-assert.match(html,/id="byok-model"/,'BYOK model input is present')
+assert.match(html,/<select id="byok-model"/,'BotConnector uses a model dropdown, not a manually typed Model ID')
+assert.match(html,/id="byok-model-search" type="search"/,'Cloud model picker provides name search')
+assert.match(html,/id="byok-model-filter"/,'Cloud model picker has Free/Plan filtering')
+assert.match(html,/id="cloud-quick-model"/,'Chat composer exposes direct AI selection')
+assert.match(html,/id="byok-model-manual"/,'Legacy local providers retain their manual model input')
 assert.match(panel,/keyField\.value = ''/,'API key is cleared after save or failure')
 assert.match(panel,/api\/companion-byok\/request|byokApi\(origin, token, 'request'/)
 assert.match(consoleSource,/showCompanionByokApproval/,'Separate local console consent stays explicit')
 const openSettingsFn = new Function('chrome', 'normalizeWebOrigin', 'taskStatus', '$',
-  extract(panel, 'async function openModelKeySettings()', "$('task-configure-key')") +
+  extract(panel, 'async function openModelKeySettings()', '// BotConnector Cloud standalone stores BYOK') +
   '\nreturn openModelKeySettings')
 let settingsUrls = [], settingsHint = ''
 const diagnostics = {textContent: ''}

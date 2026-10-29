@@ -98,8 +98,25 @@ try{
   const live=process.env.SBX_CLOUD_LIVE==='1'
   const testKey=live ? process.env.BOTCONNECTOR_API_KEY : 'qa-extension-only-key-no-network'
   if(!testKey)throw Error('SBX_CLOUD_LIVE requires BOTCONNECTOR_API_KEY')
+  if(!live)await run(`(()=>{
+    const orig=window.fetch.bind(window);
+    window.fetch=(url,options)=>{
+      if(String(url)==='https://api.botconnector.id/v1/models'){
+        if(options.headers.authorization!=='Bearer qa-extension-only-key-no-network')throw Error('Wrong catalog auth');
+        return Promise.resolve({ok:true,json:async()=>({data:[
+          {id:'agnes-3.0-flash',botconnector_name:'Agnes 3.0 Flash',botconnector_access:'free',
+            botconnector_family:'Agnes',botconnector_capabilities:{tools:'supported'},
+            botconnector_funding:{available_now:true}},
+          {id:'claude-sonnet-5-5',botconnector_name:'Claude Sonnet 5.5',botconnector_access:'plan',
+            botconnector_family:'Anthropic',botconnector_capabilities:{tools:'supported'},
+            botconnector_funding:{available_now:true}},
+          {id:'no-tools',botconnector_name:'Unsupported',botconnector_access:'plan',
+            botconnector_capabilities:{tools:'unknown'}}
+        ]})});
+      }
+      return orig(url,options);
+    };return true})()`,session)
   await run("(()=>{document.getElementById('byok-provider').value='botconnector';"+
-    "document.getElementById('byok-model').value='agnes-3.0-flash';"+
     "document.getElementById('byok-key').value="+JSON.stringify(testKey)+";"+
     "document.getElementById('byok-form').requestSubmit();return true})()",session)
   let stored=false
@@ -110,6 +127,28 @@ try{
   }
   assert.ok(stored,'Key saved directly by the extension without sbx web')
   assert.equal((await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session)),'agnes-3.0-flash')
+  const options=await run("Array.from(document.getElementById('byok-model').options).map(o=>({id:o.value,text:o.textContent}))",session)
+  assert.ok(options.some(o=>o.id==='agnes-3.0-flash'), 'Verified free model is in dropdown')
+  assert.ok(options.every(o=>o.id!=='no-tools'), 'Unknown-tools model is excluded')
+  if(!live) {
+    await run("(()=>{document.getElementById('byok-model-search').value='Sonnet';document.getElementById('byok-model-search').dispatchEvent(new Event('input'));return true})()",session)
+    assert.deepEqual(await run("Array.from(document.getElementById('byok-model').options).map(o=>o.value)",session),['claude-sonnet-5-5'])
+    await run("(()=>{document.getElementById('byok-model-search').value='';document.getElementById('byok-model-search').dispatchEvent(new Event('input'));return true})()",session)
+    await run("(()=>{const s=document.getElementById('cloud-quick-model');s.value='claude-sonnet-5-5';s.dispatchEvent(new Event('change'));return true})()",session)
+    for(let i=0;i<25;i++){
+      const picked=await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session)
+      if(picked==='claude-sonnet-5-5')break
+      await sleep(100)
+    }
+    assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session),'claude-sonnet-5-5','Quick-switch persists without reentering API key')
+    await run("(()=>{const s=document.getElementById('cloud-quick-model');s.value='agnes-3.0-flash';s.dispatchEvent(new Event('change'));return true})()",session)
+    for(let i=0;i<25;i++){
+      if((await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session))==='agnes-3.0-flash')break
+      await sleep(100)
+    }
+    assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.model)",session),'agnes-3.0-flash')
+    console.log('PASS searchable Cloud model dropdown and composer quick-switch with no key re-entry')
+  }
   const mock=`(()=>{
     let n=0;
     const original=window.fetch.bind(window);
@@ -139,6 +178,11 @@ try{
     await sleep(live?250:120)
   }
   const status=await run("document.getElementById('task-status').textContent",session)
+  if(!done) {
+    const diagnostic=await run("(()=>({busy:Boolean(activeTask),catalog:cloudModelCatalog.length,model:cloudConfig?.model,chat:document.getElementById('chat-log').textContent.slice(-380),status:document.getElementById('byok-status').textContent.slice(0,180)}))()",session)
+    // No API keys printed. Fixture only; do not dump secrets or request headers.
+    console.log('QA_DIAGNOSIS '+JSON.stringify(diagnostic))
+  }
   assert.ok(done,'standalone task must read actual DOM and answer from browser evidence; status '+status)
   if(live){
     const toolEvidence=await run("document.getElementById('chat-log').querySelectorAll('.step.done').length",session)
@@ -180,6 +224,21 @@ try{
     assert.equal(clickCount,1,'Real browser click exactly once')
     console.log('PASS REAL CHROME cloud action: approved visible-label click, real DOM count=1, no local backend')
   }
+  // Cloud can be disabled and re-enabled without deleting/re-entering the key.
+  await run("(()=>{document.getElementById('byok-default').checked=false;document.getElementById('byok-form').requestSubmit();return true})()",session)
+  for(let i=0;i<30;i++){
+    if(await run("cloudConfig?.enabled===false",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.enabled)",session),false,'Cloud disabled with key retained')
+  assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.apiKey.length)",session),testKey.length)
+  await run("(()=>{document.getElementById('byok-default').checked=true;document.getElementById('byok-form').requestSubmit();return true})()",session)
+  for(let i=0;i<30;i++){
+    if(await run("cloudConfig?.enabled===true",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.enabled)",session),true)
+  console.log('PASS Cloud toggle retains key without requiring re-entry')
   // Key revocation must clear extension-local credentials; no local CLI needed.
   await run("document.getElementById('cloud-remove-key').click()",session)
   let cleared=false

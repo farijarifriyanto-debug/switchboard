@@ -244,8 +244,8 @@ try {
     if (document.getElementById('byok-key').value !== '') {
       throw Error('Switching providers did not clear the previous API key');
     }
-    if (document.getElementById('byok-model').value !== 'qwen/qwen3.8-flash') {
-      throw Error('BotConnector model default did not populate');
+    if (document.getElementById('byok-model-manual').value !== 'qwen/qwen3.8-flash') {
+      throw Error('OpenRouter local model default did not populate');
     }
     document.getElementById('byok-key').value = ${JSON.stringify(apiTestKey)};
     conversationId = 'qa-old-model-session';

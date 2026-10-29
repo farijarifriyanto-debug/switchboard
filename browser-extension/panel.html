@@ -304,6 +304,10 @@
     .byok-panel label { font-size: 11px; }
     .byok-panel input:not([type=checkbox]), .byok-panel select { width: 100%; box-sizing: border-box; font-size: 12px; }
     .byok-panel .byok-toggle { display: flex; align-items: center; gap: 7px; }
+    .model-catalog-hint { margin: 5px 0 9px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .cloud-quick-wrap { flex: 1.3; min-width: 120px; max-width: 185px; }
+    .cloud-quick-wrap select { font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    #cloud-model-fields[hidden], #local-model-fields[hidden], #cloud-quick-wrap[hidden] { display: none !important; }
     .byok-panel .byok-toggle input { width: auto; }
     .byok-panel #byok-status { margin: 4px 0; white-space: normal; overflow-wrap: anywhere; }
     .thinking { display: inline-flex; gap: 4px; padding: 4px 0; }
@@ -427,10 +431,29 @@
               <option value="openrouter">OpenRouter (memerlukan sbx web)</option>
               <option value="groq">Groq (memerlukan sbx web)</option>
             </select>
-            <label for="byok-model">Model ID</label>
-            <input id="byok-model" maxlength="160" required spellcheck="false" value="agnes-3.0-flash" placeholder="agnes-3.0-flash">
+            <div id="cloud-model-fields">
+              <label for="byok-model-search">Cari model BotConnector</label>
+              <input id="byok-model-search" type="search" placeholder="Cari nama, family atau ID model..." autocomplete="off">
+              <div class="row">
+                <select id="byok-model-filter" aria-label="Filter model">
+                  <option value="all">Semua model bertools</option>
+                  <option value="free">Gratis</option>
+                  <option value="plan">Paket</option>
+                </select>
+                <button id="byok-model-refresh" type="button" class="secondary">Muat model</button>
+              </div>
+              <label for="byok-model">Pilih AI</label>
+              <select id="byok-model" aria-label="Pilih model AI BotConnector">
+                <option value="">Isi API key lalu muat katalog</option>
+              </select>
+              <p id="byok-model-info" role="status" aria-live="polite" class="model-catalog-hint">Daftar berasal dari katalog BotConnector; hanya model dengan tools terverifikasi ditampilkan.</p>
+            </div>
+            <div id="local-model-fields" hidden>
+              <label for="byok-model-manual">Model ID (mode lokal)</label>
+              <input id="byok-model-manual" maxlength="160" spellcheck="false" value="qwen/qwen3.8-flash" placeholder="qwen/qwen3.8-flash">
+            </div>
             <label for="byok-key">API key provider</label>
-            <input id="byok-key" type="password" maxlength="4096" required autocomplete="new-password" spellcheck="false" placeholder="Masukkan API key dari provider">
+            <input id="byok-key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="Masukkan API key dari provider">
             <label class="byok-toggle"><input id="byok-default" type="checkbox" checked> Jadikan model aktif</label>
             <div class="row">
               <button id="byok-save" type="submit">Simpan API key</button>
@@ -450,10 +473,15 @@
           <label for="task-prompt" style="margin-top:0">What should the agent do in your browser?</label>
           <textarea id="task-prompt" rows="1" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>
           <div class="row composer-row">
+            <span id="cloud-quick-wrap" class="cloud-quick-wrap" hidden>
+              <select id="cloud-quick-model" aria-label="Pilih AI Cloud untuk pesan berikutnya" title="Pilih AI Cloud (berganti model memulai percakapan baru)">
+                <option value="">Pilih AI Cloud</option>
+              </select>
+            </span>
             <span class="mode-wrap"><select id="composer-mode" aria-label="Mode izin aksi" title="Manual: setujui tiap aksi. Auto: aksi diperiksa otomatis. Skip: tanpa pemeriksaan otomatis.">
-              <option value="manual">Manual</option>
-              <option value="auto" selected>Auto</option>
-              <option value="skip">Skip</option>
+              <option value="manual">Izin: Manual</option>
+              <option value="auto" selected>Izin: Auto</option>
+              <option value="skip">Izin: Skip</option>
             </select></span>
             <span class="bar-spacer"></span>
             <button id="task-send" type="submit">Run in Chrome</button>

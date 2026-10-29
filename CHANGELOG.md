@@ -4,7 +4,7 @@
 
 Release candidate — **unpublished**; Chrome Web Store 0.4.7 submission is a different, earlier build.
 
-- BotConnector Cloud now runs directly in the Chrome side panel, with an extension-local BYOK configuration, fixed HTTPS inference gateway, and an agent tool loop using the existing browser tool executor and native Chrome per-site permissions. No Switchboard CLI, Web Console, or pairing required. Browser actions request explicit operator confirmation; failed/uncertain mutations are not retried. API keys stay in trusted extension-local storage and may be removed in-panel. New privacy disclosures and standalone Chrome regression coverage.
+- BotConnector Cloud now runs directly in the Chrome side panel, with an extension-local BYOK configuration, fixed HTTPS inference gateway, and an agent tool loop using the existing browser tool executor and native Chrome per-site permissions. The AI picker reuses the authenticated BotConnector /v1/models catalog and BCCLI capability labels: searchable Free/Paket verified-tool model dropdown, refresh action, and quick model switching in the chat composer without API-key re-entry. No Switchboard CLI, Web Console, or pairing required. Browser actions request explicit operator confirmation; failed/uncertain mutations are not retried. API keys stay in trusted extension-local storage and may be removed in-panel. New privacy disclosures and standalone Chrome regression coverage.
 
 ## 0.4.7
 

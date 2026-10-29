@@ -4,7 +4,49 @@
 (() => {
   'use strict';
   const GATEWAY = 'https://api.botconnector.id/v1/chat/completions';
+  const CATALOG = 'https://api.botconnector.id/v1/models';
   const MODEL = /^[A-Za-z0-9_.:/-]{2,160}$/;
+  // Match the Switchboard CLI "sbx models" capability/access display.
+  // Only verified tool-capable models can control the browser agent.
+  function parseCatalog(json) {
+    if (!json || !Array.isArray(json.data)) throw new Error('Format katalog model BotConnector tidak valid.');
+    const seen = new Set();
+    return json.data.filter(row => {
+      if (!row || typeof row !== 'object' || !MODEL.test(row.id || '')) return false;
+      if (row.botconnector_capabilities?.tools !== 'supported') return false;
+      if (row.botconnector_funding?.available_now === false) return false;
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    }).map(row => ({
+      id:row.id,
+      name: typeof row.botconnector_name === 'string' && row.botconnector_name.trim()
+        ? row.botconnector_name.trim().slice(0,100) : row.id,
+      family:typeof row.botconnector_family === 'string' ? row.botconnector_family.slice(0,60) : '',
+      access:row.botconnector_access === 'free' ? 'free' : 'plan',
+      context: Number.isFinite(row.botconnector_context_limit_tokens)
+        ? row.botconnector_context_limit_tokens : null,
+      // Catalog is capability/availability metadata, NOT an account-entitlement guarantee.
+      tools:'supported'
+    })).sort((a,b)=>(a.access === 'free' ? 0 : 1)-(b.access === 'free' ? 0 : 1)
+      || a.name.localeCompare(b.name));
+  }
+  async function listModels(apiKey, options={}) {
+    if (typeof apiKey !== 'string' || apiKey.length < 4 || apiKey.length > 4096 || /[\r\n]/.test(apiKey)) {
+      throw new Error('Masukkan API key BotConnector sebelum memuat model.');
+    }
+    const response = await (options.request || fetch)(CATALOG,{
+      method:'GET',signal:options.signal,
+      headers:{'accept':'application/json','authorization':'Bearer '+apiKey}
+    });
+    if (!response.ok) throw new Error(response.status === 401 || response.status === 403
+      ? 'API key tidak dapat memuat katalog model (HTTP '+response.status+').'
+      : 'Katalog model gagal dimuat (HTTP '+response.status+').');
+    const json = await response.json();
+    const result = parseCatalog(json);
+    if (!result.length) throw new Error('Tidak ada model dengan browser tools terverifikasi pada katalog.');
+    return result;
+  }
   const TOOL_SPECS = [
     ['browser_tabs_list', 'List the open HTTP(S) tabs and their ids.', {}],
     ['browser_tab_select', 'Select a browser tab before operating on it.', { tabId: { type: 'integer' } }],
@@ -64,7 +106,7 @@
     // whether it should inspect a page before claiming to summarize it.
     // Only read when the user's instruction explicitly concerns browser/page
     // content. The snapshot remains a low-trust tool message, not instructions.
-    const pageTask = /halaman|page|website|situs|tab|ringkas|baca|klik|formulir|ekstrak/i.test(question);
+    const pageTask = /\b(?:halaman|page|webpage|homepage|website|situs|tab|ringkas|baca|klik|formulir|ekstrak)\b/i.test(question);
     if (pageTask) {
       const name = 'browser_dom_snapshot', id = 'switchboard_page_evidence';
       events({type:'tool_call',id,name,args:{}});
@@ -117,10 +159,17 @@
           if (!args || typeof args !== 'object' || Array.isArray(args) || JSON.stringify(args).length > 12000)
             throw new Error('Argumen tool tidak valid.');
           events({type:'tool_call',id,name,args});
+          if (name === 'browser_type' && String(args.text || '').length > 280) {
+            throw new Error('Teks terlalu panjang untuk konfirmasi yang dapat diperiksa secara lengkap (maksimal 280 karakter).');
+          }
+          if (name === 'browser_navigate' && String(args.url || '').length > 400) {
+            throw new Error('URL terlalu panjang untuk persetujuan yang dapat diperiksa secara lengkap.');
+          }
           if (MUTATIONS.has(name)) {
             const approved=await approveAction({tool:name,args});
             if (!approved) throw new Error('Tindakan tidak disetujui pengguna.');
           }
+          if (signal?.aborted) throw new DOMException('Cancelled','AbortError');
           const toolResponse=await runTool(name,args);
           if (!toolResponse?.ok) throw new Error(cut(toolResponse?.error || 'Tool browser gagal.',ERROR_LIMIT));
           result=toolResponse;
@@ -139,5 +188,5 @@
     }
     throw new Error('Batas langkah browser tercapai. Periksa hasil sebelum melanjutkan.');
   }
-  globalThis.SwitchboardCloud = Object.freeze({saveConfig,configValid,run,GATEWAY});
+  globalThis.SwitchboardCloud = Object.freeze({saveConfig,configValid,listModels,parseCatalog,run,GATEWAY,CATALOG});
 })();

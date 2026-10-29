@@ -93,12 +93,14 @@ async function loadStoredConfig() {
   if (SwitchboardCloud.configValid(storedCloud.cloudConfig)) {
     cloudConfig = storedCloud.cloudConfig;
     $('byok-provider').value = cloudConfig.provider;
-    $('byok-model').value = cloudConfig.model;
     $('byok-default').checked = cloudConfig.enabled !== false;
+    renderCloudModels(cloudConfig.model);
+    void refreshCloudCatalog(cloudConfig.apiKey, cloudConfig.model).catch(() => {});
     $('byok-status').textContent = 'BotConnector Cloud tersimpan pada ekstensi. Tidak perlu sbx web. Koneksi model diuji saat pesan pertama.';
     $('byok-key').placeholder = 'API key tersimpan; isi untuk mengganti';
   }
   if (!cloudConfig && !companionToken) $('byok-panel').open = true;
+  syncProviderModelFields();
   $('task-open-web').hidden = Boolean(cloudConfig?.enabled);
   $('bridge-url-input').value = bridgeUrl;
   $('bridge-token-input').value = '';
@@ -803,6 +805,113 @@ async function openModelKeySettings() {
 // BotConnector Cloud standalone stores BYOK in Chrome extension-local storage.
 // Other providers retain the original paired-local-backend path.
 let byokPending = null;
+let cloudModelCatalog = [];
+let cloudCatalogPromise = null;
+// The picker follows the same authenticated /v1/models catalog and capability
+// labels used by "sbx models". Never invent model IDs or silently choose one
+// advertised without verified browser tool support.
+function cloudModelLabel(model) {
+  return (model.access === 'free' ? 'Gratis · ' : 'Paket · ') + model.name;
+}
+function setCloudModelInfo(message) {
+  $('byok-model-info').textContent = message;
+}
+function cloudModelById(id) {
+  return cloudModelCatalog.find(model => model.id === id);
+}
+function renderCloudModels(preferred = '') {
+  const picker = $('byok-model');
+  const quick = $('cloud-quick-model');
+  const search = $('byok-model-search').value.trim().toLocaleLowerCase();
+  const filter = $('byok-model-filter').value;
+  const match = cloudModelCatalog.filter(model =>
+    (filter === 'all' || model.access === filter) &&
+    [model.id, model.name, model.family].some(part => String(part).toLocaleLowerCase().includes(search)));
+  const previouslySelected = preferred || picker.value || cloudConfig?.model || 'agnes-3.0-flash';
+  picker.replaceChildren();
+  if (!match.length) {
+    picker.add(new Option(cloudModelCatalog.length ? 'Tidak ada model cocok' : 'Isi API key lalu muat model', ''));
+  } else {
+    for (const model of match) picker.add(new Option(cloudModelLabel(model), model.id));
+    picker.value = match.some(model => model.id === previouslySelected) ? previouslySelected : match[0].id;
+  }
+  quick.replaceChildren();
+  if (cloudModelCatalog.length) {
+    for (const model of cloudModelCatalog) quick.add(new Option(cloudModelLabel(model), model.id));
+    const active = cloudConfig?.model || picker.value;
+    quick.value = cloudModelById(active) ? active : '';
+  } else if (cloudConfig?.model) {
+    quick.add(new Option(cloudConfig.model + ' (katalog belum dimuat)', cloudConfig.model));
+  } else {
+    quick.add(new Option('Pilih AI Cloud', ''));
+  }
+  $('cloud-quick-wrap').hidden = !cloudConfig?.enabled;
+  const selected = cloudModelById(picker.value);
+  const detail = selected ? ' · ' + selected.name + ' · ' + selected.id +
+    (selected.context ? ' · Context ' + Math.round(selected.context / 1000) + 'K' : '') : '';
+  setCloudModelInfo(cloudModelCatalog.length
+    ? cloudModelCatalog.length + ' model bertools terverifikasi · ' +
+        cloudModelCatalog.filter(m => m.access === 'free').length + ' Gratis · ' +
+        cloudModelCatalog.filter(m => m.access === 'plan').length + ' Paket' + detail +
+        '. Paket bukan jaminan akses akun.'
+    : 'Masukkan API key, lalu pilih Muat model. Hanya model dengan browser tools terverifikasi akan ditampilkan.');
+}
+async function refreshCloudCatalog(apiKey, preferred = '') {
+  if (cloudCatalogPromise) return cloudCatalogPromise;
+  $('byok-model-refresh').disabled = true;
+  setCloudModelInfo('Memuat katalog resmi BotConnector...');
+  cloudCatalogPromise = (async () => {
+    const models = await SwitchboardCloud.listModels(apiKey);
+    cloudModelCatalog = models;
+    renderCloudModels(preferred);
+    return models;
+  })();
+  try { return await cloudCatalogPromise; }
+  catch (error) {
+    cloudModelCatalog = [];
+    renderCloudModels();
+    setCloudModelInfo('Katalog gagal dimuat: ' + String(error?.message || error).slice(0,160));
+    throw error;
+  } finally {
+    cloudCatalogPromise = null;
+    $('byok-model-refresh').disabled = false;
+  }
+}
+function syncProviderModelFields() {
+  const cloud = $('byok-provider').value === 'botconnector';
+  $('cloud-model-fields').hidden = !cloud;
+  $('local-model-fields').hidden = cloud;
+  $('byok-model-manual').required = !cloud;
+  if (cloud) renderCloudModels();
+}
+$('byok-model-search').addEventListener('input', () => renderCloudModels());
+$('byok-model-filter').addEventListener('change', () => renderCloudModels());
+$('byok-model').addEventListener('change', () => renderCloudModels($('byok-model').value));
+$('byok-model-refresh').addEventListener('click', async () => {
+  const apiKey = $('byok-key').value || cloudConfig?.apiKey;
+  try { await refreshCloudCatalog(apiKey, cloudConfig?.model || 'agnes-3.0-flash'); }
+  catch (_) { /* Visible catalog error above; do not expose key in logs. */ }
+});
+$('cloud-quick-model').addEventListener('change', async () => {
+  const selected = $('cloud-quick-model').value;
+  if (!cloudConfig || !cloudModelById(selected) || activeTask) {
+    renderCloudModels();
+    return;
+  }
+  const previous = cloudConfig;
+  try {
+    await SwitchboardCloud.saveConfig(chrome.storage.local, {...cloudConfig,model:selected});
+    cloudConfig = {...cloudConfig,model:selected};
+    cloudHistory = [];
+    conversationId = null;
+    renderCloudModels(selected);
+    note('AI Cloud diganti ke ' + cloudModelById(selected).name + '. Percakapan baru dimulai.');
+  } catch (error) {
+    cloudConfig = previous;
+    renderCloudModels(previous.model);
+    note('Gagal mengganti AI Cloud: ' + String(error?.message || error).slice(0,120),'error');
+  }
+});
 $('task-configure-key').addEventListener('click', () => {
   $('byok-panel').open = true;
   $('byok-provider').focus();
@@ -810,20 +919,21 @@ $('task-configure-key').addEventListener('click', () => {
 $('byok-advanced').addEventListener('click', openModelKeySettings);
 $('configure-model-key-settings').addEventListener('click', openModelKeySettings);
 $('byok-provider').addEventListener('change', () => {
-  $('byok-model').value = $('byok-provider').value === 'botconnector'
-    ? 'agnes-3.0-flash'
-    : $('byok-provider').value === 'groq'
-      ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
-  // Avoid accidentally saving a key entered for another provider.
+  $('byok-model-manual').value = $('byok-provider').value === 'groq'
+    ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
+  // Never reuse the previous provider's typed key in the new provider.
   $('byok-key').value = '';
+  syncProviderModelFields();
 });
 $('cloud-remove-key').addEventListener('click', async () => {
   activeTask?.abort();
   await chrome.storage.local.remove('cloudConfig');
   cloudConfig = null;
   cloudHistory = [];
+  cloudModelCatalog = [];
   $('byok-key').value = '';
   $('byok-key').placeholder = 'Masukkan API key dari provider';
+  renderCloudModels();
   $('byok-status').textContent = 'API key Cloud dihapus dari ekstensi.';
   await refreshBridgeStatus();
 });
@@ -849,23 +959,35 @@ $('byok-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if (byokPending) return;
   if ($('byok-provider').value === 'botconnector') {
+    const saveButton = $('byok-save');
+    saveButton.disabled = true;
     try {
-      const apiKey = $('byok-key').value;
-      const model = $('byok-model').value.trim();
+      const providedKey = $('byok-key').value;
+      const apiKey = providedKey || cloudConfig?.apiKey;
+      if (!apiKey) throw new Error('Masukkan API key BotConnector terlebih dahulu.');
+      if (!cloudModelCatalog.length || (providedKey && providedKey !== cloudConfig?.apiKey)) {
+        await refreshCloudCatalog(apiKey, $('byok-model').value || cloudConfig?.model || 'agnes-3.0-flash');
+      }
+      const model = $('byok-model').value;
+      if (!cloudModelById(model)) throw new Error('Pilih AI dari katalog yang berhasil dimuat.');
       await SwitchboardCloud.saveConfig(chrome.storage.local, {
         provider:'botconnector', apiKey, model, enabled:$('byok-default').checked
       });
       cloudConfig = { provider:'botconnector', apiKey, model, enabled:$('byok-default').checked };
       cloudHistory = [];
       conversationId = null;
-      $('byok-status').textContent = 'BotConnector Cloud disimpan di ekstensi. ' +
+      renderCloudModels(model);
+      $('byok-status').textContent = cloudModelById(model).name + ' dipilih untuk BotConnector Cloud. ' +
         (cloudConfig.enabled ? 'Siap digunakan tanpa sbx web.' : 'Belum dijadikan model aktif.') +
-        ' Koneksi diuji saat pesan pertama.';
-      $('byok-key').placeholder = 'API key tersimpan; isi untuk mengganti';
+        ' Akses akun dan inferensi diuji saat pesan pertama.';
+      $('byok-key').placeholder = 'API key tersimpan; tidak perlu diisi ulang';
       await refreshBridgeStatus();
     } catch (error) {
       $('byok-status').textContent = 'Gagal: ' + String(error?.message || error).slice(0,180);
-    } finally { $('byok-key').value = ''; }
+    } finally {
+      $('byok-key').value = '';
+      saveButton.disabled = false;
+    }
     return;
   }
   const token = companionToken;
@@ -886,7 +1008,7 @@ $('byok-form').addEventListener('submit', async (event) => {
   try {
     const grant = await byokApi(origin, token, 'request', 'POST', {
       provider: $('byok-provider').value,
-      model: $('byok-model').value.trim(),
+      model: $('byok-model-manual').value.trim(),
       setDefault: $('byok-default').checked,
     });
     if (request.cancelled) return;
@@ -909,7 +1031,16 @@ $('byok-form').addEventListener('submit', async (event) => {
     const result = await byokApi(origin, token, 'commit', 'POST', { id: grant.id, apiKey });
     // A previous conversation may be pinned to its earlier provider/model.
     // Do not silently continue an old session after a BYOK default switch.
-    if (result.selected) conversationId = null;
+    if (result.selected) {
+      conversationId = null;
+      if (cloudConfig?.enabled) {
+        await SwitchboardCloud.saveConfig(chrome.storage.local, {...cloudConfig,enabled:false});
+        cloudConfig = {...cloudConfig,enabled:false};
+        cloudHistory = [];
+        renderCloudModels();
+        await refreshBridgeStatus();
+      }
+    }
     say('API key ' + result.provider + ' tersimpan di backend. Model: ' + result.model +
       (result.selected ? ' (aktif untuk obrolan berikutnya).' : '.') +
       ' Koneksi model belum diuji.');
@@ -1170,7 +1301,9 @@ async function runStandaloneCloudTask(question) {
           }
           label = String(element.text || element.tag || '').slice(0,140);
         }
-        const summary = tool === 'browser_type' ? 'Ketik ' + String(args.text || '').length + ' karakter pada ' + target
+        const summary = tool === 'browser_type'
+          ? 'Ketik pada ' + String(args.selector || '') + ':\n' + String(args.text || '')
+          : tool === 'browser_navigate' ? 'Buka URL: ' + String(args.url || '')
           : tool + ' pada ' + target + (label ? ' (' + label + ')' : '');
         // Never silently authorize clicks/writes/navigation. Site permission
         // remains Chrome's native prompt; action consent is separate.
@@ -1218,7 +1351,11 @@ async function runStandaloneCloudTask(question) {
   } catch (error) {
     outcome = controller.signal.aborted || error?.name === 'AbortError' ? 'cancelled' : 'failed';
     taskStatus(outcome === 'cancelled' ? 'Dihentikan.' : 'Gagal.');
-    if (outcome === 'failed') note('BotConnector Cloud: ' + String(error?.message || error).slice(0,200),'error');
+    if (outcome === 'failed') {
+      const reason = String(error?.message || error).slice(0,200);
+      note('BotConnector Cloud: ' + reason +
+        (reason.includes('Batas penggunaan') ? ' Pilih model lain di menu AI Cloud, atau coba lagi setelah kuota pulih. Tidak ada fallback berbayar otomatis.' : ''),'error');
+    }
   } finally {
     msg.thinking.remove();
     if (msg.items.size) { msg.steps.open = false; refreshStepSummary(msg,true); }

@@ -12,6 +12,32 @@ const storage={
   set:async v=>{Object.assign(stored,v)}
 }
 const key='fake-standalone-test-key'
+const catalogRows=[
+  {id:'agnes-3.0-flash',botconnector_name:'Agnes 3.0 Flash',botconnector_family:'Agnes',
+    botconnector_access:'free',botconnector_context_limit_tokens:128000,
+    botconnector_capabilities:{tools:'supported'},botconnector_funding:{available_now:true}},
+  {id:'claude-sonnet-5-5',botconnector_name:'Claude Sonnet 5.5',botconnector_family:'Anthropic',
+    botconnector_access:'plan',botconnector_capabilities:{tools:'supported'},
+    botconnector_funding:{available_now:true}},
+  {id:'no-tools',botconnector_capabilities:{tools:'unknown'},botconnector_access:'free'},
+  {id:'unavailable',botconnector_capabilities:{tools:'supported'},botconnector_funding:{available_now:false}},
+  {id:'unsafe<script>',botconnector_capabilities:{tools:'supported'}},
+  {id:'agnes-3.0-flash',botconnector_capabilities:{tools:'supported'}}
+]
+const models = await agent.listModels(key,{request:async (url,opts)=>{
+  assert.equal(url,'https://api.botconnector.id/v1/models')
+  assert.equal(opts.method,'GET')
+  assert.equal(opts.headers.authorization,'Bearer '+key)
+  return {ok:true,json:async()=>({object:'list',data:catalogRows})}
+}})
+assert.deepEqual(models.map(m=>m.id),['agnes-3.0-flash','claude-sonnet-5-5'])
+assert.equal(models[0].name,'Agnes 3.0 Flash')
+assert.equal(models[0].context,128000)
+assert.equal(models[0].access,'free')
+assert.equal(models[1].access,'plan')
+await assert.rejects(()=>agent.listModels(key,{request:async()=>({ok:false,status:401})}),/API key/)
+assert.equal(models.some(m=>m.id==='no-tools'),false,'Unknown tool capability must never be shown')
+console.log('PASS searchable model picker source: authenticated live catalog schema, free/plan labels, verified tools only')
 await agent.saveConfig(storage,{provider:'botconnector',model:'agnes-3.0-flash',apiKey:key,enabled:true})
 assert.equal(stored.cloudConfig.apiKey,key)
 assert.equal(stored.access,'TRUSTED_CONTEXTS')
@@ -66,3 +92,20 @@ await assert.rejects(()=>agent.run({config:stored.cloudConfig,question:'test',re
 const aborted=new AbortController();aborted.abort()
 await assert.rejects(()=>agent.run({config:stored.cloudConfig,question:'test',signal:aborted.signal}),/Cancelled/)
 console.log('PASS direct cloud 401/429 handling, cancellation, fail-closed mutations')
+// A token such as "Establish" must never trigger page data transmission
+// because it happens to contain the substring "tab".
+let unintendedReads=0
+const plain=await agent.run({config:stored.cloudConfig,question:'Establish a deployment plan',
+  request:async()=>({ok:true,json:async()=>({choices:[{message:{content:'Draft plan'}}]})}),
+  runTool:async()=>{unintendedReads++;return {ok:true}},approveAction:async()=>false})
+assert.equal(unintendedReads,0,'Unrelated prompts do not transmit page snapshots')
+assert.equal(plain.text,'Draft plan')
+// Stop or key removal during approval must prevent the deferred click.
+const lateAbort=new AbortController()
+let afterStopClicks=0
+await assert.rejects(()=>agent.run({config:stored.cloudConfig,question:'click',
+  request:mutation,signal:lateAbort.signal,
+  approveAction:async()=>{lateAbort.abort();return true},
+  runTool:async()=>{afterStopClicks++;return {ok:true}}}),/tidak diulang otomatis/)
+assert.equal(afterStopClicks,0,'Cancelled action cannot click after approval resolves')
+console.log('PASS token-aware page intent and abort-after-approval safety')
