@@ -1,12 +1,12 @@
 # Release status — single source of truth
 
-Last verified: **18 October 2026**. Update this file with the evidence date whenever a release status changes.
+Last verified: **29 October 2026**. Update this file with the evidence date whenever a release status changes.
 Historical QA and release notes remain useful as evidence but do not override this table.
 
 | Delivery | Version | Status | Evidence / note |
 |---|---|---|---|
 | npm `@botconnector/switchboard` | **0.4.6** | Published; `latest` | `registry.npmjs.org` on 2026-10-25 (`1b4c01dd393a22edaf9d6598e78c6bed026d479b`, signed provenance `logIndex 3452899083`) |
-| Source / working tree | **0.4.6** | Published | Tagged `v0.4.6` (`25deca9`) on `origin/master` on 2026-10-25 |
+| Source / working tree | **0.4.7** | Unpublished | BotConnector Cloud BYOK, direct API key input in Chrome side panel, task receipts and safe workflows. Release candidate; no 0.4.7 tag or marketplace publication verified yet |
 | Chrome Web Store Browser Companion | **0.4.6** | Published (existing item) | Item `miehnbiiokkciokmepnhgmlhjpabbkna`; public listing read on 2026-10-25 shows version 0.4.6 (browser read of the listing page). Package `switchboard-chrome.zip` (`0.4.6`, SHA-256 `ba69194247bcc51d0bdf7adc50085a5e2d141c51980087010a30e3090ea39fe1`) was submitted on 2026-10-25 and approved/published the same day |
 | Microsoft Edge Add-ons | **unknown** | Unverified | No verified listing/version evidence; do not invent a store URL |
 | GitHub Release | **v0.4.6** | Published (`latest`) | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.6` (npm tarball, `Switchboard-0.4.6-Windows-x64.zip`, `switchboard-chrome.zip`, `switchboard-edge.zip`, and SHA-256 checksums) |

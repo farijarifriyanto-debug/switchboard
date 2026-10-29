@@ -32,6 +32,24 @@ See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard ste
 
 ## Site access and AI tasks
 
+**Enter your own API key directly in the side panel:** start `sbx web`,
+pair the Browser Companion, then click **Atur model & API key** in the chat.
+Choose **BotConnector Cloud**, **OpenRouter** or **Groq**, enter the model ID and provider API key,
+then click **Simpan API key**. An authenticated Web Console tab opens with
+the provider/model and a one-time **Izinkan sekali** confirmation; click it
+to authorize the save. The side panel saves the key and clears the input.
+For BotConnector Cloud, the quick form presets `https://api.botconnector.id/v1` and suggests `agnes-3.0-flash`; you may enter another supported model ID. Switching providers clears the key input to prevent applying the wrong provider's key. For other providers or advanced settings, use **Pengaturan lengkap**.
+You can keep your existing Web Console session; no second credential store
+or model manager is created.
+The key is write-only in Switchboard's local credentials store; it is
+never saved in Chrome extension storage or a page URL. If `sbx web`
+uses an access token, first open the authenticated console URL printed
+by `sbx web` in the **same browser profile** to establish its secure
+session cookie. Browser Companion pairing does not authorize credential
+settings, and the extension never receives the Web Console token.
+A provider's billing and usage policy still apply. Local AI uses its
+existing runtime/model manager and does not need a cloud API key.
+
 Browser site access uses the native Chrome/Edge host permission as its single source of truth. Manual/Auto control AI actions, not a second site allowlist. When a task needs a new site, Switchboard waits and marks the extension icon with **!**. Open the companion panel, review the requested domain, then choose **Allow in Chrome & continue**. The browser shows its native permission dialog; choosing Deny stops the original action. Chrome permission alone is sufficient; Switchboard does not ask you to approve the same site twice. No blanket permission to all sites is requested. Do not approve unfamiliar sites.
 
 Use **Ask Switchboard** in the Overview tab to submit browser instructions without switching to the Web UI. The field talks to the authenticated Switchboard agent on localhost, streams tool activity, and offers Stop. The connected AI model and browser security gates remain unchanged.
@@ -49,7 +67,7 @@ Example prompt in Switchboard:
 
 > Open the current tab, take a DOM snapshot, click the login button only after the selector is verified, and report what changed.
 
-The extension never requires a separate AI-provider API key. The pairing code is **not** an AI key.
+Pairing the extension does not require an AI-provider API key. Entering one through the optional side-panel BYOK form is supported; the pairing code is **not** an AI key.
 
 ## Security and permissions
 

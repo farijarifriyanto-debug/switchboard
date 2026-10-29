@@ -295,6 +295,17 @@
     .step.done .step-dot { background: var(--ok); }
     .step.failed .step-dot { background: var(--warn); }
     .step.failed { color: #9a3412; }
+    .task-receipt { color: var(--muted); font-size: 11.5px; line-height: 1.5; border-top: 1px solid var(--line); padding-top: 8px; }
+    .task-receipt[hidden] { display: none; }
+    .byok-panel { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+    .byok-panel summary { cursor: pointer; font-weight: 600; font-size: 12px; }
+    body.chat-only .byok-panel[open] { max-height: 58vh; overflow-y: auto; flex-shrink: 1; }
+    .byok-panel form { display: grid; gap: 6px; margin-top: 10px; }
+    .byok-panel label { font-size: 11px; }
+    .byok-panel input:not([type=checkbox]), .byok-panel select { width: 100%; box-sizing: border-box; font-size: 12px; }
+    .byok-panel .byok-toggle { display: flex; align-items: center; gap: 7px; }
+    .byok-panel .byok-toggle input { width: auto; }
+    .byok-panel #byok-status { margin: 4px 0; white-space: normal; overflow-wrap: anywhere; }
     .thinking { display: inline-flex; gap: 4px; padding: 4px 0; }
     .thinking[hidden], .steps[hidden] { display: none; }
     .thinking i { width: 6px; height: 6px; border-radius: 50%; background: #b6bbc5; animation: sb-pulse 1s infinite ease-in-out; }
@@ -403,8 +414,32 @@
             <button type="button" class="chip" data-prompt="Ringkas halaman yang sedang saya buka dalam lima poin.">Ringkas halaman ini</button>
             <button type="button" class="chip" data-prompt="Isi formulir di halaman ini dengan data berikut: ">Isi formulir di halaman ini</button>
             <button type="button" class="chip" data-prompt="Ambil semua nama paket dan harga di halaman ini, lalu buat tabel perbandingannya.">Bandingkan harga di halaman ini</button>
+            <button type="button" class="chip" data-prompt="Ekstrak tabel data yang terlihat pada halaman ini. Cantumkan sumber URL dan tandai data yang belum terverifikasi. Jangan mengubah halaman.">Ekstrak data</button>
+            <button type="button" class="chip" id="task-configure-key">Atur model &amp; API key</button>
           </div>
         </div>
+        <details id="byok-panel" class="byok-panel">
+          <summary>AI Cloud — masukkan API key</summary>
+          <form id="byok-form" autocomplete="off">
+            <label for="byok-provider">Provider AI</label>
+            <select id="byok-provider" required>
+              <option value="botconnector">BotConnector Cloud</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="groq">Groq</option>
+            </select>
+            <label for="byok-model">Model ID</label>
+            <input id="byok-model" maxlength="160" required spellcheck="false" value="agnes-3.0-flash" placeholder="agnes-3.0-flash">
+            <label for="byok-key">API key provider</label>
+            <input id="byok-key" type="password" maxlength="4096" required autocomplete="new-password" spellcheck="false" placeholder="Masukkan API key dari provider">
+            <label class="byok-toggle"><input id="byok-default" type="checkbox" checked> Jadikan model aktif</label>
+            <div class="row">
+              <button id="byok-save" type="submit">Simpan API key</button>
+              <button id="byok-cancel" type="button" class="secondary" hidden>Batal</button>
+            </div>
+            <p id="byok-status" class="panel-hint" role="status" aria-live="polite">Key hanya disimpan setelah Anda menyetujui permintaan melalui Web Console lokal. Tidak disimpan di Chrome.</p>
+            <p class="panel-hint">Pengaturan provider lain: <button id="byok-advanced" type="button" class="link-button">Pengaturan lengkap</button></p>
+          </form>
+        </details>
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="task-form">
           <div id="tab-chip" class="tab-chip" hidden>
@@ -489,9 +524,9 @@
   </div>
 
   <!-- Workflows -->
-  <div id="tab-workflows" class="tab-pane"><div class="panel-hint">Local browser workflows and replay controls. Use Switchboard to plan and execute agent tasks.</div>
+  <div id="tab-workflows" class="tab-pane"><div class="panel-hint">Rekam aksi browser yang berhasil dilakukan oleh agent setelah Anda menekan Rekam. Tidak merekam ketikan, nilai formulir, atau aktivitas browser pribadi. Tindakan replay tetap membutuhkan izin situs Chrome.</div>
     <div class="row" style="margin-bottom:8px">
-      <button id="record-workflow-btn" class="secondary">⏺ Start Recording</button>
+      <button id="record-workflow-btn" class="secondary">⏺ Rekam aksi agent</button>
       <button id="replay-workflow-btn" disabled>▶ Replay Workflow</button>
       <button id="cancel-replay-btn" class="danger" disabled>⏹ Stop</button>
     </div>
@@ -506,6 +541,7 @@
     <div class="row" style="margin-bottom:8px">
       <button id="export-workflow-btn" class="secondary">Export JSON</button>
       <button id="import-workflow-btn" class="secondary">Import JSON</button>
+      <input id="import-workflow-file" type="file" accept=".json,application/json" hidden>
       <button id="clear-workflow-btn" class="danger">Clear</button>
     </div>
 
@@ -566,6 +602,10 @@
       <button id="disconnect-bridge-btn" class="danger">Disconnect</button>
     </div>
 
+    <div class="row" style="margin-top:14px">
+      <button id="configure-model-key-settings" class="secondary" type="button">Atur model &amp; API key di Switchboard</button>
+    </div>
+    <p class="panel-hint">API key disimpan write-only oleh Switchboard di komputer ini, bukan di ekstensi Chrome.</p>
     <label style="margin-top:14px">Diagnostics & Troubleshooting</label>
     <pre id="bridge-diagnostics">Checking local Switchboard service...</pre>
   </div>

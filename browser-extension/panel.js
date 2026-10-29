@@ -85,6 +85,8 @@ async function loadStoredConfig() {
     recordedWorkflowSteps = stored.workflowSteps;
     renderWorkflowSteps();
   }
+  const recording = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_RECORD_STATUS' }).catch(() => null);
+  setWorkflowRecordingUi(recording?.recording === true);
   $('bridge-url-input').value = bridgeUrl;
   $('bridge-token-input').value = '';
 }
@@ -347,52 +349,79 @@ function renderWorkflowSteps() {
   });
 }
 
-$('record-workflow-btn').addEventListener('click', () => {
-  isRecording = !isRecording;
-  if (isRecording) {
-    $('record-workflow-btn').textContent = '⏹ Stop Recording';
-    $('record-workflow-btn').className = 'danger';
-    $('replay-progress-bar').textContent = 'Recording interactions on active tab...';
-  } else {
-    $('record-workflow-btn').textContent = '⏺ Start Recording';
-    $('record-workflow-btn').className = 'secondary';
-    $('replay-progress-bar').textContent = 'Recording stopped.';
+function setWorkflowRecordingUi(enabled) {
+  isRecording = enabled;
+  $('record-workflow-btn').textContent = enabled ? '⏹ Hentikan rekaman' : '⏺ Rekam aksi agent';
+  $('record-workflow-btn').className = enabled ? 'danger' : 'secondary';
+  $('replay-progress-bar').textContent = enabled
+    ? 'Merekam aksi agent yang berhasil. Ketikan dan data pribadi tidak disimpan.'
+    : 'Status: Tidak merekam';
+}
+$('record-workflow-btn').addEventListener('click', async () => {
+  const next = !isRecording;
+  const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_RECORD_SET', enabled: next }).catch(() => null);
+  if (!result?.ok) {
+    $('replay-progress-bar').textContent = 'Gagal mengubah status rekaman.';
+    return;
+  }
+  setWorkflowRecordingUi(result.recording);
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.workflowSteps && Array.isArray(changes.workflowSteps.newValue)) {
+    recordedWorkflowSteps = changes.workflowSteps.newValue;
+    renderWorkflowSteps();
   }
 });
 
 $('replay-workflow-btn').addEventListener('click', async () => {
   if (recordedWorkflowSteps.length === 0) return;
+  const clicks = recordedWorkflowSteps.filter(step => step.action === 'click').length;
+  // Workflow replay does not run through the AI agent's action preflight.
+  // Review mutating actions explicitly; Chrome host-site permissions remain mandatory.
+  if (clicks && !confirm('Replay akan menjalankan ' + clicks + ' klik pada halaman browser. Tinjau daftar langkah dan pastikan situs serta targetnya benar. Lanjutkan?')) return;
   $('replay-workflow-btn').disabled = true;
   $('cancel-replay-btn').disabled = false;
   $('replay-progress-bar').textContent = 'Replaying workflow...';
 
-  const res = await chrome.runtime.sendMessage({
-    type: 'SWITCHBOARD_WORKFLOW_REPLAY',
-    steps: recordedWorkflowSteps,
-  });
-
-  $('replay-workflow-btn').disabled = false;
-  $('cancel-replay-btn').disabled = true;
-
-  if (res?.ok) {
-    $('replay-progress-bar').textContent = `Replay completed successfully (${res.results.length} steps)!`;
-  } else {
-    $('replay-progress-bar').textContent = `Replay finished with failures or was stopped.`;
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'SWITCHBOARD_WORKFLOW_REPLAY',
+      steps: recordedWorkflowSteps,
+    });
+    if (res?.ok) {
+      $('replay-progress-bar').textContent = `Replay berhasil (${res.results.length} langkah).`;
+    } else {
+      $('replay-progress-bar').textContent = res?.cancelled
+        ? 'Replay dihentikan setelah aksi yang sedang berjalan.'
+        : 'Replay gagal: ' + String(res?.error || res?.results?.find(s => s.status === 'failed')?.error || 'Langkah belum berhasil.');
+    }
+  } catch (error) {
+    $('replay-progress-bar').textContent = 'Replay gagal: ' + String(error?.message || error);
+  } finally {
+    $('replay-workflow-btn').disabled = false;
+    $('cancel-replay-btn').disabled = true;
+    await refreshAuditLog();
   }
-  await refreshAuditLog();
 });
 
-$('cancel-replay-btn').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_CANCEL' });
-  $('replay-progress-bar').textContent = 'Replay stopped.';
+$('cancel-replay-btn').addEventListener('click', async () => {
+  const res = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_CANCEL' }).catch(() => null);
+  $('replay-progress-bar').textContent = res?.ok
+    ? 'Stop diminta. Aksi yang sudah berjalan tidak dapat dibatalkan.'
+    : 'Gagal mengirim Stop.';
 });
 
 $('export-workflow-btn').addEventListener('click', () => {
-  const sanitized = recordedWorkflowSteps.map((step) => {
-    const isSensitive = step.selector && (step.selector.includes('password') || step.selector.includes('cc-'));
-    return isSensitive ? { ...step, value: '[REDACTED]' } : step;
-  });
-  const json = JSON.stringify({ version: 1, steps: sanitized }, null, 2);
+  // Old stored workflows may contain typed values. Never export their raw
+  // objects: require the same whitelist as imports and strip extra fields.
+  let safeSteps;
+  try {
+    safeSteps = parseWorkflowImport({ version: 1, steps: recordedWorkflowSteps });
+  } catch (error) {
+    $('replay-progress-bar').textContent = 'Ekspor ditolak: ' + String(error?.message || error);
+    return;
+  }
+  const json = JSON.stringify({ version: 1, steps: safeSteps }, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -402,6 +431,57 @@ $('export-workflow-btn').addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+// Imported files are data, never commands. Apply strict bounds before writing
+// to Chrome storage; replay still goes through Chrome's native site permission.
+function parseWorkflowImport(raw) {
+  if (!raw || raw.version !== 1 || !Array.isArray(raw.steps) ||
+      raw.steps.length < 1 || raw.steps.length > 50) throw new Error('Format workflow tidak valid (1–50 langkah).');
+  return raw.steps.map((step, i) => {
+    if (!step || typeof step !== 'object' || Array.isArray(step)) throw new Error('Langkah ' + (i + 1) + ' tidak valid.');
+    if (step.action === 'navigate') {
+      const url = new URL(String(step.url || ''));
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+        throw new Error('URL langkah ' + (i + 1) + ' tidak aman untuk disimpan.');
+      return { action: 'navigate', url: url.href };
+    }
+    if (step.action === 'click') {
+      const selector = String(step.selector || '');
+      if (!selector || selector.length > 500 || selector.startsWith('@') ||
+          /password|passcode|credit|card|pay|order|checkout|purchase|buy|submit|delete|remove|transfer|withdraw|deposit|send|publish|subscribe|authori[sz]|grant|consent|approve|confirm|upload|download|log.?in|log.?out|token|secret/i.test(selector))
+        throw new Error('Selector langkah ' + (i + 1) + ' tidak aman atau tidak stabil.');
+      return { action: 'click', selector };
+    }
+    if (step.action === 'scroll') {
+      const direction = String(step.direction || 'down');
+      const amount = Number(step.amount || 600);
+      const selector = String(step.selector || '');
+      if (!['up', 'down', 'top', 'bottom'].includes(direction) ||
+          !Number.isFinite(amount) || amount < 1 || amount > 3000 ||
+          selector.length > 500 || selector.startsWith('@'))
+        throw new Error('Scroll langkah ' + (i + 1) + ' tidak valid.');
+      return { action: 'scroll', direction, amount, ...(selector ? { selector } : {}) };
+    }
+    // Typing, file downloads, credentials and arbitrary imported code are never replayed.
+    throw new Error('Aksi langkah ' + (i + 1) + ' tidak didukung untuk impor.');
+  });
+}
+$('import-workflow-btn').addEventListener('click', () => $('import-workflow-file').click());
+$('import-workflow-file').addEventListener('change', async (event) => {
+  const input = event.target;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    if (file.size > 64 * 1024) throw new Error('File melebihi 64 KB.');
+    const steps = parseWorkflowImport(JSON.parse(await file.text()));
+    recordedWorkflowSteps = steps;
+    await chrome.storage.local.set({ workflowSteps: steps });
+    renderWorkflowSteps();
+    $('replay-progress-bar').textContent = steps.length + ' langkah berhasil diimpor. Tinjau sebelum replay.';
+  } catch (error) {
+    $('replay-progress-bar').textContent = 'Impor gagal: ' + String(error?.message || error);
+  }
+});
 $('clear-workflow-btn').addEventListener('click', async () => {
   if (confirm('Clear all recorded workflow steps?')) {
     recordedWorkflowSteps = [];
@@ -680,6 +760,119 @@ function taskStatus(text) { $('task-status').textContent = text; }
 $('task-open-web').addEventListener('click', () => {
   void chrome.tabs.create({ url: webOrigin + '/' });
 });
+// Configure provider API keys in the existing authenticated loopback console.
+// Never accept, persist or transmit API keys through the browser extension.
+async function openModelKeySettings() {
+  // Use the authenticated, paired server's advertised origin, never an
+  // unpaired fallback port or a webpage-supplied destination.
+  const status = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' }).catch(() => null);
+  const origin = normalizeWebOrigin(status?.webOrigin);
+  if (!status?.connected || !origin) {
+    const message = 'Hubungkan Browser Companion ke sbx web untuk mengatur model & API key.';
+    taskStatus(message);
+    $('bridge-diagnostics').textContent = message;
+    return;
+  }
+  try {
+    await chrome.tabs.create({ url: origin + '/?settings=models' });
+  } catch (error) {
+    const message = 'Gagal membuka pengaturan model: ' + String(error?.message || error);
+    taskStatus(message);
+    $('bridge-diagnostics').textContent = message;
+  }
+}
+// Side-panel BYOK: the API key exists only in this password input and the
+// single authorized request body. It is not logged or written to Chrome storage.
+let byokPending = null;
+$('task-configure-key').addEventListener('click', () => {
+  $('byok-panel').open = true;
+  $('byok-provider').focus();
+});
+$('byok-advanced').addEventListener('click', openModelKeySettings);
+$('configure-model-key-settings').addEventListener('click', openModelKeySettings);
+$('byok-provider').addEventListener('change', () => {
+  $('byok-model').value = $('byok-provider').value === 'botconnector'
+    ? 'agnes-3.0-flash'
+    : $('byok-provider').value === 'groq'
+      ? 'openai/gpt-oss-20b' : 'qwen/qwen3.8-flash';
+  // Avoid accidentally saving a key entered for another provider.
+  $('byok-key').value = '';
+});
+$('byok-cancel').addEventListener('click', () => {
+  if (byokPending) byokPending.cancelled = true;
+  $('byok-key').value = '';
+  $('byok-status').textContent = 'Permintaan dibatalkan. Key tidak disimpan.';
+});
+async function byokApi(origin, token, path, method = 'GET', payload) {
+  const response = await fetch(origin + '/api/companion-byok/' + path, {
+    method,
+    headers: {
+      authorization: 'Bearer ' + token,
+      ...(payload ? { 'content-type': 'application/json' } : {})
+    },
+    ...(payload ? { body: JSON.stringify(payload) } : {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Error(String(data.error || 'Pengaturan API key gagal (HTTP ' + response.status + ')').slice(0, 180));
+  return data;
+}
+$('byok-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (byokPending) return;
+  const token = companionToken;
+  const bridge = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' }).catch(() => null);
+  const origin = normalizeWebOrigin(bridge?.webOrigin);
+  const keyField = $('byok-key');
+  if (!bridge?.connected || !origin || !token) {
+    keyField.value = '';
+    $('byok-status').textContent = 'Hubungkan Browser Companion dan sbx web sebelum menyimpan API key.';
+    return;
+  }
+  if (!keyField.value || keyField.value.length > 4096) return;
+  const request = { cancelled: false };
+  byokPending = request;
+  $('byok-save').disabled = true;
+  $('byok-cancel').hidden = false;
+  const say = (message) => { $('byok-status').textContent = message; };
+  try {
+    const grant = await byokApi(origin, token, 'request', 'POST', {
+      provider: $('byok-provider').value,
+      model: $('byok-model').value.trim(),
+      setDefault: $('byok-default').checked,
+    });
+    if (request.cancelled) return;
+    say('Setujui penyimpanan API key melalui tab Web Console yang baru dibuka (maksimal 2 menit).');
+    await chrome.tabs.create({ url: origin + '/?byok=' + encodeURIComponent(grant.id) });
+    let approved = false;
+    for (let i = 0; i < 110 && !request.cancelled; i++) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (request.cancelled) break;
+      const status = await byokApi(origin, token, 'status', 'POST', { id: grant.id });
+      if (status.approved) { approved = true; break; }
+    }
+    if (request.cancelled) { say('Dibatalkan. Tidak ada API key disimpan.'); return; }
+    if (!approved) throw Error('Persetujuan kedaluwarsa. Coba kembali.');
+    // Clear the DOM input before the credential request finishes. The secret
+    // survives only in one ephemeral request payload, not logs or storage.
+    const apiKey = keyField.value;
+    keyField.value = '';
+    if (!apiKey) throw Error('API key sudah dikosongkan; ulangi.');
+    const result = await byokApi(origin, token, 'commit', 'POST', { id: grant.id, apiKey });
+    // A previous conversation may be pinned to its earlier provider/model.
+    // Do not silently continue an old session after a BYOK default switch.
+    if (result.selected) conversationId = null;
+    say('API key ' + result.provider + ' tersimpan di backend. Model: ' + result.model +
+      (result.selected ? ' (aktif untuk obrolan berikutnya).' : '.') +
+      ' Koneksi model belum diuji.');
+  } catch (error) {
+    say('Gagal: ' + String(error?.message || 'Permintaan gagal').slice(0, 180));
+  } finally {
+    keyField.value = '';
+    byokPending = null;
+    $('byok-save').disabled = false;
+    $('byok-cancel').hidden = true;
+  }
+});
 $('task-stop').addEventListener('click', async () => {
   const sessionToCancel = activeTaskSession;
   activeTask?.abort();
@@ -776,6 +969,34 @@ function stepLabel(name, args) {
   return label ? label(args || {}).trim() : String(name || 'Menjalankan alat').replace(/^browser_/, '').replace(/_/g, ' ');
 }
 
+// These are tool-reported statuses, not independent validation of AI claims.
+// Some bridge tools return JSON failure objects rather than "Error:" strings.
+function toolResultFailed(result) {
+  const value = String(result ?? '').trim();
+  if (/^(Error:|Failed:)/i.test(value)) return true;
+  if (value.startsWith('{') && value.length <= 4096) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' &&
+        (parsed.ok === false || parsed.success === false || (Boolean(parsed.error) && parsed.ok !== true));
+    } catch (_) { /* Plaintext tool output is not an error by itself. */ }
+  }
+  return false;
+}
+
+function taskReceiptText(state, statuses) {
+  const complete = statuses.filter(status => status === 'done').length;
+  const failed = statuses.filter(status => status === 'failed').length;
+  const pending = statuses.length - complete - failed;
+  if (state === 'cancelled') return 'Dihentikan. Aksi yang sudah berjalan tidak dapat dibatalkan; periksa rincian langkah.';
+  if (state === 'failed') return 'Tugas gagal. ' + complete + ' langkah dilaporkan berhasil, ' + failed + ' gagal.';
+  if (state === 'step_limit') return 'Batas langkah tercapai. ' + complete + ' langkah dilaporkan berhasil; hasil belum lengkap.';
+  if (state !== 'completed') return 'Belum ada hasil akhir yang dapat dipastikan.';
+  if (!statuses.length) return 'Jawaban AI diterima tanpa aksi browser yang tercatat; periksa sumber secara mandiri.';
+  if (failed || pending) return 'Jawaban AI diterima, tetapi ' + failed + ' langkah gagal dan ' + pending + ' belum selesai.';
+  return complete + ' langkah tool dilaporkan berhasil. Ini bukan verifikasi independen atas isi jawaban.';
+}
+
 function note(text, kind) {
   $('chat-empty').hidden = true;
   const log = $('chat-log');
@@ -802,8 +1023,12 @@ function createAgentMessage() {
   thinking.setAttribute('role', 'status');
   thinking.setAttribute('aria-label', 'Sedang bekerja');
   thinking.innerHTML = '<i></i><i></i><i></i>';
-  root.append(steps, answer, thinking);
-  return { root, steps, summary, answer, thinking, items: new Map(), text: '' };
+  const receipt = document.createElement('div');
+  receipt.className = 'task-receipt';
+  receipt.hidden = true;
+  receipt.setAttribute('aria-label', 'Status hasil tugas');
+  root.append(steps, answer, receipt, thinking);
+  return { root, steps, summary, answer, receipt, thinking, items: new Map(), text: '' };
 }
 function refreshStepSummary(msg, finished) {
   const total = msg.items.size;
@@ -868,6 +1093,7 @@ $('task-form').addEventListener('submit', async event => {
   userMsg.textContent = question;
   log.append(userMsg);
   const msg = createAgentMessage();
+  let taskOutcome = 'failed';
   log.append(msg.root);
   $('task-prompt').value = '';
   autosizePrompt();
@@ -924,7 +1150,7 @@ $('task-form').addEventListener('submit', async event => {
           const step = msg.items.get(String(item.id));
           if (step) {
             step.classList.remove('running');
-            step.classList.add(String(item.result || '').startsWith('Error:') ? 'failed' : 'done');
+            step.classList.add(toolResultFailed(item.result) ? 'failed' : 'done');
             refreshStepSummary(msg, false);
           }
         }
@@ -935,17 +1161,21 @@ $('task-form').addEventListener('submit', async event => {
         }
         if (item.type === 'final' && !sawFatalEvent) {
           reachedTerminalEvent = true;
+          taskOutcome = item.stopReason === 'step_limit' ? 'step_limit'
+            : item.stopReason === 'error' ? 'failed' : 'completed';
           msg.text = item.content || msg.text || 'Selesai tanpa jawaban tertulis.';
           msg.answer.innerHTML = formatReply(msg.text);
           taskStatus(item.stopReason === 'step_limit' ? 'Stopped at step limit.' : item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
         if (item.type === 'error') {
+          taskOutcome = 'failed';
           reachedTerminalEvent = true;
           sawFatalEvent = true;
           taskStatus('Failed.');
           note('Terjadi galat: ' + String(item.message || item.error || 'tidak diketahui'), 'error');
         }
         if (item.type === 'cancelled') {
+          taskOutcome = 'cancelled';
           reachedTerminalEvent = true;
           sawFatalEvent = true;
           taskStatus('Stopped.');
@@ -958,7 +1188,9 @@ $('task-form').addEventListener('submit', async event => {
       note('Koneksi tugas berakhir sebelum hasil akhir diterima.', 'error');
     }
   } catch (error) {
+    if (error?.name === 'AbortError') taskOutcome = 'cancelled';
     if (error?.name !== 'AbortError') {
+      taskOutcome = 'failed';
       taskStatus('Failed.');
       note('Gagal: ' + String(error?.message || error), 'error');
     }
@@ -966,7 +1198,11 @@ $('task-form').addEventListener('submit', async event => {
     clearInterval(approvalPoll);
     msg.thinking.remove();
     if (msg.items.size) { msg.steps.open = false; refreshStepSummary(msg, true); }
-    if (!msg.text && !msg.items.size) msg.root.remove();
+    if (msg.text || msg.items.size) {
+      msg.receipt.textContent = taskReceiptText(taskOutcome, [...msg.items.values()].map(step =>
+        step.classList.contains('done') ? 'done' : step.classList.contains('failed') ? 'failed' : 'running'));
+      msg.receipt.hidden = false;
+    } else msg.root.remove();
     activeTask = null;
     activeTaskSession = null;
     pendingApprovalId = null;

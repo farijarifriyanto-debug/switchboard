@@ -1,6 +1,6 @@
 # Switchboard Browser Companion — Privacy Policy
 
-**Effective date:** 11 October 2026
+**Effective date:** 29 October 2026
 **Product:** Switchboard Browser Companion (Chrome and Microsoft Edge extension)
 **Publisher:** BotConnector
 **Open-source project:** https://github.com/farijarifriyanto-debug/switchboard
@@ -20,6 +20,7 @@ When a user activates browser tools, Browser Companion may access:
 - **Browsing information:** active tab and selected tab IDs, website URLs, origins, page titles and changes to the selected browser tabs. This information can also appear in local activity/audit records.
 - **User interactions:** requested clicks, scrolling, navigation, text entry, selected elements and resulting tool status. User-supplied form text may be transmitted for the requested action and may be recorded in Switchboard sessions or model inputs.
 - **Local authentication and settings:** a randomly issued Browser Companion pairing credential (not an AI provider API key), the loopback service address, connection state, permitted site origins, permission mode, optional saved workflow steps and a bounded activity log.
+- **Optional user-entered API keys (BYOK):** if the user opens the AI Cloud form, they may type a provider key into a masked side-panel field. The extension passes the value over the authenticated local loopback connection only after an explicit one-time approval in the separately authenticated Switchboard Web Console. The extension clears the field and does **not** write AI-provider keys to Chrome/Edge extension storage, activity logs, agent conversation, or webpage scripts. The local Switchboard application stores the credential in its own write-only provider credential store; users can revoke or replace it in Web Console settings.
 - **Installation detection metadata:** a public extension identifier and a short transient request nonce exchanged with the local Switchboard page only, without page content or pairing credentials.
 
 The extension attempts to block actions targeting password, payment-card and file-upload fields and masks those fields in its DOM catalog. These safeguards do **not** guarantee that sensitive information elsewhere on a webpage will be hidden. Users should avoid authorizing sensitive pages unless they accept the associated risks.
@@ -42,7 +43,7 @@ Browser Companion uses Chrome/Edge local extension storage for the connection ad
 
 Disconnecting does not necessarily remove the saved pairing credential; it can remain to permit reconnection. Uninstalling the extension or clearing its extension storage removes browser-stored settings and credentials. The separate local Switchboard application can retain its own sessions, pairing credentials and tool results according to that installation's settings and must be managed separately. Data already sent to a third-party provider is governed by that provider's retention and deletion process.
 
-The local connection is restricted to the loopback network interface and authenticated using a pairing credential; it is not exposed as an internet-facing browser-data service by default. Transport/security between Switchboard and an external AI provider depends on the selected provider endpoint and the user's configuration. Users should select trusted providers and secure endpoints.
+The local connection is restricted to the loopback network interface and authenticated using a pairing credential; it is not exposed as an internet-facing browser-data service by default. A companion pairing credential by itself cannot approve an API-key write or access general provider settings: saving a user-entered key also requires a separate, time-limited Web Console confirmation. Transport/security between Switchboard and an external AI provider depends on the selected provider endpoint and the user's configuration. Users should select trusted providers and secure endpoints.
 
 ## Chrome Web Store Limited Use disclosure
 

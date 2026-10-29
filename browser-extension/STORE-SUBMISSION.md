@@ -2,7 +2,7 @@
 
 ## Status
 
-> Status 18 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` is published at **0.4.4**. Source version **0.4.5** is an unpublished security candidate and has not been submitted. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source. Older version instructions below are historical.
+> Status 29 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` is published at **0.4.6**. Version **0.4.7** is a new release candidate pending submission. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source; older version instructions below are historical.
 
 **Historical update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
@@ -79,7 +79,7 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 ## Privacy review
 
 - Browser page content and action results can be returned to Switchboard and then sent to whichever AI provider the user configured. Do **not** claim all website content stays on the device.
-- Disclose website content handling accurately in both marketplaces. The extension itself does not independently obtain AI-provider API keys.
+- Disclose website content handling accurately in both marketplaces. The optional BYOK form now briefly accepts a user-entered provider API key in a password field, sends it only to the locally authenticated Switchboard backend after independent one-use console approval, and does not persist it in extension storage. Update Chrome/Edge data-handling questionnaires and privacy disclosures before submission; the pairing credential is separate from a provider API key.
 - The user can approve/revoke site origins, see bounded browser audit entries and disconnect Companion.
 - Do not include user chats, passwords, payment information, keys or tokens in public listing screenshots.
 - A browser page can spoof its own install-detection display; this is only visual advice. The Switchboard server is authoritative about the authenticated background connection.
@@ -94,7 +94,7 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 
 **Remaining human step:** Connect or create Chrome Web Store and Microsoft Edge Add-ons developer publisher accounts, enter real publisher details, and submit each extension for review. This cannot be completed merely by publishing Switchboard to npm or GitHub.
 
-## Update acceptance requirements for 0.4.5
+## Historical update acceptance requirements for 0.4.5
 
 - Explain optional per-origin HTTP/HTTPS access in the Chrome Web Store permission disclosure and privacy policy.
 - Verify the actual Chrome native site permission dialog, not just Switchboard local allowlist state.

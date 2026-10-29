@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.7
+
+- The Chrome side panel now has a Provider / Model ID / API key form for BotConnector Cloud, OpenRouter and Groq. BotConnector uses the fixed first-party HTTPS gateway `https://api.botconnector.id/v1` with `agnes-3.0-flash` as its initial model ID. Saving uses independent, one-use approval in the authenticated Web Console; the key is never written to extension storage and the companion bearer never gains access to general settings.
+
+- Advanced provider settings still open the existing local Settings → Models form. Secrets typed into the side-panel BYOK field are only handled transiently in memory, never persisted in the extension.
+- Add a read-only extract-data prompt shortcut. Preserve the current chat-first panel, native Chrome site permissions, and Manual/Auto/Skip semantics.
+- Make workflow recording opt-in for successful agent click, scroll, and navigation actions, without recording typed values or sensitive URL query strings. Safely import/export bounded JSON, cancel replay after the in-flight action, and never retry uncertain clicks. High-risk selectors and actual click labels are screened (after Chrome site permission); replay clicks require an explicit operator review. Replay refuses to take over an unbound personal tab.
+- Add a compact task result footer distinguishing tool-reported success, failed steps, cancellation, step limit, and answers without tool evidence; it does not claim independent verification.
+- Reuse the existing real Chrome agent E2E for an opt-in Cloud provider run with strictly scoped approvals and credential-safe env configuration. A bounded Qwen 3.8 Flash / OpenRouter run passed live Chrome DOM verification and reconnect without a duplicate click.
+- Add repeatable task UX tests and opt-in visible-Chrome acceptance. None of these changes are included in the published 0.4.6.
+
 ## 0.4.6
 
 - Stop losing data or the host: a cancelled tool batch now answers every `tool_call` id, an unreadable `automations.json` is never overwritten and one bad schedule cannot exit the process, CI run records are written atomically and privately, and a session larger than the reader limit keeps its newest turns plus a searchable archive instead of vanishing.
