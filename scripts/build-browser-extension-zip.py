@@ -13,6 +13,7 @@ FILES = (
     "background.js",
     "panel.html",
     "panel.js",
+    "cloud-agent.js",
     "onboarding-bridge.js",
     "icons/bico-16.png",
     "icons/bico-48.png",

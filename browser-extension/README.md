@@ -32,29 +32,22 @@ See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard ste
 
 ## Site access and AI tasks
 
-**Enter your own API key directly in the side panel:** start `sbx web`,
-pair the Browser Companion, then click **Atur model & API key** in the chat.
-Choose **BotConnector Cloud**, **OpenRouter** or **Groq**, enter the model ID and provider API key,
-then click **Simpan API key**. An authenticated Web Console tab opens with
-the provider/model and a one-time **Izinkan sekali** confirmation; click it
-to authorize the save. The side panel saves the key and clears the input.
-For BotConnector Cloud, the quick form presets `https://api.botconnector.id/v1` and suggests `agnes-3.0-flash`; you may enter another supported model ID. Switching providers clears the key input to prevent applying the wrong provider's key. For other providers or advanced settings, use **Pengaturan lengkap**.
-You can keep your existing Web Console session; no second credential store
-or model manager is created.
-The key is write-only in Switchboard's local credentials store; it is
-never saved in Chrome extension storage or a page URL. If `sbx web`
-uses an access token, first open the authenticated console URL printed
-by `sbx web` in the **same browser profile** to establish its secure
-session cookie. Browser Companion pairing does not authorize credential
-settings, and the extension never receives the Web Console token.
+**Use BotConnector Cloud with only the Chrome extension:** install/open the companion, expand **AI Cloud — masukkan API key**, choose **BotConnector Cloud**, enter your BotConnector API key and model ID (initial suggestion `agnes-3.0-flash`), keep **Jadikan model aktif** selected, and click **Simpan API key**. Then send a browser instruction directly in the side panel. No `sbx web`, local server, CLI, pairing code or native helper is required. AI requests go to the fixed HTTPS BotConnector gateway; actual model connectivity is checked on the first request. The key stays in this extension's local storage until removed; it is **not** in Chrome Sync and is not encrypted as an independent vault. Do not use a shared computer for personal keys. Review [PRIVACY.md](./PRIVACY.md).
+
+**Optional local mode:** for OpenRouter/Groq BYOK and advanced provider configuration, run `sbx web`, pair the Browser Companion, then use the existing separately authenticated Web Console to approve key storage. Local AI continues to need its local runtime. Switching providers clears the password field.
+In **optional local mode only**, keys are kept in Switchboard's write-only local credential store and never in the extension's local storage. If `sbx web` uses an access token, open the authenticated console URL printed by `sbx web` in the same browser profile; the Browser Companion token cannot approve settings writes. Standalone BotConnector Cloud is separate and stores its key in extension-local storage, as disclosed above.
 A provider's billing and usage policy still apply. Local AI uses its
 existing runtime/model manager and does not need a cloud API key.
 
 Browser site access uses the native Chrome/Edge host permission as its single source of truth. Manual/Auto control AI actions, not a second site allowlist. When a task needs a new site, Switchboard waits and marks the extension icon with **!**. Open the companion panel, review the requested domain, then choose **Allow in Chrome & continue**. The browser shows its native permission dialog; choosing Deny stops the original action. Chrome permission alone is sufficient; Switchboard does not ask you to approve the same site twice. No blanket permission to all sites is requested. Do not approve unfamiliar sites.
 
-Use **Ask Switchboard** in the Overview tab to submit browser instructions without switching to the Web UI. The field talks to the authenticated Switchboard agent on localhost, streams tool activity, and offers Stop. The connected AI model and browser security gates remain unchanged.
+Use the side-panel chat directly for BotConnector Cloud (no localhost agent). With optional local mode, the same panel forwards browser tasks to the authenticated Switchboard agent on localhost. Browser site permission controls and Stop remain available in either mode.
 
 ## Development installation (Chrome / Edge)
+
+For Cloud standalone, load this extension unpacked in a fresh Chrome profile, enter a BotConnector API key in the side panel, and grant native Chrome site permissions to read the requested page. No CLI is needed.
+
+For **optional local mode**:
 
 1. Install Switchboard locally and run `sbx chat --preset browser` (or `node dist/cli.js chat --preset browser` from the repository). CLI exposes the bridge only on `http://127.0.0.1:7778`.
 2. The CLI prints a **pairing code** valid for 15 minutes. This code is single-use; restart the CLI if it expires.

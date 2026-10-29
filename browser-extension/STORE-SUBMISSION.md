@@ -2,7 +2,7 @@
 
 ## Status
 
-> Status 29 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` is published at **0.4.6**. Version **0.4.7** is a new release candidate pending submission. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source; older version instructions below are historical.
+> Status 29 October 2026: existing Chrome listing `miehnbiiokkciokmepnhgmlhjpabbkna` was last verified published at **0.4.6**. The owner reports submitting **0.4.7** to Google; review/publication is unverified. This feature branch is a separate **0.4.8** standalone Cloud candidate, not the submitted 0.4.7. Update Chrome Web Store privacy/permission declarations and repeat QA before any future submission. Use [`docs/release-status.md`](../docs/release-status.md) as the status source.
 
 **Historical update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
@@ -71,7 +71,8 @@ The server rejects non-HTTPS and nonofficial listing URLs. An unavailable URL le
 | nativeMessaging | Read the local pairing credential from a helper the user installed on the same computer, so no code has to be typed; no network access |
 | notifications | Tell the user when a site permission request is waiting |
 | tabGroups | Group the tabs Switchboard opens under one labeled group; only those tabs can be closed by the agent |
-| HTTP loopback host access | Communicate exclusively with the Switchboard service on this computer |
+| HTTP loopback host access | Optional local companion mode: communicate with Switchboard on the same computer |
+| Fixed HTTPS BotConnector API host | Required for standalone BotConnector Cloud inference when the user enters their API key and sends a browser task; the key and requested page content may be sent to `api.botconnector.id` |
 | Optional HTTP/HTTPS site access | Request individual website permissions only after the user clicks Allow site; necessary to inspect and automate explicitly approved external pages. No grant is automatic or global. |
 
 The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles installation **ping** and **open-own-extension-page**, not browser commands or pairing credentials.
@@ -79,7 +80,7 @@ The new content script runs only on HTTP localhost/127.0.0.1 pages; it handles i
 ## Privacy review
 
 - Browser page content and action results can be returned to Switchboard and then sent to whichever AI provider the user configured. Do **not** claim all website content stays on the device.
-- Disclose website content handling accurately in both marketplaces. The optional BYOK form now briefly accepts a user-entered provider API key in a password field, sends it only to the locally authenticated Switchboard backend after independent one-use console approval, and does not persist it in extension storage. Update Chrome/Edge data-handling questionnaires and privacy disclosures before submission; the pairing credential is separate from a provider API key.
+- Disclose standalone BotConnector Cloud behavior accurately before the next marketplace submission: the extension now stores a user-entered BotConnector API key in extension-local storage (not Chrome Sync) until removed, and sends it as an HTTPS Authorization header only to the fixed first-party gateway. Browser content/tool output may be transmitted directly to BotConnector on user requests. Existing OpenRouter/Groq/local backend flow retains separate one-time console approval. Update Chrome/Edge data-handling questionnaires and privacy policy; a pairing credential remains distinct from the BotConnector API key.
 - The user can approve/revoke site origins, see bounded browser audit entries and disconnect Companion.
 - Do not include user chats, passwords, payment information, keys or tokens in public listing screenshots.
 - A browser page can spoof its own install-detection display; this is only visual advice. The Switchboard server is authoritative about the authenticated background connection.

@@ -3,6 +3,9 @@
 // sensitive field protection, compact DOM snapshots, workflow recording & replay,
 // audit logging, and authenticated loopback bridge communication.
 
+// AI Cloud API keys live in extension-local storage: content scripts must
+// not be able to read them, including the localhost onboarding script.
+void chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
 const MAX_TEXT = 24000;
 const SAFE_URL = /^https?:\/\//i;
 const MUTATING_ACTIONS = new Set(['click', 'type', 'scroll', 'navigate', 'select']);

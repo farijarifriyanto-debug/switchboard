@@ -1,0 +1,38 @@
+# Switchboard Cloud Standalone — implementation and release gate
+
+Date: 2026-10-29. Owner specification: install the Chrome extension, enter a BotConnector API key, and immediately use BotConnector AI Cloud and browser agent without installing/running Switchboard CLI or `sbx web`.
+
+Status: **implementation and bounded real Chrome/provider E2E PASS; 0.4.8 release candidate only. No store publication**.
+
+## Implementation
+
+- `browser-extension/cloud-agent.js` uses a fixed HTTPS origin and OpenAI-compatible chat/completions tools API. It never calls local Switchboard, native messaging, or a Web Console. Agent conversation is memory-only in the panel, capped at eight model rounds. For explicit page-summary/read/click instructions, the extension obtains a deterministic real DOM snapshot **before** the first model request, then passes it as bounded, untrusted tool messages; model discretion alone cannot bypass this evidence step.
+- Side-panel BotConnector BYOK form saves model and API key in extension-local storage with access restricted to trusted extension contexts; no Chrome sync, no webpage scripts and no audit logs. The key can be deleted in the same panel. Unlike the older local-BYOK path, no independent Web Console approval is needed; user-entered key resides in the extension at rest.
+- The existing service-worker browser tool executor, native Chrome per-site host permission, sensitive field blocking, tab binding and audit behavior remain in charge of browser actions. Cloud writes/navigation require explicit action confirmation; clicks verify the real visible element label against a fresh DOM snapshot before approval. Failed or rejected mutations never retry.
+- Chrome permission adds **only** `https://api.botconnector.id/*` as the fixed Cloud endpoint; arbitrary user-provided cloud URLs are prohibited.
+- Mode local/other providers remains optional; the published 0.4.7 package is unaffected. Standalone mode currently supports BotConnector only and a restricted browser tool subset, not a full cloud-remote task scheduler.
+
+## Evidence
+
+1. `node test/test-cloud-standalone.mjs` PASS: direct HTTPS fixed endpoint; model and bearer; tool output; no local-bridge dependency; denied click never executed, uncertain click executed once at most; 401/429 and Abort handling; storage trusted context.
+2. `node test/test-cloud-standalone-chrome.mjs` PASS using a disposable **real Chrome for Testing** profile, HTTP fixture tab, model-request interception. Enter key in actual side panel, save without local server, model requests `browser_dom_snapshot`, actual Chrome DOM evidence `QA_SCREEN qa_731` arrives in tool result, response appears in chat. Second flow requests a click; a real Chrome JavaScript confirmation dialog is accepted, a button changes its actual dataset count from 0 to **1**. Key deletion removes `cloudConfig`. Neither flow requires a Switchboard local agent. No `sbx web` process is used by the test; local fixture is a static QA website, not a Switchboard backend.
+3. `SBX_CLOUD_LIVE=1 node test/test-cloud-standalone-chrome.mjs` PASS against the **real BotConnector gateway**, disposable Chrome and the existing test account's configured API key, with actual DOM `qa_731` included in the final answer and at least one browser tool; the test prompt did **not** contain `qa_731`. Final deterministic-evidence E2E runtime ~12 seconds. Test did not print or publish any key.
+4. Legacy local paired Chrome regression `npm run test:tasks:chrome` PASS using the OpenRouter fixture and separately authenticated local backend.
+5. Typecheck/build/extension package and `npm test` Windows full suite PASS; final CI and Chrome-store review still required for this new extension version.
+
+## Reference and parity (repository source: docs/claude-in-chrome-reference-20261011.md)
+
+| Feature | Reference behavior | Standalone Switchboard | Evidence | Outcome |
+| --- | --- | --- | --- | --- |
+| Chat-first side panel | Chrome side-panel as agent front door | Prompt, steps, answer, Stop, key form | Real Chrome standalone QA | Adaptasi setara untuk dasar |
+| Native site permissions | Chrome host permission is the site access gate | Existing native permission authority retained | Existing Chrome permission QA, Cloud Chrome fixture | Adaptasi setara |
+| Browser actions | Operator consent for risky actions | Explicit one-time click/write confirmation plus element-label check | Real Chrome QA click once | Adaptasi terbatas |
+| Cloud inference with no local app | Hosted agent experience | Fixed first-party HTTPS model endpoint + in-extension tool orchestration | Live BotConnector CFT E2E | PASS function |
+| Full historical Claude in Chrome parity | Multi-tab/background/vision/recovery | Local mode retains more tools; Cloud supports narrower subset | No new real side-by-side with latest Claude available | **BELUM TERVERIFIKASI / NO-GO for broad parity claim** |
+
+## Mandatory limitations / publication controls
+
+- **Secrets:** Extension-local storage is not an independently encrypted key vault; do not use shared/untrusted devices. No claim of zero data leaving the laptop: user prompts and approved website content travel to BotConnector. Chrome Web Store privacy declarations must be updated to match.
+- **Model access:** The user must have a valid BotConnector API key and a model that supports tool calls; invalid keys (401/403) or throttling (429) fail transparently without hidden fallback to a local server.
+- **Background execution:** Closing the side panel ends its in-memory Cloud agent run. No promised unattended/cloud scheduling.
+- **Release:** Version 0.4.7 was already submitted per owner and does NOT include standalone. **0.4.8 is not submitted or live**. Do not tag, publish npm or update Chrome Web Store until independent release authorization and publisher privacy/permission review.

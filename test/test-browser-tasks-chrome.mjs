@@ -239,12 +239,12 @@ try {
     // Switching providers must not accidentally reuse an API key typed
     // for the previous provider.
     document.getElementById('byok-key').value = 'wrong-provider-test-key';
-    document.getElementById('byok-provider').value = 'botconnector';
+    document.getElementById('byok-provider').value = 'openrouter';
     document.getElementById('byok-provider').dispatchEvent(new Event('change'));
     if (document.getElementById('byok-key').value !== '') {
       throw Error('Switching providers did not clear the previous API key');
     }
-    if (document.getElementById('byok-model').value !== 'agnes-3.0-flash') {
+    if (document.getElementById('byok-model').value !== 'qwen/qwen3.8-flash') {
       throw Error('BotConnector model default did not populate');
     }
     document.getElementById('byok-key').value = ${JSON.stringify(apiTestKey)};
@@ -271,8 +271,8 @@ try {
   }
   assert.ok(approveReady,'Authenticated Web Console displays one-time authorization')
   const approvalDescription = await evaluate("document.getElementById('byok-console-description').textContent",approvalSession)
-  assert.match(approvalDescription,/BotConnector Cloud/)
-  assert.ok(approvalDescription.includes('agnes-3.0-flash'))
+  assert.match(approvalDescription,/OpenRouter/)
+  assert.ok(approvalDescription.includes('qwen/qwen3.8-flash'))
   await evaluate("document.getElementById('byok-console-allow').click()",approvalSession)
   let saved = false
   for(let i=0;i<70;i++){
@@ -283,13 +283,13 @@ try {
   }
   assert.ok(saved,'UI stored approved key through backend')
   assert.equal(await evaluate('conversationId',byokSession),null,'Switching the default model resets the next conversation session')
-  assert.equal(host.ctx.providers.default().provider,'byok-botconnector')
-  assert.equal(host.ctx.providers.default().model,'agnes-3.0-flash')
-  assert.equal(host.ctx.providers.require('byok-botconnector').baseURL,'https://api.botconnector.id/v1')
-  assert.equal(host.ctx.credentials.describe(host.ctx.providers.require('byok-botconnector')).configured,true)
+  assert.equal(host.ctx.providers.default().provider,'byok-openrouter')
+  assert.equal(host.ctx.providers.default().model,'qwen/qwen3.8-flash')
+  assert.equal(host.ctx.providers.require('byok-openrouter').baseURL,'https://openrouter.ai/api/v1')
+  assert.equal(host.ctx.credentials.describe(host.ctx.providers.require('byok-openrouter')).configured,true)
   const allChromeStored = await evaluate("chrome.storage.local.get(null)")
   assert.equal(JSON.stringify(allChromeStored).includes(apiTestKey),false,'No API key in Chrome storage')
-  console.log('PASS visible Chrome BotConnector API key in side-panel -> one-time consent -> trusted BotConnector backend credentials; no Chrome key persistence')
+  console.log('PASS visible Chrome legacy OpenRouter key -> backend credentials with one-time consent; standalone BotConnector tested separately')
 } finally {
   try { ws?.close() } catch {}
   await host?.dispose().catch(() => {})

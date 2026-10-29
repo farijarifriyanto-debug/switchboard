@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.8
+
+Release candidate — **unpublished**; Chrome Web Store 0.4.7 submission is a different, earlier build.
+
+- BotConnector Cloud now runs directly in the Chrome side panel, with an extension-local BYOK configuration, fixed HTTPS inference gateway, and an agent tool loop using the existing browser tool executor and native Chrome per-site permissions. No Switchboard CLI, Web Console, or pairing required. Browser actions request explicit operator confirmation; failed/uncertain mutations are not retried. API keys stay in trusted extension-local storage and may be removed in-panel. New privacy disclosures and standalone Chrome regression coverage.
+
 ## 0.4.7
 
 - The Chrome side panel now has a Provider / Model ID / API key form for BotConnector Cloud, OpenRouter and Groq. BotConnector uses the fixed first-party HTTPS gateway `https://api.botconnector.id/v1` with `agnes-3.0-flash` as its initial model ID. Saving uses independent, one-use approval in the authenticated Web Console; the key is never written to extension storage and the companion bearer never gains access to general settings.

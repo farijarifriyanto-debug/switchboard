@@ -424,8 +424,8 @@
             <label for="byok-provider">Provider AI</label>
             <select id="byok-provider" required>
               <option value="botconnector">BotConnector Cloud</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="groq">Groq</option>
+              <option value="openrouter">OpenRouter (memerlukan sbx web)</option>
+              <option value="groq">Groq (memerlukan sbx web)</option>
             </select>
             <label for="byok-model">Model ID</label>
             <input id="byok-model" maxlength="160" required spellcheck="false" value="agnes-3.0-flash" placeholder="agnes-3.0-flash">
@@ -436,7 +436,8 @@
               <button id="byok-save" type="submit">Simpan API key</button>
               <button id="byok-cancel" type="button" class="secondary" hidden>Batal</button>
             </div>
-            <p id="byok-status" class="panel-hint" role="status" aria-live="polite">Key hanya disimpan setelah Anda menyetujui permintaan melalui Web Console lokal. Tidak disimpan di Chrome.</p>
+            <p id="byok-status" class="panel-hint" role="status" aria-live="polite">BotConnector Cloud langsung berjalan tanpa CLI. API key disimpan di penyimpanan lokal ekstensi (bukan sinkronisasi Chrome), lalu dikirim hanya ke https://api.botconnector.id saat AI digunakan. Jangan gunakan di komputer bersama.</p>
+            <button id="cloud-remove-key" type="button" class="secondary">Hapus API key Cloud dari ekstensi</button>
             <p class="panel-hint">Pengaturan provider lain: <button id="byok-advanced" type="button" class="link-button">Pengaturan lengkap</button></p>
           </form>
         </details>
@@ -605,12 +606,13 @@
     <div class="row" style="margin-top:14px">
       <button id="configure-model-key-settings" class="secondary" type="button">Atur model &amp; API key di Switchboard</button>
     </div>
-    <p class="panel-hint">API key disimpan write-only oleh Switchboard di komputer ini, bukan di ekstensi Chrome.</p>
+    <p class="panel-hint">Mode lokal: API key disimpan oleh backend Switchboard. Mode Cloud mandiri: key BotConnector tersimpan pada penyimpanan lokal ekstensi sampai Anda menghapusnya.</p>
     <label style="margin-top:14px">Diagnostics & Troubleshooting</label>
     <pre id="bridge-diagnostics">Checking local Switchboard service...</pre>
   </div>
 
   </main><!-- app-shell -->
+  <script src="cloud-agent.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>
