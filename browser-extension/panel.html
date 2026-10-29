@@ -403,6 +403,8 @@
             <button type="button" class="chip" data-prompt="Ringkas halaman yang sedang saya buka dalam lima poin.">Ringkas halaman ini</button>
             <button type="button" class="chip" data-prompt="Isi formulir di halaman ini dengan data berikut: ">Isi formulir di halaman ini</button>
             <button type="button" class="chip" data-prompt="Ambil semua nama paket dan harga di halaman ini, lalu buat tabel perbandingannya.">Bandingkan harga di halaman ini</button>
+            <button type="button" class="chip" data-prompt="Ekstrak tabel data yang terlihat pada halaman ini. Cantumkan sumber URL dan tandai data yang belum terverifikasi. Jangan mengubah halaman.">Ekstrak data</button>
+            <button type="button" class="chip" id="task-configure-key">Atur model &amp; API key</button>
           </div>
         </div>
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
@@ -489,9 +491,9 @@
   </div>
 
   <!-- Workflows -->
-  <div id="tab-workflows" class="tab-pane"><div class="panel-hint">Local browser workflows and replay controls. Use Switchboard to plan and execute agent tasks.</div>
+  <div id="tab-workflows" class="tab-pane"><div class="panel-hint">Rekam aksi browser yang berhasil dilakukan oleh agent setelah Anda menekan Rekam. Tidak merekam ketikan, nilai formulir, atau aktivitas browser pribadi. Tindakan replay tetap membutuhkan izin situs Chrome.</div>
     <div class="row" style="margin-bottom:8px">
-      <button id="record-workflow-btn" class="secondary">⏺ Start Recording</button>
+      <button id="record-workflow-btn" class="secondary">⏺ Rekam aksi agent</button>
       <button id="replay-workflow-btn" disabled>▶ Replay Workflow</button>
       <button id="cancel-replay-btn" class="danger" disabled>⏹ Stop</button>
     </div>
@@ -506,6 +508,7 @@
     <div class="row" style="margin-bottom:8px">
       <button id="export-workflow-btn" class="secondary">Export JSON</button>
       <button id="import-workflow-btn" class="secondary">Import JSON</button>
+      <input id="import-workflow-file" type="file" accept=".json,application/json" hidden>
       <button id="clear-workflow-btn" class="danger">Clear</button>
     </div>
 
@@ -566,6 +569,10 @@
       <button id="disconnect-bridge-btn" class="danger">Disconnect</button>
     </div>
 
+    <div class="row" style="margin-top:14px">
+      <button id="configure-model-key-settings" class="secondary" type="button">Atur model &amp; API key di Switchboard</button>
+    </div>
+    <p class="panel-hint">API key disimpan write-only oleh Switchboard di komputer ini, bukan di ekstensi Chrome.</p>
     <label style="margin-top:14px">Diagnostics & Troubleshooting</label>
     <pre id="bridge-diagnostics">Checking local Switchboard service...</pre>
   </div>

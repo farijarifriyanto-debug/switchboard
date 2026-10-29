@@ -32,6 +32,20 @@ See [STORE-SUBMISSION.md](./STORE-SUBMISSION.md) for the publisher dashboard ste
 
 ## Site access and AI tasks
 
+**Use your own API key:** start `sbx web`, pair the Browser Companion,
+then select **Atur model & API key** in the companion's settings.
+This opens the existing local Switchboard **Settings → Models** screen.
+Add an OpenAI-compatible provider (or choose an existing provider),
+enter its API key in the password field, save it, and select a model.
+The key is write-only in Switchboard's local credentials store; it is
+never saved in Chrome extension storage or a page URL. If `sbx web`
+uses an access token, first open the authenticated console URL printed
+by `sbx web` in the **same browser profile** to establish its secure
+session cookie. Browser Companion pairing does not authorize credential
+settings, and the extension never receives the Web Console token.
+A provider's billing and usage policy still apply. Local AI uses its
+existing runtime/model manager and does not need a cloud API key.
+
 Browser site access uses the native Chrome/Edge host permission as its single source of truth. Manual/Auto control AI actions, not a second site allowlist. When a task needs a new site, Switchboard waits and marks the extension icon with **!**. Open the companion panel, review the requested domain, then choose **Allow in Chrome & continue**. The browser shows its native permission dialog; choosing Deny stops the original action. Chrome permission alone is sufficient; Switchboard does not ask you to approve the same site twice. No blanket permission to all sites is requested. Do not approve unfamiliar sites.
 
 Use **Ask Switchboard** in the Overview tab to submit browser instructions without switching to the Web UI. The field talks to the authenticated Switchboard agent on localhost, streams tool activity, and offers Stop. The connected AI model and browser security gates remain unchanged.

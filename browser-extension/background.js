@@ -882,8 +882,13 @@ async function executeBrowserAction(action, params = {}, options = {}) {
     await requireTabSite(tab, 'browser_' + action);
     await ensureTabMonitoring(tab.id);
     // Do not inspect page content (even a target label) until Chrome grants access.
-    const authorization = action === 'click' && AUTHORIZATION_LABEL.test(await readElementLabel(tab.id, String(params.selector || '')));
-    userApproved = authorization;
+    const label = action === 'click' ? await readElementLabel(tab.id, String(params.selector || '')) : '';
+    // Replays bypass the normal agent preflight, so they must not click risky
+    // controls hidden behind generic CSS selectors (e.g. #primary-button).
+    if (options.replay && action === 'click' && (!label || RISKY_REPLAY_SELECTOR.test(label))) {
+      throw new Error('Workflow replay refused a sensitive or unidentifiable click target.');
+    }
+    userApproved = AUTHORIZATION_LABEL.test(label);
   }
 
   // Handle navigate
@@ -1218,6 +1223,21 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return { ok: true };
     }
 
+    // Recording is opt-in and captures only successful, non-sensitive agent
+    // browser actions. No passive webpage/keystroke listeners are installed.
+    if (message.type === 'SWITCHBOARD_WORKFLOW_RECORD_SET') {
+      const enabled = message.enabled === true;
+      await chrome.storage.session.set({ workflowRecording: enabled });
+      return { ok: true, recording: enabled };
+    }
+    if (message.type === 'SWITCHBOARD_WORKFLOW_RECORD_STATUS') {
+      const { workflowRecording = false } = await chrome.storage.session.get('workflowRecording');
+      return { ok: true, recording: workflowRecording };
+    }
+    if (message.type === 'SWITCHBOARD_WORKFLOW_CANCEL') {
+      activeReplayCancelled = true;
+      return { ok: true, cancelled: activeReplayRunning };
+    }
     // 9. SWITCHBOARD_WORKFLOW_REPLAY
     if (message.type === 'SWITCHBOARD_WORKFLOW_REPLAY') {
       const { steps = [] } = message;
@@ -1375,9 +1395,43 @@ async function createAgentTab(url) {
   return { ok: true, result: 'Opened ' + target.href, tab: { id: tab.id, url: target.href, groupId } };
 }
 
+async function maybeRecordAgentAction(toolName, args, result) {
+  if (!result?.ok || !['browser_click', 'browser_scroll', 'browser_navigate'].includes(toolName)) return;
+  const { workflowRecording = false } = await chrome.storage.session.get('workflowRecording');
+  if (!workflowRecording) return;
+  const action = toolName.slice('browser_'.length);
+  // Never store typed values, selected values, screenshots, query tokens,
+  // selectors tied to a transient DOM snapshot, or authentication URLs.
+  let step;
+  if (action === 'navigate') {
+    try {
+      const url = new URL(String(args.url || ''));
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return;
+      step = { action, url: url.href };
+    } catch { return; }
+  } else if (action === 'click') {
+    const selector = String(args.selector || '');
+    if (!selector || selector.startsWith('@') || selector.length > 500 ||
+        /password|credit|card|payment|token|secret/i.test(selector)) return;
+    step = { action, selector };
+  } else {
+    const selector = String(args.selector || '');
+    if (selector.startsWith('@') || selector.length > 500) return;
+    const direction = String(args.direction || 'down');
+    if (!['up', 'down', 'top', 'bottom'].includes(direction)) return;
+    step = { action, direction, amount: Math.min(3000, Math.max(1, Number(args.amount) || 600)), ...(selector ? { selector } : {}) };
+  }
+  const { workflowSteps = [] } = await chrome.storage.local.get('workflowSteps');
+  const steps = Array.isArray(workflowSteps) ? workflowSteps : [];
+  if (steps.length < 50) await chrome.storage.local.set({ workflowSteps: [...steps, step] });
+}
 async function handleToolExecution(toolName, args = {}) {
-  try { return await runToolExecution(toolName, args); }
-  finally { await releaseOneTimeGrants(); }
+  try {
+    const result = await runToolExecution(toolName, args);
+    // Recording must never fail an already successful authorized browser action.
+    try { await maybeRecordAgentAction(toolName, args, result); } catch (_) {}
+    return result;
+  } finally { await releaseOneTimeGrants(); }
 }
 async function runToolExecution(toolName, args = {}) {
   // Listing and switching tabs never inject content scripts.
@@ -1580,11 +1634,48 @@ async function runToolExecution(toolName, args = {}) {
 // Workflow Replay Engine (Sequential with Target Validation & Retries)
 // -----------------------------------------------------------------------------
 let activeReplayCancelled = false;
+let activeReplayRunning = false;
+const RISKY_REPLAY_SELECTOR = /password|passcode|credit|card|pay|order|checkout|purchase|buy|submit|delete|remove|transfer|withdraw|deposit|send|publish|subscribe|authori[sz]|grant|consent|approve|confirm|upload|download|log.?in|log.?out|token|secret/i;
+
+function validateReplaySteps(steps) {
+  if (!Array.isArray(steps) || !steps.length || steps.length > 50) return false;
+  return steps.every(step => {
+    if (!step || typeof step !== 'object' || Array.isArray(step)) return false;
+    if (step.action === 'navigate') {
+      try {
+        const url = new URL(step.url);
+        return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password &&
+          !url.search && !url.hash;
+      } catch { return false; }
+    }
+    const selector = step.selector || '';
+    if (typeof selector !== 'string' || selector.length > 500 || selector.startsWith('@')) return false;
+    if (step.action === 'click') return Boolean(selector) && !RISKY_REPLAY_SELECTOR.test(selector);
+    if (step.action === 'scroll') {
+      const direction = step.direction || 'down';
+      const amount = Number(step.amount || 600);
+      return ['up', 'down', 'top', 'bottom'].includes(direction) &&
+        Number.isFinite(amount) && amount > 0 && amount <= 3000;
+    }
+    return false;
+  });
+}
 
 async function replayWorkflow(steps = []) {
+  if (activeReplayRunning) return { ok: false, error: 'Another workflow replay is running.', results: [] };
+  if (!validateReplaySteps(steps)) {
+    return { ok: false, error: 'Workflow contains an unsafe or unsupported action. Edit the steps before replay.', results: [] };
+  }
+  activeReplayRunning = true;
   activeReplayCancelled = false;
   const results = [];
-  const tab = await getActiveTab();
+  try {
+  // Replay must stay on the agent's explicitly bound tab. Never adopt the
+  // owner's currently focused personal tab as a silent fallback.
+  const tab = await boundAgentTab();
+  if (!tab?.id || !/^https?:\/\//i.test(tab.url || '')) {
+    return { ok: false, error: 'No bound browser agent tab. Select a tab with Switchboard before replay.', results: [] };
+  }
 
   for (let i = 0; i < steps.length; i++) {
     if (activeReplayCancelled) {
@@ -1596,14 +1687,19 @@ async function replayWorkflow(steps = []) {
     let stepSuccess = false;
     let stepError = null;
 
-    while (attempts < 3 && !stepSuccess) {
+    // A click may have succeeded before a timeout/error was reported.
+    // Do not retry potentially non-idempotent clicks.
+    const maxAttempts = step.action === 'click' ? 1 : 3;
+    while (attempts < maxAttempts && !stepSuccess && !activeReplayCancelled) {
       attempts++;
       try {
-        await executeBrowserAction(step.action, step, { tabId: tab.id });
+        await executeBrowserAction(step.action, step, { tabId: tab.id, replay: true });
         stepSuccess = true;
       } catch (err) {
         stepError = err;
-        await new Promise(r => setTimeout(r, 600)); // Bounded retry backoff
+        if (attempts < maxAttempts && !activeReplayCancelled) {
+          await new Promise(r => setTimeout(r, 600)); // Bounded retry backoff
+        }
       }
     }
 
@@ -1611,15 +1707,19 @@ async function replayWorkflow(steps = []) {
       step: i + 1,
       action: step.action,
       selector: step.selector || '',
-      status: stepSuccess ? 'success' : 'failed',
+      status: activeReplayCancelled ? 'cancelled' : (stepSuccess ? 'success' : 'failed'),
       attempts,
       error: stepSuccess ? undefined : errorMessage(stepError)
     });
 
-    if (!stepSuccess) {
+    if (!stepSuccess || activeReplayCancelled) {
       break; // Sequential execution halts on unrecoverable failure
     }
   }
 
-  return { ok: results.every(r => r.status === 'success'), results };
+  return { ok: !activeReplayCancelled && results.length === steps.length && results.every(r => r.status === 'success'), cancelled: activeReplayCancelled, results };
+  } finally {
+    activeReplayRunning = false;
+    activeReplayCancelled = false;
+  }
 }

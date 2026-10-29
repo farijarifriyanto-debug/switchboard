@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased (Switchboard Tasks / BYOK shortcut; not published)
+
+- Browser Companion opens the existing local Settings → Models provider/API-key form directly. Credentials continue to use Switchboard's write-only local store; no API key is accepted or kept by the extension.
+- Add a read-only extract-data prompt shortcut. Preserve the current chat-first panel, native Chrome site permissions, and Manual/Auto/Skip semantics.
+- Make workflow recording opt-in for successful agent click, scroll, and navigation actions, without recording typed values or sensitive URL query strings. Safely import/export bounded JSON, cancel replay after the in-flight action, and never retry uncertain clicks. High-risk selectors and actual click labels are screened (after Chrome site permission); replay clicks require an explicit operator review. Replay refuses to take over an unbound personal tab.
+- Add repeatable task UX tests and opt-in visible-Chrome acceptance. None of these changes are included in the published 0.4.6.
+
 ## 0.4.6
 
 - Stop losing data or the host: a cancelled tool batch now answers every `tool_call` id, an unreadable `automations.json` is never overwritten and one bad schedule cannot exit the process, CI run records are written atomically and privately, and a session larger than the reader limit keeps its newest turns plus a searchable archive instead of vanishing.

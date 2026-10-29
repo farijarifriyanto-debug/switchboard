@@ -3146,8 +3146,15 @@ loadState()
     // A BotConnector website link can open this local console with a plugin
     // preselected. The remote page cannot send installation commands: the
     // operator must still click Install in this authenticated local console.
-    const requestedPlugin = new URLSearchParams(location.search).get('plugin')
-    if (requestedPlugin === 'semgrep' || requestedPlugin === 'opensandbox') {
+    const params = new URLSearchParams(location.search)
+    const requestedPlugin = params.get('plugin')
+    const requestedSettings = params.get('settings')
+    if (requestedSettings === 'models') {
+      // The extension only opens this loopback UI. Secrets stay in the
+      // existing write-only provider credential store, never in the URL.
+      await openSettings('models')
+      history.replaceState(null, '', location.pathname + location.hash)
+    } else if (requestedPlugin === 'semgrep' || requestedPlugin === 'opensandbox') {
       await openSettings('plugins')
       history.replaceState(null, '', location.pathname + location.hash)
     } else ui.prompt.focus()

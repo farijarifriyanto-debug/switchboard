@@ -85,6 +85,8 @@ async function loadStoredConfig() {
     recordedWorkflowSteps = stored.workflowSteps;
     renderWorkflowSteps();
   }
+  const recording = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_RECORD_STATUS' }).catch(() => null);
+  setWorkflowRecordingUi(recording?.recording === true);
   $('bridge-url-input').value = bridgeUrl;
   $('bridge-token-input').value = '';
 }
@@ -347,52 +349,79 @@ function renderWorkflowSteps() {
   });
 }
 
-$('record-workflow-btn').addEventListener('click', () => {
-  isRecording = !isRecording;
-  if (isRecording) {
-    $('record-workflow-btn').textContent = '⏹ Stop Recording';
-    $('record-workflow-btn').className = 'danger';
-    $('replay-progress-bar').textContent = 'Recording interactions on active tab...';
-  } else {
-    $('record-workflow-btn').textContent = '⏺ Start Recording';
-    $('record-workflow-btn').className = 'secondary';
-    $('replay-progress-bar').textContent = 'Recording stopped.';
+function setWorkflowRecordingUi(enabled) {
+  isRecording = enabled;
+  $('record-workflow-btn').textContent = enabled ? '⏹ Hentikan rekaman' : '⏺ Rekam aksi agent';
+  $('record-workflow-btn').className = enabled ? 'danger' : 'secondary';
+  $('replay-progress-bar').textContent = enabled
+    ? 'Merekam aksi agent yang berhasil. Ketikan dan data pribadi tidak disimpan.'
+    : 'Status: Tidak merekam';
+}
+$('record-workflow-btn').addEventListener('click', async () => {
+  const next = !isRecording;
+  const result = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_RECORD_SET', enabled: next }).catch(() => null);
+  if (!result?.ok) {
+    $('replay-progress-bar').textContent = 'Gagal mengubah status rekaman.';
+    return;
+  }
+  setWorkflowRecordingUi(result.recording);
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.workflowSteps && Array.isArray(changes.workflowSteps.newValue)) {
+    recordedWorkflowSteps = changes.workflowSteps.newValue;
+    renderWorkflowSteps();
   }
 });
 
 $('replay-workflow-btn').addEventListener('click', async () => {
   if (recordedWorkflowSteps.length === 0) return;
+  const clicks = recordedWorkflowSteps.filter(step => step.action === 'click').length;
+  // Workflow replay does not run through the AI agent's action preflight.
+  // Review mutating actions explicitly; Chrome host-site permissions remain mandatory.
+  if (clicks && !confirm('Replay akan menjalankan ' + clicks + ' klik pada halaman browser. Tinjau daftar langkah dan pastikan situs serta targetnya benar. Lanjutkan?')) return;
   $('replay-workflow-btn').disabled = true;
   $('cancel-replay-btn').disabled = false;
   $('replay-progress-bar').textContent = 'Replaying workflow...';
 
-  const res = await chrome.runtime.sendMessage({
-    type: 'SWITCHBOARD_WORKFLOW_REPLAY',
-    steps: recordedWorkflowSteps,
-  });
-
-  $('replay-workflow-btn').disabled = false;
-  $('cancel-replay-btn').disabled = true;
-
-  if (res?.ok) {
-    $('replay-progress-bar').textContent = `Replay completed successfully (${res.results.length} steps)!`;
-  } else {
-    $('replay-progress-bar').textContent = `Replay finished with failures or was stopped.`;
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'SWITCHBOARD_WORKFLOW_REPLAY',
+      steps: recordedWorkflowSteps,
+    });
+    if (res?.ok) {
+      $('replay-progress-bar').textContent = `Replay berhasil (${res.results.length} langkah).`;
+    } else {
+      $('replay-progress-bar').textContent = res?.cancelled
+        ? 'Replay dihentikan setelah aksi yang sedang berjalan.'
+        : 'Replay gagal: ' + String(res?.error || res?.results?.find(s => s.status === 'failed')?.error || 'Langkah belum berhasil.');
+    }
+  } catch (error) {
+    $('replay-progress-bar').textContent = 'Replay gagal: ' + String(error?.message || error);
+  } finally {
+    $('replay-workflow-btn').disabled = false;
+    $('cancel-replay-btn').disabled = true;
+    await refreshAuditLog();
   }
-  await refreshAuditLog();
 });
 
-$('cancel-replay-btn').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_CANCEL' });
-  $('replay-progress-bar').textContent = 'Replay stopped.';
+$('cancel-replay-btn').addEventListener('click', async () => {
+  const res = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_WORKFLOW_CANCEL' }).catch(() => null);
+  $('replay-progress-bar').textContent = res?.ok
+    ? 'Stop diminta. Aksi yang sudah berjalan tidak dapat dibatalkan.'
+    : 'Gagal mengirim Stop.';
 });
 
 $('export-workflow-btn').addEventListener('click', () => {
-  const sanitized = recordedWorkflowSteps.map((step) => {
-    const isSensitive = step.selector && (step.selector.includes('password') || step.selector.includes('cc-'));
-    return isSensitive ? { ...step, value: '[REDACTED]' } : step;
-  });
-  const json = JSON.stringify({ version: 1, steps: sanitized }, null, 2);
+  // Old stored workflows may contain typed values. Never export their raw
+  // objects: require the same whitelist as imports and strip extra fields.
+  let safeSteps;
+  try {
+    safeSteps = parseWorkflowImport({ version: 1, steps: recordedWorkflowSteps });
+  } catch (error) {
+    $('replay-progress-bar').textContent = 'Ekspor ditolak: ' + String(error?.message || error);
+    return;
+  }
+  const json = JSON.stringify({ version: 1, steps: safeSteps }, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -402,6 +431,57 @@ $('export-workflow-btn').addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+// Imported files are data, never commands. Apply strict bounds before writing
+// to Chrome storage; replay still goes through Chrome's native site permission.
+function parseWorkflowImport(raw) {
+  if (!raw || raw.version !== 1 || !Array.isArray(raw.steps) ||
+      raw.steps.length < 1 || raw.steps.length > 50) throw new Error('Format workflow tidak valid (1–50 langkah).');
+  return raw.steps.map((step, i) => {
+    if (!step || typeof step !== 'object' || Array.isArray(step)) throw new Error('Langkah ' + (i + 1) + ' tidak valid.');
+    if (step.action === 'navigate') {
+      const url = new URL(String(step.url || ''));
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+        throw new Error('URL langkah ' + (i + 1) + ' tidak aman untuk disimpan.');
+      return { action: 'navigate', url: url.href };
+    }
+    if (step.action === 'click') {
+      const selector = String(step.selector || '');
+      if (!selector || selector.length > 500 || selector.startsWith('@') ||
+          /password|passcode|credit|card|pay|order|checkout|purchase|buy|submit|delete|remove|transfer|withdraw|deposit|send|publish|subscribe|authori[sz]|grant|consent|approve|confirm|upload|download|log.?in|log.?out|token|secret/i.test(selector))
+        throw new Error('Selector langkah ' + (i + 1) + ' tidak aman atau tidak stabil.');
+      return { action: 'click', selector };
+    }
+    if (step.action === 'scroll') {
+      const direction = String(step.direction || 'down');
+      const amount = Number(step.amount || 600);
+      const selector = String(step.selector || '');
+      if (!['up', 'down', 'top', 'bottom'].includes(direction) ||
+          !Number.isFinite(amount) || amount < 1 || amount > 3000 ||
+          selector.length > 500 || selector.startsWith('@'))
+        throw new Error('Scroll langkah ' + (i + 1) + ' tidak valid.');
+      return { action: 'scroll', direction, amount, ...(selector ? { selector } : {}) };
+    }
+    // Typing, file downloads, credentials and arbitrary imported code are never replayed.
+    throw new Error('Aksi langkah ' + (i + 1) + ' tidak didukung untuk impor.');
+  });
+}
+$('import-workflow-btn').addEventListener('click', () => $('import-workflow-file').click());
+$('import-workflow-file').addEventListener('change', async (event) => {
+  const input = event.target;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    if (file.size > 64 * 1024) throw new Error('File melebihi 64 KB.');
+    const steps = parseWorkflowImport(JSON.parse(await file.text()));
+    recordedWorkflowSteps = steps;
+    await chrome.storage.local.set({ workflowSteps: steps });
+    renderWorkflowSteps();
+    $('replay-progress-bar').textContent = steps.length + ' langkah berhasil diimpor. Tinjau sebelum replay.';
+  } catch (error) {
+    $('replay-progress-bar').textContent = 'Impor gagal: ' + String(error?.message || error);
+  }
+});
 $('clear-workflow-btn').addEventListener('click', async () => {
   if (confirm('Clear all recorded workflow steps?')) {
     recordedWorkflowSteps = [];
@@ -680,6 +760,29 @@ function taskStatus(text) { $('task-status').textContent = text; }
 $('task-open-web').addEventListener('click', () => {
   void chrome.tabs.create({ url: webOrigin + '/' });
 });
+// Configure provider API keys in the existing authenticated loopback console.
+// Never accept, persist or transmit API keys through the browser extension.
+async function openModelKeySettings() {
+  // Use the authenticated, paired server's advertised origin, never an
+  // unpaired fallback port or a webpage-supplied destination.
+  const status = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' }).catch(() => null);
+  const origin = normalizeWebOrigin(status?.webOrigin);
+  if (!status?.connected || !origin) {
+    const message = 'Hubungkan Browser Companion ke sbx web untuk mengatur model & API key.';
+    taskStatus(message);
+    $('bridge-diagnostics').textContent = message;
+    return;
+  }
+  try {
+    await chrome.tabs.create({ url: origin + '/?settings=models' });
+  } catch (error) {
+    const message = 'Gagal membuka pengaturan model: ' + String(error?.message || error);
+    taskStatus(message);
+    $('bridge-diagnostics').textContent = message;
+  }
+}
+$('task-configure-key').addEventListener('click', openModelKeySettings);
+$('configure-model-key-settings').addEventListener('click', openModelKeySettings);
 $('task-stop').addEventListener('click', async () => {
   const sessionToCancel = activeTaskSession;
   activeTask?.abort();
