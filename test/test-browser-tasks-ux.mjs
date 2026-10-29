@@ -154,4 +154,18 @@ assert.ok(consoleSource.includes("await openSettings('models')"))
 assert.ok(consoleSource.includes('data-action="save-credential"'))
 console.log('PASS model/API key entry reuses local write-only Settings > Models')
 
+// Task receipts must distinguish observed tool execution from model prose.
+const receiptCode = extract(panel, 'function toolResultFailed(', 'function note(')
+const receipts = new Function(receiptCode + '\nreturn {toolResultFailed, taskReceiptText}')()
+assert.equal(receipts.toolResultFailed('Error: site denied'), true)
+assert.equal(receipts.toolResultFailed('{"ok":false,"error":"denied"}'), true)
+assert.equal(receipts.toolResultFailed('{"ok":true,"result":"done"}'), false)
+assert.equal(receipts.toolResultFailed('plain successful output'), false)
+assert.match(receipts.taskReceiptText('completed', ['done','done']), /2 .*dilaporkan berhasil/i)
+assert.match(receipts.taskReceiptText('completed', []), /tanpa.*aksi browser/i)
+assert.match(receipts.taskReceiptText('failed', ['done','failed']), /gagal/i)
+assert.match(receipts.taskReceiptText('cancelled', ['done','running']), /dihentikan/i)
+assert.match(receipts.taskReceiptText('step_limit', ['done','running']), /batas langkah/i)
+console.log('PASS task receipt differentiates tool results, failure, cancellation and unverified answers')
+
 console.log('=== Task UX regression contracts PASS ===')

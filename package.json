@@ -102,6 +102,7 @@
     "test:browser-cdp": "node test/test-browser-cdp.mjs",
     "test:browser-auto-local": "node test/test-browser-auto-local.mjs",
     "test:browser-panel-real-ai-auto": "node test/test-browser-panel-real-ai-e2e.mjs",
+    "test:tasks:cloud": "node test/test-browser-panel-cloud-e2e.mjs",
     "test:browser-panel-real-ai-skip": "node test/test-browser-panel-real-ai-skip-e2e.mjs",
     "test:browser-panel-real-ai-long": "node test/test-browser-panel-long-local-e2e.mjs",
     "test:browser-panel-real-ai-stop": "node test/test-browser-panel-stop-real-ai-e2e.mjs",

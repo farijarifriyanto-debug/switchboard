@@ -5,6 +5,8 @@
 - Browser Companion opens the existing local Settings → Models provider/API-key form directly. Credentials continue to use Switchboard's write-only local store; no API key is accepted or kept by the extension.
 - Add a read-only extract-data prompt shortcut. Preserve the current chat-first panel, native Chrome site permissions, and Manual/Auto/Skip semantics.
 - Make workflow recording opt-in for successful agent click, scroll, and navigation actions, without recording typed values or sensitive URL query strings. Safely import/export bounded JSON, cancel replay after the in-flight action, and never retry uncertain clicks. High-risk selectors and actual click labels are screened (after Chrome site permission); replay clicks require an explicit operator review. Replay refuses to take over an unbound personal tab.
+- Add a compact task result footer distinguishing tool-reported success, failed steps, cancellation, step limit, and answers without tool evidence; it does not claim independent verification.
+- Reuse the existing real Chrome agent E2E for an opt-in Cloud provider run with strictly scoped approvals and credential-safe env configuration. A bounded Qwen 3.8 Flash / OpenRouter run passed live Chrome DOM verification and reconnect without a duplicate click.
 - Add repeatable task UX tests and opt-in visible-Chrome acceptance. None of these changes are included in the published 0.4.6.
 
 ## 0.4.6

@@ -18,7 +18,7 @@ let host,chrome,server;
 try{
  server=http.createServer((_req,res)=>{res.writeHead(200,{'Content-Type':'text/html'});res.end('<html><head><title>Switchboard Real Chrome Test</title></head><body><button id="counter" onclick="this.textContent=\'Clicks: \'+(Number(this.dataset.n||0)+1);this.dataset.n=Number(this.dataset.n||0)+1">Clicks: 0</button><h1>Chrome DOM test</h1></body></html>')});
  await new Promise(r=>server.listen(pagePort,'127.0.0.1',r));
- host=await createHost({settings:{dir:profile},llm:{baseURL:localBaseURL,apiKey:process.env.SBX_LOCAL_API_KEY||'ollama',defaultModel:localModel,retries:0,timeoutMs:Number(process.env.SBX_LOCAL_TIMEOUT_MS||120000)},agent:{maxSteps:5,maxTokens:384,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'auto_safe'},web:{enabled:true,port:webPort,host:'127.0.0.1',token:randomBytes(24).toString('hex')}});
+ host=await createHost({settings:{dir:profile},llm:{baseURL:localBaseURL,apiKey:process.env.SBX_LOCAL_API_KEY||'ollama',defaultModel:localModel,retries:0,timeoutMs:Number(process.env.SBX_LOCAL_TIMEOUT_MS||120000)},agent:{maxSteps:7,maxTokens:768,temperature:0},tools:{shell:{disabled:true}},sessions:{dir:'',load:false},metrics:{persist:'',load:false},approval:{mode:'risky'},browser:{port:bridgePort,host:'127.0.0.1',token,defaultMode:'auto_safe'},web:{enabled:true,port:webPort,host:'127.0.0.1',token:randomBytes(24).toString('hex')}});
  const chromeBin=process.env.SBX_TEST_CHROME_PATH; if(!chromeBin)throw Error('Set SBX_TEST_CHROME_PATH to Chrome for Testing chrome.exe');
  // Load the real shipping extension unmodified: the panel must discover this
  // run's dynamic console port from the paired server, not a hardcoded 7777.
@@ -69,8 +69,20 @@ try{
  console.log('Active tab reported by Chrome extension: '+(state?.url?.startsWith('http://127.0.0.1:')?'LOCAL_HTTP_TAB':'NONE'));
  const webReady=await host.ctx.web.ready();
  console.log('REAL_LOCAL_WEB_READY '+JSON.stringify({port:webPort,ready:Boolean(webReady)}));
- const qaTab=(await evalSw("chrome.tabs.query({}).then(t=>t.filter(x=>x.url?.startsWith('http://127.0.0.1:')).map(x=>({id:x.id,url:x.url})))"))[0];
- if(!qaTab||!qaTab.url.endsWith('/'))throw Error('Local QA target missing');
+ let qaTab=(await evalSw("chrome.tabs.query({}).then(t=>t.filter(x=>x.url?.startsWith('http://127.0.0.1:')).map(x=>({id:x.id,url:x.url})))"))[0];
+ if(!qaTab||!qaTab.url.endsWith('/')){
+    const qaUrl='http://127.0.0.1:'+pagePort+'/';
+    const tabs=await evalSw('chrome.tabs.query({}).then(t=>t.map(x=>({id:x.id,url:x.url})))');
+    // This is the disposable test Chrome profile, never the owner's browser.
+    if(tabs.length)await evalSw('chrome.tabs.update('+tabs[0].id+',{url:'+JSON.stringify(qaUrl)+'})');
+    else await evalSw('chrome.tabs.create({url:'+JSON.stringify(qaUrl)+'})');
+    for(let attempt=0;attempt<50;attempt++){
+      qaTab=(await evalSw('chrome.tabs.query({}).then(t=>t.map(x=>({id:x.id,url:x.url})))')).find(t=>t.url===qaUrl);
+      if(qaTab)break;
+      await sleep(150);
+    }
+    if(!qaTab)throw Error('Isolated QA target missing after retry');
+  }
  await evalSw('bindAgentTab('+qaTab.id+')');
  const otherTarget=await browser.call('Target.createTarget',{url:'http://127.0.0.1:'+pagePort+'/other'});
  let otherTabId;
@@ -113,7 +125,26 @@ try{
    if(state.stepText?.includes('langkah')||state.stepText?.includes('Bekerja'))hasProgress=true;
    if(state.approval&&approvals<7){
      const ap=host.ctx.approvals.pending()[0];
-     const valid=ap&&ap.sessionId===state.session&&['browser_dom_snapshot','browser_click','browser_tabs_list','browser_tab_select'].includes(ap.tool)&& (!ap.args?.selector || ap.args.selector==='#counter');
+     let approvedTarget=false;
+     if(ap?.tool==='browser_click'&&ap.args?.tabId===qaTab.id&&ap.args?.targetOrigin==='http://127.0.0.1:'+pagePort){
+       if(ap.args.selector==='#counter') approvedTarget=true;
+       else if(/^@e[1-9][0-9]{0,2}$/.test(String(ap.args.selector||''))){
+         // Snapshot refs are transient, so verify their *live* DOM binding via
+         // independent read-only CDP before granting this one-time permission.
+         const target=(await browser.call('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url==='http://127.0.0.1:'+pagePort+'/');
+         if(target){
+           const attachment=await browser.call('Target.attachToTarget',{targetId:target.targetId,flatten:true});
+           try{
+             const expression='document.querySelector('+JSON.stringify('[data-sb-ref="'+ap.args.selector+'"]')+')?.id';
+             const observed=await browser.call('Runtime.evaluate',{expression,returnByValue:true},attachment.sessionId);
+             approvedTarget=observed.result?.value==='counter';
+           }finally{await browser.call('Target.detachFromTarget',{sessionId:attachment.sessionId}).catch(()=>{});}
+         }
+       }
+     }
+     const valid=ap&&ap.sessionId===state.session&&['browser_dom_snapshot','browser_click','browser_tabs_list','browser_tab_select'].includes(ap.tool)
+       &&(ap.tool!=='browser_click'||approvedTarget)
+       &&(ap.tool==='browser_click'||!ap.args?.selector||ap.args.selector==='#counter');
      if(!valid)throw Error('Unexpected approval; will not authorize: '+JSON.stringify({tool:ap?.tool,args:ap?.args,session:state.session}));
      await evalPanel("document.getElementById('btn-approve-once').click();'approved'",true);
      approvals++;
@@ -124,13 +155,15 @@ try{
  }
  if(!finalState)throw Error('Real panel agent timed out after 240s');
  console.log('PANEL_FINAL '+JSON.stringify({status:finalState.status,answer:finalState.answer.slice(0,400),hasProgress,approvals,notes:finalState.notes}));
- if(finalState.status!=='Completed.'||!/\b1\b/.test(finalState.answer))throw Error('Real local AI did not return correct panel final');
+ const finalAnswerMatches=finalState.status==='Completed.'&&/\b1\b/.test(finalState.answer);
  const pageTarget=(await browser.call('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url==='http://127.0.0.1:'+pagePort+'/');
  const s1=(await browser.call('Target.attachToTarget',{targetId:pageTarget.targetId,flatten:true})).sessionId;
  await browser.call('Runtime.enable',{},s1);
  const readDom=await browser.call('Runtime.evaluate',{expression:'({label:document.querySelector("#counter")?.textContent,n:document.querySelector("#counter")?.dataset.n})',returnByValue:true},s1);
  const actual=readDom.result?.value;
  console.log('REAL_CHROME_DOM '+JSON.stringify(actual));
+ console.log('MODEL_RESULT_VERIFICATION '+JSON.stringify({finalAnswerMatches,steps:finalState.stepText?.slice(0,350)||'',receipt:finalState.receipt||'',domCount:actual.n}));
+ if(!finalAnswerMatches)throw Error('AI final answer missing or incorrect; see independently observed Chrome DOM');
  if(actual.label!=='Clicks: 1'||actual.n!=='1')throw Error('AI final does not match actual Chrome DOM');
  console.log('PASS_FULL_PANEL_REAL_AI_AUTO_BROWSER_FINAL_E2E');
  const expectedUrl='http://127.0.0.1:'+pagePort+'/';

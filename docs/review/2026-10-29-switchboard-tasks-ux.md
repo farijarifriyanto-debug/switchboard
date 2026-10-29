@@ -25,7 +25,7 @@ capability of Switchboard, implemented in its existing local Web Console
 | Workflow import/export | Imported steps must be reviewable and not execute arbitrary actions | Validates format, size and safe action fields; old stored typed values cannot be exported | Contract + visible Chrome refusal for legacy typed-value export | PASS bounded fixtures | Visual QA of file selection and failure states |
 | Workflow replay | Browser state / native permissions must remain authoritative | Replays only limited safe actions; click retry disabled; high-risk selectors and actual button labels are screened after Chrome permission; operator confirms click batch; refuses unbound personal tabs | Real Chrome fixture: Clicks: 1 then Clicks: 2, exactly one replay; contract tests for fail and cancel | PASS limited fixture; original comparison UNVERIFIED | Test deny/revoke, high-risk button labels, and browser Auto mode before release |
 | Stop replay | Stop must prevent subsequent steps | Cancel flag tested; cannot undo already in-flight action | Contract test with blocked first action | PASS contract, Chrome UI Stop UNVERIFIED | Real Chrome visible Stop mid-workflow |
-| Real AI | End-to-end must use a real provider and a browser | Not exercised: local inference at 127.0.0.1:11666 was unavailable | Local model read-only health check failed | **UNVERIFIED / NO-GO release** | Start/authorize a real model and run user-visible browser E2E |
+| Real AI Cloud | End-to-end must use a real cloud provider and real browser | OpenRouter Qwen 3.8 Flash via isolated backend + Chrome | Five tool steps, three scoped approvals, actual DOM "Clicks: 1", reconnect without duplication; see `2026-10-29-switchboard-cloud-qa.md` | **PASS bounded Cloud E2E** | Live owner-profile and release review still required |
 
 ## Commands / evidence
 
@@ -57,9 +57,12 @@ The branch follows the existing chat-first surface.
 Web Console Models dialog (not a new extension key-entry form), requiring
 the operator's normal Web Console authentication. The initial workflow
 record/import/replay/Stop and extract-data shortcut are implemented and
-tested on bounded fixtures. Full source-linked Verified Results/CSV, model
-presence labels, in-flight Chrome Stop, and a real-model agent run are
-**not implemented/verified in this slice**; do not describe them as shipped.
+tested on bounded fixtures. An additive task-result footer now distinguishes
+tool-reported success, failure, cancellation, step limit, and answers without
+recorded tool activity; this is **not independent verification of model claims**.
+Real AI Cloud browser execution PASS with Qwen 3.8 Flash on bounded fixtures.
+Full source-linked Verified Results/CSV, model presence labels, and in-flight
+Chrome Stop remain **not implemented/verified**; do not describe as shipped.
 
 The full `npm test` suite exited 0 on the earlier patch of this branch.
 After final security refinements, task-specific contracts, settings API/UI,
@@ -68,6 +71,7 @@ Chrome acceptance were rerun successfully.
 
 ## Release gate
 
-Do not merge/push/deploy/publish by inference. This new branch requires complete
-regression, security review, real model and actual-owner Chrome confirmation, and
-explicit release authorization. The published 0.4.6 status remains unchanged.
+Do not merge/push/deploy/publish by inference. This branch has now passed a
+bounded real AI Cloud Chrome E2E; final full-suite regression, owner-profile
+acceptance, security/Chrome Store disclosure review and explicit release
+authorization are still separate gates. Published 0.4.6 is unchanged.

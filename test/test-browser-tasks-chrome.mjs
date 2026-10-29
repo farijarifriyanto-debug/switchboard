@@ -204,6 +204,22 @@ try {
   const exportStatus = await evaluate("document.getElementById('replay-progress-bar').textContent", panelSession)
   assert.match(exportStatus, /Ekspor ditolak/, 'Legacy typed values are never exported to JSON')
   console.log('PASS visible Chrome refuses exporting legacy workflow typed values')
+  const receipt = await evaluate(`(() => {
+    const msg = createAgentMessage();
+    const step = document.createElement('div');
+    step.className = 'step done';
+    msg.items.set('qa', step);
+    msg.receipt.textContent = taskReceiptText('completed', ['done']);
+    msg.receipt.hidden = false;
+    document.getElementById('chat-log').append(msg.root);
+    return {visible: !msg.receipt.hidden, text: msg.receipt.textContent,
+      noActions: taskReceiptText('completed', [])};
+  })()`, panelSession)
+  assert.equal(receipt.visible, true)
+  assert.match(receipt.text, /dilaporkan berhasil/i)
+  assert.match(receipt.text, /bukan verifikasi independen/i)
+  assert.match(receipt.noActions, /tanpa aksi browser/i)
+  console.log('PASS visible Chrome task receipt distinguishes reported tool success from independent verification')
 } finally {
   try { ws?.close() } catch {}
   await host?.dispose().catch(() => {})

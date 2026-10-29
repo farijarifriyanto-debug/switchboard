@@ -879,6 +879,34 @@ function stepLabel(name, args) {
   return label ? label(args || {}).trim() : String(name || 'Menjalankan alat').replace(/^browser_/, '').replace(/_/g, ' ');
 }
 
+// These are tool-reported statuses, not independent validation of AI claims.
+// Some bridge tools return JSON failure objects rather than "Error:" strings.
+function toolResultFailed(result) {
+  const value = String(result ?? '').trim();
+  if (/^(Error:|Failed:)/i.test(value)) return true;
+  if (value.startsWith('{') && value.length <= 4096) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' &&
+        (parsed.ok === false || parsed.success === false || (Boolean(parsed.error) && parsed.ok !== true));
+    } catch (_) { /* Plaintext tool output is not an error by itself. */ }
+  }
+  return false;
+}
+
+function taskReceiptText(state, statuses) {
+  const complete = statuses.filter(status => status === 'done').length;
+  const failed = statuses.filter(status => status === 'failed').length;
+  const pending = statuses.length - complete - failed;
+  if (state === 'cancelled') return 'Dihentikan. Aksi yang sudah berjalan tidak dapat dibatalkan; periksa rincian langkah.';
+  if (state === 'failed') return 'Tugas gagal. ' + complete + ' langkah dilaporkan berhasil, ' + failed + ' gagal.';
+  if (state === 'step_limit') return 'Batas langkah tercapai. ' + complete + ' langkah dilaporkan berhasil; hasil belum lengkap.';
+  if (state !== 'completed') return 'Belum ada hasil akhir yang dapat dipastikan.';
+  if (!statuses.length) return 'Jawaban AI diterima tanpa aksi browser yang tercatat; periksa sumber secara mandiri.';
+  if (failed || pending) return 'Jawaban AI diterima, tetapi ' + failed + ' langkah gagal dan ' + pending + ' belum selesai.';
+  return complete + ' langkah tool dilaporkan berhasil. Ini bukan verifikasi independen atas isi jawaban.';
+}
+
 function note(text, kind) {
   $('chat-empty').hidden = true;
   const log = $('chat-log');
@@ -905,8 +933,12 @@ function createAgentMessage() {
   thinking.setAttribute('role', 'status');
   thinking.setAttribute('aria-label', 'Sedang bekerja');
   thinking.innerHTML = '<i></i><i></i><i></i>';
-  root.append(steps, answer, thinking);
-  return { root, steps, summary, answer, thinking, items: new Map(), text: '' };
+  const receipt = document.createElement('div');
+  receipt.className = 'task-receipt';
+  receipt.hidden = true;
+  receipt.setAttribute('aria-label', 'Status hasil tugas');
+  root.append(steps, answer, receipt, thinking);
+  return { root, steps, summary, answer, receipt, thinking, items: new Map(), text: '' };
 }
 function refreshStepSummary(msg, finished) {
   const total = msg.items.size;
@@ -971,6 +1003,7 @@ $('task-form').addEventListener('submit', async event => {
   userMsg.textContent = question;
   log.append(userMsg);
   const msg = createAgentMessage();
+  let taskOutcome = 'failed';
   log.append(msg.root);
   $('task-prompt').value = '';
   autosizePrompt();
@@ -1027,7 +1060,7 @@ $('task-form').addEventListener('submit', async event => {
           const step = msg.items.get(String(item.id));
           if (step) {
             step.classList.remove('running');
-            step.classList.add(String(item.result || '').startsWith('Error:') ? 'failed' : 'done');
+            step.classList.add(toolResultFailed(item.result) ? 'failed' : 'done');
             refreshStepSummary(msg, false);
           }
         }
@@ -1038,17 +1071,21 @@ $('task-form').addEventListener('submit', async event => {
         }
         if (item.type === 'final' && !sawFatalEvent) {
           reachedTerminalEvent = true;
+          taskOutcome = item.stopReason === 'step_limit' ? 'step_limit'
+            : item.stopReason === 'error' ? 'failed' : 'completed';
           msg.text = item.content || msg.text || 'Selesai tanpa jawaban tertulis.';
           msg.answer.innerHTML = formatReply(msg.text);
           taskStatus(item.stopReason === 'step_limit' ? 'Stopped at step limit.' : item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
         if (item.type === 'error') {
+          taskOutcome = 'failed';
           reachedTerminalEvent = true;
           sawFatalEvent = true;
           taskStatus('Failed.');
           note('Terjadi galat: ' + String(item.message || item.error || 'tidak diketahui'), 'error');
         }
         if (item.type === 'cancelled') {
+          taskOutcome = 'cancelled';
           reachedTerminalEvent = true;
           sawFatalEvent = true;
           taskStatus('Stopped.');
@@ -1061,7 +1098,9 @@ $('task-form').addEventListener('submit', async event => {
       note('Koneksi tugas berakhir sebelum hasil akhir diterima.', 'error');
     }
   } catch (error) {
+    if (error?.name === 'AbortError') taskOutcome = 'cancelled';
     if (error?.name !== 'AbortError') {
+      taskOutcome = 'failed';
       taskStatus('Failed.');
       note('Gagal: ' + String(error?.message || error), 'error');
     }
@@ -1069,7 +1108,11 @@ $('task-form').addEventListener('submit', async event => {
     clearInterval(approvalPoll);
     msg.thinking.remove();
     if (msg.items.size) { msg.steps.open = false; refreshStepSummary(msg, true); }
-    if (!msg.text && !msg.items.size) msg.root.remove();
+    if (msg.text || msg.items.size) {
+      msg.receipt.textContent = taskReceiptText(taskOutcome, [...msg.items.values()].map(step =>
+        step.classList.contains('done') ? 'done' : step.classList.contains('failed') ? 'failed' : 'running'));
+      msg.receipt.hidden = false;
+    } else msg.root.remove();
     activeTask = null;
     activeTaskSession = null;
     pendingApprovalId = null;
