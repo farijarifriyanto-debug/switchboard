@@ -38,6 +38,7 @@ Status: **implementation and bounded real Chrome/provider E2E PASS; 0.4.8 releas
 ## Mandatory limitations / publication controls
 
 - **Secrets:** Extension-local storage is not an independently encrypted key vault; do not use shared/untrusted devices. No claim of zero data leaving the laptop: user prompts and approved website content travel to BotConnector. Chrome Web Store privacy declarations must be updated to match.
+- **Release hardening:** Before publishing 0.4.8, a reviewed security gate bound Cloud browser typing approval to the visible tab's origin. The service worker validates the approved origin and the injected script verifies `location.origin` again at mutation time. The browser select confirmation shows the selected option value. Disposable real Chrome QA explicitly checks cross-origin typing is refused and same-origin approved typing succeeds.
 - **Model access:** The user must have a valid BotConnector API key and a model that supports tool calls; invalid keys (401/403) or throttling (429) fail transparently without hidden fallback to a local server.
 - **Background execution:** Closing the side panel ends its in-memory Cloud agent run. No promised unattended/cloud scheduling.
 - **Release:** Version 0.4.7 was already submitted per owner and does NOT include standalone. **0.4.8 is not submitted or live**. Do not tag, publish npm or update Chrome Web Store until independent release authorization and publisher privacy/permission review.

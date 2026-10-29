@@ -956,8 +956,11 @@ async function executeBrowserAction(action, params = {}, options = {}) {
 
   const [res] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: async (act, sel, val, clearBefore, pressEnter) => {
+    func: async (act, sel, val, clearBefore, pressEnter, expectedOrigin) => {
       try {
+      if (act === 'type' && expectedOrigin && location.origin !== expectedOrigin) {
+        throw new Error('Halaman tab berubah setelah persetujuan; mengetik dibatalkan.');
+      }
       // Find element by data-sb-ref or selector
       let el = null;
       if (sel.startsWith('@e')) {
@@ -1044,7 +1047,7 @@ async function executeBrowserAction(action, params = {}, options = {}) {
         return { ok: false, error: String(error?.message || error) };
       }
     },
-    args: [action, selector, String(params.value ?? params.text ?? ''), Boolean(params.clear), Boolean(params.pressEnter)]
+    args: [action, selector, String(params.value ?? params.text ?? ''), Boolean(params.clear), Boolean(params.pressEnter), options.approvedOrigin || '']
   });
 
   // Chrome may return null when injected code throws. Fail closed rather
@@ -1137,7 +1140,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return await selectCloudTab(message.tabId);
     }
     if (message.type === 'SWITCHBOARD_CLOUD_TOOL') {
-      return await executeCloudTabTool(message.tool, message.args, message.tabId);
+      return await executeCloudTabTool(message.tool, message.args, message.tabId, message.approvedOrigin);
     }
 
     // Tab metadata does not require a DOM-injection or host grant.
@@ -1440,7 +1443,7 @@ async function selectCloudTab(input) {
   await chrome.tabs.update(id, { active: true });
   return cloudTabManagerState();
 }
-async function executeCloudTabTool(tool, args, requestTabId) {
+async function executeCloudTabTool(tool, args, requestTabId, approvedOrigin) {
   if (!CLOUD_BROWSER_TOOLS.has(tool) || !args || typeof args !== 'object' || Array.isArray(args))
     throw new Error('Tool Cloud tidak diizinkan.');
   const state = await cloudTabManagerState();
@@ -1450,13 +1453,18 @@ async function executeCloudTabTool(tool, args, requestTabId) {
   // Keep model-provided tabId from escaping the user-selected attached tab.
   if (args.tabId !== undefined && Number(args.tabId) !== target.id)
     throw new Error('AI tidak boleh mengakses tab di luar tab terikat.');
+  if (tool === 'browser_type' && (!approvedOrigin || approvedOrigin !== target.origin))
+    throw new Error('Persetujuan mengetik tidak sesuai situs yang terikat.');
   if (tool === 'browser_tabs_list') return {
     ok: true, selectedId: target.id,
     tabs: state.attached.map(({ id, title, origin, selected }) => ({
       id, title, origin, selected
     }))
   };
-  return await handleToolExecution(tool, { ...args, tabId: target.id });
+  return await handleToolExecution(tool, {
+    ...args, tabId: target.id,
+    ...(tool === 'browser_type' ? { approvedOrigin } : {})
+  });
 }
 
 // Tabs the agent opens go into one tab group named "Switchboard", as Claude in Chrome groups its tabs.
@@ -1650,7 +1658,7 @@ async function runToolExecution(toolName, args = {}) {
     }
 
     case 'browser_type': {
-      return await executeBrowserAction('type', args, { tabId: tab.id });
+      return await executeBrowserAction('type', args, { tabId: tab.id, approvedOrigin: args.approvedOrigin });
     }
 
     case 'browser_scroll': {

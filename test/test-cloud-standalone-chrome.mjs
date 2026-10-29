@@ -14,7 +14,7 @@ if(!chromeBin)throw Error('Set SBX_TEST_CHROME_PATH')
 const profile=await mkdtemp(path.join(tmpdir(),'sbx-cloud-standalone-'))
 const fixture=http.createServer((req,res)=>{
   res.writeHead(200,{'content-type':'text/html'})
-  res.end('<!doctype html><title>QA_SCREEN</title><h1>QA_SCREEN</h1><p>Browser source says qa_731</p><button id="qa-click" onclick="this.dataset.count=Number(this.dataset.count||0)+1">Click test</button>')
+  res.end('<!doctype html><title>QA_SCREEN</title><h1>QA_SCREEN</h1><p>Browser source says qa_731</p><input id="qa-input" value=""><button id="qa-click" onclick="this.dataset.count=Number(this.dataset.count||0)+1">Click test</button>')
 })
 await new Promise(r=>fixture.listen(0,'127.0.0.1',r))
 const url='http://127.0.0.1:'+fixture.address().port+'/'
@@ -144,6 +144,14 @@ try{
     await sleep(100)
   }
   assert.equal(await run("cloudTabsState.selectedId",session),tab.id,'User successfully attached the first tab')
+  const origin = new URL(url).origin
+  const deniedType = await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_type',args:{selector:'#qa-input',text:'should-not-type',clear:true},tabId:"+tab.id+",approvedOrigin:'https://other.example'})",session)
+  assert.equal(deniedType?.ok,false,'Typing approval from an unrelated origin must fail closed')
+  assert.equal(await run("chrome.scripting.executeScript({target:{tabId:"+tab.id+"},func:()=>document.querySelector('#qa-input').value}).then(r=>r[0].result)",sw),'')
+  const approvedType = await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_type',args:{selector:'#qa-input',text:'qa-approved',clear:true},tabId:"+tab.id+",approvedOrigin:"+JSON.stringify(origin)+"})",session)
+  assert.equal(approvedType?.ok,true,'Typing can only proceed for the approved origin')
+  assert.equal(await run("chrome.scripting.executeScript({target:{tabId:"+tab.id+"},func:()=>document.querySelector('#qa-input').value}).then(r=>r[0].result)",sw),'qa-approved')
+  console.log('PASS browser_type is bound to approved origin; forged cross-origin request rejected')
   const secondUrl=url+'?second'
   const second=await run("chrome.tabs.create({url:"+JSON.stringify(secondUrl)+"}).then(t=>({id:t.id,url:t.url}))",sw)
   await run("document.getElementById('tab-add-open').click()",session)

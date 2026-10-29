@@ -1484,12 +1484,19 @@ async function runStandaloneCloudTask(question) {
   log.scrollTop = log.scrollHeight;
   taskStatus('Menghubungi BotConnector Cloud tanpa backend lokal...');
   let outcome = 'failed';
+  let approvedTypingOrigin = '';
   try {
     const response = await SwitchboardCloud.run({
       config:cloudConfig, question, currentTab, history:cloudHistory,
       signal:controller.signal,
       approveAction:async ({tool,args}) => {
+        approvedTypingOrigin = '';
         if (controller.signal.aborted) return false;
+        if (tool === 'browser_type') {
+          const approvalTab = await chrome.tabs.get(selectedTabId);
+          if (!/^https?:\/\//i.test(approvalTab.url || '')) return false;
+          approvedTypingOrigin = new URL(approvalTab.url).origin;
+        }
         // Scrolling is non-destructive in Auto mode, but not in Manual.
         if (tool === 'browser_scroll' && $('composer-mode').value !== 'manual') return true;
         const target = String(args.selector || args.url || 'halaman aktif').slice(0,180);
@@ -1511,6 +1518,7 @@ async function runStandaloneCloudTask(question) {
         const summary = tool === 'browser_type'
           ? 'Ketik pada ' + String(args.selector || '') + ':\n' + String(args.text || '')
           : tool === 'browser_navigate' ? 'Buka URL: ' + String(args.url || '')
+          : tool === 'browser_select' ? 'Pilih opsi ' + String(args.value || '') + ' pada ' + target
           : tool + ' pada ' + target + (label ? ' (' + label + ')' : '');
         // Never silently authorize clicks/writes/navigation. Site permission
         // remains Chrome's native prompt; action consent is separate.
@@ -1518,7 +1526,9 @@ async function runStandaloneCloudTask(question) {
           summary + '\n\nIzinkan sekali?');
       },
       runTool:async (tool,args) => {
-        const reply = await chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool,args,tabId:selectedTabId});
+        const approvedOrigin = approvedTypingOrigin;
+        approvedTypingOrigin = '';
+        const reply = await chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool,args,tabId:selectedTabId,approvedOrigin});
         if (!reply || typeof reply.ok !== 'boolean') throw new Error('Browser Companion tidak merespons.');
         return reply;
       },
