@@ -257,6 +257,7 @@
     body.chat-only .bar-btn { width: 32px; height: 32px; min-height: 0; min-width: 0; padding: 0; border: 0 !important; border-radius: 8px; background: transparent !important; color: var(--muted) !important; display: grid; place-items: center; }
     body.chat-only .bar-btn:hover:not(:disabled) { background: var(--surface) !important; color: var(--ink) !important; }
     body.chat-only .bar-btn:disabled { opacity: .35; }
+    body.chat-only #chat-copy[data-copied="true"] { color: var(--ok) !important; background: var(--surface) !important; }
 
     /* Empty state */
     body.chat-only .chat-empty { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 24px 20px; }
@@ -295,6 +296,10 @@
     .step.done .step-dot { background: var(--ok); }
     .step.failed .step-dot { background: var(--warn); }
     .step.failed { color: #9a3412; }
+    .msg-copy-row { display: flex; align-items: center; gap: 6px; margin: 0; }
+    .msg-copy-row button { min-height: 25px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--muted); font-size: 11px; cursor: pointer; }
+    .msg-copy-row button:hover:not(:disabled) { background: var(--surface); color: var(--ink); }
+    .msg-copy-row button:disabled { opacity: .45; cursor: default; }
     .task-receipt { color: var(--muted); font-size: 11.5px; line-height: 1.5; border-top: 1px solid var(--line); padding-top: 8px; }
     .task-receipt[hidden] { display: none; }
     .byok-panel { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
@@ -427,6 +432,7 @@
           <span class="chat-bar-title">Switchboard</span>
           <span id="conn-dot" class="conn-dot" role="img" aria-label="Terputus" title="Terputus"></span>
           <span class="bar-spacer"></span>
+          <button id="chat-copy" type="button" class="bar-btn" aria-label="Salin seluruh percakapan" title="Salin percakapan" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>
           <button id="chat-new" type="button" class="bar-btn" aria-label="Obrolan baru" title="Obrolan baru"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
           <button id="task-settings" type="button" class="bar-btn" aria-label="Pengaturan" title="Pengaturan">Pengaturan</button>
         </div>

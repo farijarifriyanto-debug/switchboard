@@ -286,6 +286,46 @@ try{
     const clickCount=await run("chrome.scripting.executeScript({target:{tabId:"+tab.id+"},func:()=>Number(document.querySelector('#qa-click').dataset.count||0)}).then(x=>x[0].result)",sw)
     assert.equal(clickCount,1,'Real browser click exactly once')
     console.log('PASS REAL CHROME cloud action: approved visible-label click, real DOM count=1, no local backend')
+    // The copy buttons must copy original answer text and the currently
+    // displayed conversation, never rendered HTML, browser tool logs, or API keys.
+    await run(`(()=>{
+      window.__clipboardCopies=[];
+      Object.defineProperty(navigator.clipboard,'writeText',{
+        configurable:true, value:async value=>{window.__clipboardCopies.push(value)}
+      });
+      return true
+    })()`,session)
+    assert.equal(await run("document.querySelectorAll('.msg-copy:not(:disabled)').length",session),2,
+      'Every completed AI answer has a visible enabled Copy button')
+    await run("document.querySelectorAll('.msg-copy')[0].click()",session)
+    for(let i=0;i<20;i++){
+      if(await run("window.__clipboardCopies.length===1",session))break
+      await sleep(60)
+    }
+    const answerCopy=await run("window.__clipboardCopies[0]",session)
+    assert.equal(answerCopy,'Ringkasan terverifikasi: QA_SCREEN qa_731')
+    await run("document.getElementById('chat-copy').click()",session)
+    for(let i=0;i<20;i++){
+      if(await run("window.__clipboardCopies.length===2",session))break
+      await sleep(60)
+    }
+    const transcript=await run("window.__clipboardCopies[1]",session)
+    assert.ok(transcript.startsWith('Anda:\n'),'Transcript must start with user message')
+    assert.ok(transcript.includes('Switchboard:\nRingkasan terverifikasi: QA_SCREEN qa_731'))
+    assert.ok(transcript.includes('Switchboard:\nKlik QA berhasil'))
+    assert.ok(!transcript.includes('qa-extension-only-key-no-network'),'No provider API key in transcript')
+    assert.ok(!transcript.includes('<p>'),'Clipboard must be plain text, not HTML')
+    assert.equal(await run("document.getElementById('chat-copy').querySelector('svg')!==null",session),true,
+      'Copy success must not replace header icon')
+    assert.equal(await run("document.getElementById('chat-copy').getAttribute('aria-label')",session),'Berhasil disalin',
+      'Copy result is announced to assistive technologies')
+    console.log('PASS REAL CHROME copy individual AI reply and entire user/AI transcript without key or HTML')
+    await run("document.getElementById('chat-new').click()",session)
+    assert.equal(await run("document.getElementById('chat-copy').disabled",session),true,
+      'New conversation disables Copy until new messages are present')
+    assert.equal(await run("chatTranscriptPlainText()",session),'',
+      'New chat has no previous content to copy')
+    console.log('PASS REAL CHROME New Chat clears clipboard source')
   }
   // Cloud can be disabled and re-enabled without deleting/re-entering the key.
   await run("(()=>{document.getElementById('byok-default').checked=false;document.getElementById('byok-form').requestSubmit();return true})()",session)

@@ -1312,7 +1312,54 @@ function note(text, kind) {
   log.scrollTop = log.scrollHeight;
 }
 
+// Clipboard copies are triggered only by explicit user clicks. Copy the
+// original plain-text response, not rendered HTML, browser tool arguments,
+// debug events or provider credentials. Never persist transcript contents.
+async function copyConversationText(value, button) {
+  if (!String(value || '').trim()) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    const header = button.id === 'chat-copy';
+    const original = button.textContent;
+    if (!header) button.textContent = 'Disalin';
+    button.title = 'Berhasil disalin';
+    button.setAttribute('aria-label', 'Berhasil disalin');
+    button.dataset.copied = 'true';
+    setTimeout(() => {
+      if (!button.isConnected) return;
+      if (!header) button.textContent = original;
+      button.title = header ? 'Salin percakapan' : 'Salin teks jawaban AI';
+      button.setAttribute('aria-label', header ? 'Salin seluruh percakapan' : 'Salin jawaban AI');
+      delete button.dataset.copied;
+    }, 1400);
+    return true;
+  } catch (_) {
+    note('Tidak dapat menyalin ke clipboard. Pastikan izin clipboard Chrome tersedia.', 'error');
+    return false;
+  }
+}
+function chatTranscriptPlainText() {
+  return [...$('chat-log').children].flatMap(node => {
+    if (node.classList.contains('msg-user')) return ['Anda:\n' + node.textContent];
+    if (node.classList.contains('msg-agent')) {
+      const answer = node.querySelector('.answer');
+      const text = answer?.dataset.copyText || '';
+      return text.trim() ? ['Switchboard:\n' + text] : [];
+    }
+    return []; // Never copy notes, browser tool diagnostics or system errors.
+  }).join('\n\n');
+}
+$('chat-copy').addEventListener('click', () =>
+  void copyConversationText(chatTranscriptPlainText(), $('chat-copy')));
+function renderAgentAnswer(msg, content) {
+  msg.text = String(content ?? '');
+  msg.answer.innerHTML = formatReply(msg.text);
+  msg.answer.dataset.copyText = msg.text;
+  msg.copyButton.disabled = !msg.text.trim();
+}
+
 function createAgentMessage() {
+  $('chat-copy').disabled = false;
   const root = document.createElement('div');
   root.className = 'msg msg-agent';
   const steps = document.createElement('details');
@@ -1328,12 +1375,24 @@ function createAgentMessage() {
   thinking.setAttribute('role', 'status');
   thinking.setAttribute('aria-label', 'Sedang bekerja');
   thinking.innerHTML = '<i></i><i></i><i></i>';
+  const copyRow = document.createElement('div');
+  copyRow.className = 'msg-copy-row';
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.className = 'msg-copy';
+  copyButton.textContent = 'Salin jawaban';
+  copyButton.title = 'Salin teks jawaban AI';
+  copyButton.setAttribute('aria-label', 'Salin jawaban AI');
+  copyButton.disabled = true;
+  copyRow.append(copyButton);
   const receipt = document.createElement('div');
   receipt.className = 'task-receipt';
   receipt.hidden = true;
   receipt.setAttribute('aria-label', 'Status hasil tugas');
-  root.append(steps, answer, receipt, thinking);
-  return { root, steps, summary, answer, receipt, thinking, items: new Map(), text: '' };
+  root.append(steps, answer, copyRow, receipt, thinking);
+  const msg = { root, steps, summary, answer, copyButton, receipt, thinking, items: new Map(), text: '' };
+  copyButton.addEventListener('click', () => void copyConversationText(msg.text, copyButton));
+  return msg;
 }
 function refreshStepSummary(msg, finished) {
   const total = msg.items.size;
@@ -1375,6 +1434,7 @@ $('chat-new')?.addEventListener('click', () => {
   conversationId = null;
   cloudHistory = [];
   $('chat-log').replaceChildren();
+  $('chat-copy').disabled = true;
   $('chat-empty').hidden = false;
   $('task-prompt').value = '';
   autosizePrompt();
@@ -1469,15 +1529,13 @@ async function runStandaloneCloudTask(question) {
             refreshStepSummary(msg,false);
           }
         } else if (item.type === 'final') {
-          msg.text = item.text;
-          msg.answer.innerHTML = formatReply(msg.text);
+          renderAgentAnswer(msg, item.text);
           msg.thinking.hidden = true;
         }
         log.scrollTop = log.scrollHeight;
       }
     });
-    msg.text = response.text;
-    msg.answer.innerHTML = formatReply(msg.text);
+    renderAgentAnswer(msg, response.text);
     cloudHistory.push({role:'user',content:question},{role:'assistant',content:response.text});
     cloudHistory = cloudHistory.slice(-4);
     outcome = 'completed';
@@ -1591,16 +1649,14 @@ $('task-form').addEventListener('submit', async event => {
           }
         }
         if (item.type === 'delta' && item.text) {
-          msg.text += item.text;
+          renderAgentAnswer(msg, msg.text + item.text);
           msg.thinking.hidden = true;
-          msg.answer.innerHTML = formatReply(msg.text);
         }
         if (item.type === 'final' && !sawFatalEvent) {
           reachedTerminalEvent = true;
           taskOutcome = item.stopReason === 'step_limit' ? 'step_limit'
             : item.stopReason === 'error' ? 'failed' : 'completed';
-          msg.text = item.content || msg.text || 'Selesai tanpa jawaban tertulis.';
-          msg.answer.innerHTML = formatReply(msg.text);
+          renderAgentAnswer(msg, item.content || msg.text || 'Selesai tanpa jawaban tertulis.');
           taskStatus(item.stopReason === 'step_limit' ? 'Stopped at step limit.' : item.stopReason === 'error' ? 'Failed.' : 'Completed.');
         }
         if (item.type === 'error') {

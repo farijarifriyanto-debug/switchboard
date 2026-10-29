@@ -2,6 +2,8 @@
 
 ## 0.4.8
 
+- Added **Salin jawaban** below every AI answer and a **Salin percakapan** button in the side-panel header. Clipboard output is original plain text (not rendered HTML); conversation copy contains visible user and AI messages only, omitting browser tool details, internal errors, and API keys. New Chat clears the copy source. Both Cloud and optional local agent paths use the same copy controls.
+
 Release candidate — **unpublished**; Chrome Web Store 0.4.7 submission is a different, earlier build.
 
 - Standalone side-panel tab manager: **+ Tab** attaches one of the currently open HTTP(S) tabs, list enables selecting/switching among up to 12 attached tabs, **Hapus** detaches a tab without closing it. No implicit fallback to an unrelated active Chrome tab after detaching. Cloud model tools cannot select/unbound or override a user-selected tab.

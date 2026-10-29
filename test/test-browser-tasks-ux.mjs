@@ -137,6 +137,10 @@ assert.match(html,/<select id="byok-model"/,'BotConnector uses a model dropdown,
 assert.match(html,/id="byok-model-search" type="search"/,'Cloud model picker provides name search')
 assert.match(html,/id="byok-model-filter"/,'Cloud model picker has Free/Plan filtering')
 assert.match(html,/id="cloud-quick-model"/,'Chat composer exposes direct AI selection')
+assert.match(html,/id="chat-copy"[^>]*aria-label="Salin seluruh percakapan"/,'Chat header has accessible Copy Conversation button')
+assert.match(panel,/function chatTranscriptPlainText\(/,'Chat transcript copy uses a dedicated plaintext source')
+assert.match(panel,/copyButton\.addEventListener\('click'/,'Every agent response has its own copy action')
+assert.match(panel,/function renderAgentAnswer\(/,'Both local and cloud answers retain copyable plain text')
 for (const id of ['tab-add-open','tab-add-confirm','tab-detach-current','tab-bound-list','tab-available','tab-manager']) {
   assert.ok(html.includes('id="'+id+'"'),'Cloud tab manager control present: '+id)
 }

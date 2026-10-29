@@ -30,6 +30,11 @@ Status: **implementation and bounded real Chrome/provider E2E PASS; 0.4.8 releas
 | Cloud inference with no local app | Hosted agent experience | Fixed first-party HTTPS model endpoint + in-extension tool orchestration | Live BotConnector CFT E2E | PASS function |
 | Full historical Claude in Chrome parity | Multi-tab/background/vision/recovery | Local mode retains more tools; Cloud supports narrower subset | No new real side-by-side with latest Claude available | **BELUM TERVERIFIKASI / NO-GO for broad parity claim** |
 
+## Chat copy acceptance (0.4.8 test extension)
+
+- Each AI message (both direct Cloud and optional local backend) exposes **Salin jawaban** when reply text is available; the header copy icon exports only the current panel's user/AI transcript, not browser tool outputs, errors or API keys. Original raw answer text is used rather than DOM-derived HTML. Neither operation saves a transcript to disk or extension storage.
+- Disposable real Chrome QA validates both buttons, clipboard text contents (intercepted clipboard write to avoid mutating operator clipboard), absence of API key/HTML, SVG icon preservation, and New Chat clearing and disabling copy until the next response. This test checks the user action and payload; ordinary OS clipboard write requires a user gesture and browser permissions.
+
 ## Mandatory limitations / publication controls
 
 - **Secrets:** Extension-local storage is not an independently encrypted key vault; do not use shared/untrusted devices. No claim of zero data leaving the laptop: user prompts and approved website content travel to BotConnector. Chrome Web Store privacy declarations must be updated to match.
