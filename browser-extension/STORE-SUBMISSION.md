@@ -2,7 +2,7 @@
 
 ## Status
 
-> Status 29 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` is published at **0.4.6**. Version **0.4.7** is a new release candidate pending submission. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source; older version instructions below are historical.
+> Status 29 October 2026: the existing Chrome item `miehnbiiokkciokmepnhgmlhjpabbkna` was last verified published at **0.4.6**. The owner reports having submitted version **0.4.7** to Google for review; approval and publication are **not independently verified**. Use [`docs/release-status.md`](../docs/release-status.md) as the single status source; older version instructions below are historical.
 
 **Historical update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 
