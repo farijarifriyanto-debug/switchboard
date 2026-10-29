@@ -126,11 +126,15 @@ const panelSource = readFileSync(path.join(process.cwd(), 'browser-extension/pan
     /input\[type="password"\][\s\S]*?autocomplete\*="cc-"/i,
     'Sensitive fields (passwords, payment cards) are blocked from DOM interactions',
   )
-  assert.match(
-    panelSource,
-    /isSensitive[\s\S]*?REDACTED/i,
-    'Workflows redact sensitive fields during export',
-  )
+  // Legacy workflow steps may contain credential values. The current UI
+  // rejects exporting unsafe steps entirely instead of silently retaining
+  // typed values other than the redacted password field.
+  assert.match(panelSource, /safeSteps\s*=\s*parseWorkflowImport\(/,
+    'Workflow export validates all stored legacy steps using the safe import whitelist')
+  assert.match(panelSource, /Ekspor ditolak/,
+    'Unsafe workflow export fails closed rather than leaking a stored value')
+  assert.match(panelSource, /step\.action\s*===\s*'click'/,
+    'Workflow import uses a bounded action whitelist; never exports typing')
   console.log('✓ Regression Bug #7: Password and credit card protection verified')
 }
 
