@@ -1120,6 +1120,26 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return { ok: Boolean(captured?.data), ...captured };
     }
 
+    // Standalone Cloud tabs are explicitly attached by the user. Removing an
+    // attachment NEVER closes the real Chrome tab or revokes its site grant.
+    // The cloud executor must never silently fall back to whichever tab is
+    // active when all attachments have been removed.
+    if (message.type === 'SWITCHBOARD_CLOUD_TABS') {
+      return await cloudTabManagerState();
+    }
+    if (message.type === 'SWITCHBOARD_CLOUD_ATTACH') {
+      return await attachCloudTab(message.tabId);
+    }
+    if (message.type === 'SWITCHBOARD_CLOUD_DETACH') {
+      return await detachCloudTab(message.tabId);
+    }
+    if (message.type === 'SWITCHBOARD_CLOUD_SELECT') {
+      return await selectCloudTab(message.tabId);
+    }
+    if (message.type === 'SWITCHBOARD_CLOUD_TOOL') {
+      return await executeCloudTabTool(message.tool, message.args, message.tabId);
+    }
+
     // Tab metadata does not require a DOM-injection or host grant.
     if (message.type === 'SWITCHBOARD_ACTIVE_TAB') {
       const tab = (await boundAgentTab()) || await getActiveTab();
@@ -1352,6 +1372,91 @@ async function downloadViaClick(tab, args) {
     url: item.url, origin: new URL(tab.url).origin, decision: 'approved', status: 'success'
   });
   return { ok: true, result: 'Download started', filename: item.filename, url: item.url };
+}
+
+// Standalone Cloud tab attachments are independent of the legacy local-agent
+// binding. They last for the Chrome session and may be detached without
+// closing real tabs. Browser tools must target ONLY the selected attachment.
+const CLOUD_TAB_LIMIT = 12;
+const CLOUD_BROWSER_TOOLS = new Set([
+  'browser_tabs_list', 'browser_dom_snapshot', 'browser_scroll', 'browser_click',
+  'browser_type', 'browser_select', 'browser_navigate', 'browser_wait'
+]);
+async function cloudTabManagerState() {
+  const state = await chrome.storage.session.get(['cloudBoundTabIds', 'cloudSelectedTabId']);
+  const ids = [...new Set((Array.isArray(state.cloudBoundTabIds) ? state.cloudBoundTabIds : [])
+    .filter(id => Number.isSafeInteger(id) && id > 0))].slice(0, CLOUD_TAB_LIMIT);
+  const current = (await chrome.tabs.query({ currentWindow: true }))
+    .filter(tab => Number.isSafeInteger(tab.id) && SAFE_URL.test(tab.url || ''));
+  const attached = current.filter(tab => ids.includes(tab.id));
+  const selectedId = attached.some(tab => tab.id === state.cloudSelectedTabId)
+    ? state.cloudSelectedTabId : null;
+  const describe = tab => ({
+    id: tab.id, title: String(tab.title || 'Tab tanpa judul').slice(0, 160),
+    origin: new URL(tab.url).origin, url: tab.url,
+    selected: tab.id === selectedId
+  });
+  return {
+    ok: true, selectedId, attached: attached.map(describe),
+    available: current.filter(tab => !ids.includes(tab.id)).map(describe)
+  };
+}
+async function attachCloudTab(input) {
+  const id = Number(input);
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('Pilih tab Chrome yang valid.');
+  const snapshot = await cloudTabManagerState();
+  const target = snapshot.available.find(tab => tab.id === id)
+    || snapshot.attached.find(tab => tab.id === id);
+  if (!target) throw new Error('Tab HTTP(S) tidak tersedia di jendela Chrome ini.');
+  if (snapshot.attached.length >= CLOUD_TAB_LIMIT && !snapshot.attached.some(tab => tab.id === id))
+    throw new Error('Maksimal ' + CLOUD_TAB_LIMIT + ' tab terikat.');
+  const stored = await chrome.storage.session.get('cloudBoundTabIds');
+  const ids = [...new Set([...(Array.isArray(stored.cloudBoundTabIds) ? stored.cloudBoundTabIds : []), id])]
+    .filter(item => Number.isSafeInteger(item) && item > 0).slice(-CLOUD_TAB_LIMIT);
+  await chrome.storage.session.set({ cloudBoundTabIds: ids, cloudSelectedTabId: id });
+  await chrome.tabs.update(id, { active: true });
+  return cloudTabManagerState();
+}
+async function detachCloudTab(input) {
+  const id = Number(input);
+  const snapshot = await cloudTabManagerState();
+  if (!snapshot.attached.some(tab => tab.id === id))
+    throw new Error('Tab tidak terikat pada Switchboard Cloud.');
+  const stored = await chrome.storage.session.get('cloudBoundTabIds');
+  const next = (Array.isArray(stored.cloudBoundTabIds) ? stored.cloudBoundTabIds : [])
+    .filter(item => item !== id && Number.isSafeInteger(item));
+  // Removing the selected tab leaves selection empty. Never silently route
+  // the next task into a different, still-attached tab.
+  const selectedId = snapshot.selectedId === id ? null : snapshot.selectedId;
+  await chrome.storage.session.set({ cloudBoundTabIds: next, cloudSelectedTabId: selectedId });
+  return cloudTabManagerState();
+}
+async function selectCloudTab(input) {
+  const id = Number(input);
+  const snapshot = await cloudTabManagerState();
+  if (!snapshot.attached.some(tab => tab.id === id))
+    throw new Error('Tab belum ditambahkan. Pilih Tambah tab terlebih dahulu.');
+  await chrome.storage.session.set({ cloudSelectedTabId: id });
+  await chrome.tabs.update(id, { active: true });
+  return cloudTabManagerState();
+}
+async function executeCloudTabTool(tool, args, requestTabId) {
+  if (!CLOUD_BROWSER_TOOLS.has(tool) || !args || typeof args !== 'object' || Array.isArray(args))
+    throw new Error('Tool Cloud tidak diizinkan.');
+  const state = await cloudTabManagerState();
+  const target = state.attached.find(tab => tab.id === state.selectedId);
+  if (!target || !Number.isSafeInteger(requestTabId) || requestTabId !== target.id)
+    throw new Error('Tidak ada tab terikat yang dipilih, atau tab berubah. Tambahkan dan pilih tab dahulu.');
+  // Keep model-provided tabId from escaping the user-selected attached tab.
+  if (args.tabId !== undefined && Number(args.tabId) !== target.id)
+    throw new Error('AI tidak boleh mengakses tab di luar tab terikat.');
+  if (tool === 'browser_tabs_list') return {
+    ok: true, selectedId: target.id,
+    tabs: state.attached.map(({ id, title, origin, selected }) => ({
+      id, title, origin, selected
+    }))
+  };
+  return await handleToolExecution(tool, { ...args, tabId: target.id });
 }
 
 // Tabs the agent opens go into one tab group named "Switchboard", as Claude in Chrome groups its tabs.

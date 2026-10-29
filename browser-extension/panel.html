@@ -327,7 +327,27 @@
     body.chat-only #task-form:focus-within { border-color: #b9bec8; box-shadow: 0 0 0 3px rgba(14, 127, 145, .12); }
     .tab-chip { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; margin: 0 0 8px; padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; }
     .tab-chip[hidden] { display: none; }
-    .tab-chip span { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-chip span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-chip { display:flex; width:100%; padding:0; gap:5px; background:transparent; align-items:center; }
+    .tab-chip button { min-width:0; min-height:29px; padding:5px 9px; font-size:11px; font-weight:550; border:1px solid var(--line); border-radius:9px; background:var(--surface); color:var(--ink); }
+    #tab-manage-toggle { display:flex; align-items:center; gap:5px; flex:1 1 0; overflow:hidden; }
+    #tab-manage-toggle #tab-chip-title { flex:1; text-align:left; }
+    #tab-add-open { flex:0 0 auto; }
+    #tab-detach-current { flex:0 0 auto; }
+    .tab-manager { padding:10px; margin:0 0 9px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+    .tab-manager[hidden] { display:none !important; }
+    .tab-manager-header { display:flex; flex-direction:column; gap:2px; margin-bottom:7px; }
+    .tab-manager-header strong { font-size:12px; }
+    .tab-manager-header small, #tab-manager-status { color:var(--muted); font-size:10.5px; }
+    .tab-bound-list { max-height:135px; overflow-y:auto; display:flex; flex-direction:column; gap:5px; }
+    .tab-bound-row { display:flex; align-items:center; gap:5px; min-width:0; }
+    .tab-bound-row button { min-width:0; font-size:11px; padding:6px 8px; min-height:28px; border:1px solid var(--line); border-radius:8px; background:white; color:var(--ink); }
+    .tab-bound-row .tab-select { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .tab-bound-row .tab-select[aria-current="true"] { border-color:var(--accent); font-weight:700; }
+    .tab-add-row { display:flex; gap:6px; margin-top:5px; }
+    .tab-add-row select { min-width:0; flex:1; font-size:11px; }
+    .tab-add-row button { flex:0 0 auto; font-size:11px; }
+    #tab-manager-status { margin:7px 0 0; line-height:1.4; }
     body.chat-only #task-prompt { display: block; width: 100%; min-height: 24px; max-height: 160px; padding: 0; border: 0; outline: 0; box-shadow: none !important; background: transparent; color: var(--ink); font-size: 14px; line-height: 1.5; resize: none; }
     body.chat-only #task-prompt::placeholder { color: #9aa0ab; }
     body.chat-only .composer-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; }
@@ -467,8 +487,16 @@
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
         <form id="task-form">
           <div id="tab-chip" class="tab-chip" hidden>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-4.5 4-4.5 14 0 18M12 3c4.5 4 4.5 14 0 18"/></svg>
-            <span id="tab-chip-title"></span>
+            <button id="tab-manage-toggle" type="button" aria-label="Pilih atau kelola tab" aria-expanded="false"><span aria-hidden="true">🌐</span><span id="tab-chip-title">Belum ada tab terikat</span><span aria-hidden="true">⌄</span></button>
+            <button id="tab-add-open" type="button" title="Tambah tab Chrome" aria-label="Tambah tab">+ Tab</button>
+            <button id="tab-detach-current" type="button" title="Hanya melepas ikatan, bukan menutup tab Chrome" aria-label="Hapus ikatan tab">Hapus</button>
+          </div>
+          <div id="tab-manager" class="tab-manager" hidden>
+            <div class="tab-manager-header"><strong>Tab terikat</strong><small>Pilih untuk berpindah · Hapus hanya melepas ikatan</small></div>
+            <div id="tab-bound-list" class="tab-bound-list"></div>
+            <label for="tab-available">Tambah tab yang sudah terbuka</label>
+            <div class="tab-add-row"><select id="tab-available" aria-label="Pilih tab Chrome untuk ditambahkan"></select><button id="tab-add-confirm" type="button">Tambah</button></div>
+            <p id="tab-manager-status" role="status" aria-live="polite">Tab Chrome tetap terbuka saat ikatan dihapus.</p>
           </div>
           <label for="task-prompt" style="margin-top:0">What should the agent do in your browser?</label>
           <textarea id="task-prompt" rows="1" maxlength="10000" placeholder="Open BotConnector pricing and summarize the plans"></textarea>

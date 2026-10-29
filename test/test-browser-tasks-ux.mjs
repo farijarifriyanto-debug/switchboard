@@ -137,6 +137,12 @@ assert.match(html,/<select id="byok-model"/,'BotConnector uses a model dropdown,
 assert.match(html,/id="byok-model-search" type="search"/,'Cloud model picker provides name search')
 assert.match(html,/id="byok-model-filter"/,'Cloud model picker has Free/Plan filtering')
 assert.match(html,/id="cloud-quick-model"/,'Chat composer exposes direct AI selection')
+for (const id of ['tab-add-open','tab-add-confirm','tab-detach-current','tab-bound-list','tab-available','tab-manager']) {
+  assert.ok(html.includes('id="'+id+'"'),'Cloud tab manager control present: '+id)
+}
+assert.match(panel,/SWITCHBOARD_CLOUD_ATTACH/,'Explicit cloud tab attachment is available')
+assert.match(panel,/SWITCHBOARD_CLOUD_DETACH/,'Cloud tab can be detached without closing Chrome')
+assert.match(panel,/SWITCHBOARD_CLOUD_TOOL/,'Cloud agent uses scoped tab tool dispatcher')
 assert.match(html,/id="byok-model-manual"/,'Legacy local providers retain their manual model input')
 assert.match(panel,/keyField\.value = ''/,'API key is cleared after save or failure')
 assert.match(panel,/api\/companion-byok\/request|byokApi\(origin, token, 'request'/)

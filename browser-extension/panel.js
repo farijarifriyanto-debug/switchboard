@@ -45,8 +45,131 @@ document.querySelectorAll('nav button').forEach((btn) => {
 // -----------------------------------------------------------------------------
 // Tab & State Synchronization
 // -----------------------------------------------------------------------------
+let cloudTabsState = { selectedId:null, attached:[], available:[] };
+function renderCloudTabManager(state) {
+  cloudTabsState = state;
+  const chip = $('tab-chip');
+  chip.hidden = false;
+  $('tab-add-open').hidden = false;
+  $('tab-detach-current').hidden = !state.selectedId;
+  $('tab-manage-toggle').disabled = false;
+  const selected = state.attached.find(tab => tab.id === state.selectedId);
+  $('tab-chip-title').textContent = selected?.title ||
+    (state.attached.length ? 'Pilih tab terikat' : 'Belum ada tab terikat');
+  $('tab-chip-title').title = selected?.origin || 'Klik + Tab untuk menambah tab Chrome';
+  const list = $('tab-bound-list');
+  list.replaceChildren();
+  if (!state.attached.length) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Belum ada tab terikat. Klik + Tab lalu pilih situs yang ingin dibaca.';
+    empty.className = 'model-catalog-hint';
+    list.append(empty);
+  }
+  for (const tab of state.attached) {
+    const row = document.createElement('div');
+    row.className = 'tab-bound-row';
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'tab-select';
+    select.textContent = (tab.id === state.selectedId ? '● ' : '') + tab.title;
+    select.title = tab.origin;
+    select.setAttribute('aria-current', String(tab.id === state.selectedId));
+    select.disabled = Boolean(activeTask);
+    select.addEventListener('click', () => void runCloudTabCommand('SWITCHBOARD_CLOUD_SELECT',tab.id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Hapus';
+    remove.title = 'Lepas ikatan; tab Chrome tidak ditutup';
+    remove.setAttribute('aria-label','Hapus ikatan '+tab.title);
+    remove.disabled = Boolean(activeTask);
+    remove.addEventListener('click', () => void runCloudTabCommand('SWITCHBOARD_CLOUD_DETACH',tab.id));
+    row.append(select,remove);
+    list.append(row);
+  }
+  const available = $('tab-available');
+  available.replaceChildren();
+  if (!state.available.length) {
+    available.add(new Option('Tidak ada tab HTTP(S) lain', ''));
+  } else {
+    for (const tab of state.available) {
+      available.add(new Option(tab.title + ' · ' + tab.origin, String(tab.id)));
+    }
+  }
+  $('tab-add-confirm').disabled = !state.available.length || Boolean(activeTask);
+  $('tab-detach-current').disabled = !selected || Boolean(activeTask);
+  $('tab-add-open').disabled = Boolean(activeTask);
+  $('tab-manager-status').textContent = selected
+    ? 'Aktif untuk AI: ' + selected.origin + '. Menghapus ikatan tidak menutup tab atau mengubah izin situs.'
+    : state.attached.length ? 'Pilih salah satu tab terikat untuk dipakai AI. Belum ada tab aktif.' :
+      'Pilih tab HTTP(S) untuk mengizinkan AI bekerja pada tab tersebut. Tanpa tab terikat, AI tidak dapat membaca halaman.';
+}
+async function refreshCloudTabManager() {
+  const state = await chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TABS'});
+  if (!state?.ok) throw new Error(state?.error || 'Gagal membaca tab Chrome.');
+  renderCloudTabManager(state);
+  const selected = state.attached.find(tab => tab.id === state.selectedId);
+  currentTab = selected ? {id:selected.id,title:selected.title,url:selected.url,origin:selected.origin} : null;
+  return state;
+}
+async function runCloudTabCommand(type,tabId) {
+  if (activeTask) {
+    $('tab-manager-status').textContent = 'Hentikan tugas AI sebelum mengubah ikatan tab.';
+    return;
+  }
+  try {
+    const previous = cloudTabsState.selectedId;
+    const result = await chrome.runtime.sendMessage({type,tabId});
+    if (!result?.ok) throw new Error(result?.error || 'Gagal mengubah tab.');
+    if (result.selectedId !== previous) {
+      cloudHistory = [];
+      conversationId = null;
+    }
+    await refreshActiveTab();
+  } catch (error) {
+    $('tab-manager-status').textContent = 'Gagal: ' + String(error?.message || error).slice(0,175);
+  }
+}
+$('tab-manage-toggle').addEventListener('click', async () => {
+  $('tab-manager').hidden = !$('tab-manager').hidden;
+  $('tab-manage-toggle').setAttribute('aria-expanded',String(!$('tab-manager').hidden));
+  if (!$('tab-manager').hidden) {
+    try {await refreshCloudTabManager();} catch (error) {
+      $('tab-manager-status').textContent = String(error?.message || error);
+    }
+  }
+});
+$('tab-add-open').addEventListener('click', async () => {
+  $('tab-manager').hidden = false;
+  $('tab-manage-toggle').setAttribute('aria-expanded','true');
+  try { await refreshCloudTabManager(); }
+  catch (error) { $('tab-manager-status').textContent = String(error?.message || error); }
+  $('tab-available').focus();
+});
+$('tab-detach-current').addEventListener('click', () => {
+  if (cloudTabsState.selectedId) void runCloudTabCommand('SWITCHBOARD_CLOUD_DETACH',cloudTabsState.selectedId);
+});
+$('tab-add-confirm').addEventListener('click', () => {
+  const id = Number($('tab-available').value);
+  if (Number.isSafeInteger(id) && id > 0) void runCloudTabCommand('SWITCHBOARD_CLOUD_ATTACH',id);
+});
 async function refreshActiveTab() {
   try {
+    if (cloudConfig?.enabled) {
+      const state = await refreshCloudTabManager();
+      $('active-tab-title').textContent = currentTab?.title || 'Belum ada tab terikat';
+      $('active-tab-origin').textContent = currentTab?.origin || 'Klik + Tab untuk memilih tab Chrome.';
+      const access = currentTab?.origin
+        ? await chrome.runtime.sendMessage({type:'SWITCHBOARD_SITE_ACCESS_STATUS',origin:currentTab.origin})
+        : null;
+      $('site-permission-status').textContent = access?.granted ? 'Allowed by Chrome' : 'Permission needed';
+      $('approved-origins-view').textContent = (access?.origins || []).join('\n') || 'None';
+      await updateOverviewStatus();
+      return;
+    }
+    $('tab-add-open').hidden = true;
+    $('tab-detach-current').hidden = true;
+    $('tab-manage-toggle').disabled = true;
+    $('tab-manager').hidden = true;
     const res = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_ACTIVE_TAB' });
     if (res?.ok && res.tab) {
       currentTab = res.tab;
@@ -936,6 +1059,7 @@ $('cloud-remove-key').addEventListener('click', async () => {
   renderCloudModels();
   $('byok-status').textContent = 'API key Cloud dihapus dari ekstensi.';
   await refreshBridgeStatus();
+  await refreshActiveTab();
 });
 $('byok-cancel').addEventListener('click', () => {
   if (byokPending) byokPending.cancelled = true;
@@ -982,6 +1106,7 @@ $('byok-form').addEventListener('submit', async (event) => {
         ' Akses akun dan inferensi diuji saat pesan pertama.';
       $('byok-key').placeholder = 'API key tersimpan; tidak perlu diisi ulang';
       await refreshBridgeStatus();
+      await refreshActiveTab();
     } catch (error) {
       $('byok-status').textContent = 'Gagal: ' + String(error?.message || error).slice(0,180);
     } finally {
@@ -1260,6 +1385,15 @@ $('chat-new')?.addEventListener('click', () => {
 // extension page; all DOM/browser actions still run through the existing
 // background-worker browser tools and native Chrome host permissions.
 async function runStandaloneCloudTask(question) {
+  await refreshActiveTab();
+  const selectedTabId = cloudTabsState.selectedId;
+  if (!Number.isSafeInteger(selectedTabId) || !currentTab || currentTab.id !== selectedTabId) {
+    $('tab-manager').hidden = false;
+    $('tab-manage-toggle').setAttribute('aria-expanded','true');
+    note('Belum ada tab terikat yang dipilih. Pilih tab pada daftar, atau klik + Tab untuk menambahkan situs HTTP(S).','error');
+    $('tab-available').focus();
+    return;
+  }
   activeTask = new AbortController();
   const controller = activeTask;
   $('task-send').disabled = true;
@@ -1291,7 +1425,7 @@ async function runStandaloneCloudTask(question) {
           // Resolve the actual visible target, not just a CSS selector that
           // could hide "Pay now" or an irreversible authorization.
           const snapshot = await chrome.runtime.sendMessage({
-            type:'SWITCHBOARD_EXECUTE_TOOL',tool:'browser_dom_snapshot',args:{}
+            type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{},tabId:selectedTabId
           });
           const element = snapshot?.ok && snapshot.elements?.find(item =>
             item.ref === args.selector || item.selector === args.selector);
@@ -1311,7 +1445,7 @@ async function runStandaloneCloudTask(question) {
           summary + '\n\nIzinkan sekali?');
       },
       runTool:async (tool,args) => {
-        const reply = await chrome.runtime.sendMessage({type:'SWITCHBOARD_EXECUTE_TOOL',tool,args});
+        const reply = await chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool,args,tabId:selectedTabId});
         if (!reply || typeof reply.ok !== 'boolean') throw new Error('Browser Companion tidak merespons.');
         return reply;
       },
@@ -1369,6 +1503,7 @@ async function runStandaloneCloudTask(question) {
     $('task-stop').disabled = true;
     await refreshPendingSite();
     await refreshAuditLog();
+    await refreshActiveTab();
   }
 }
 

@@ -81,7 +81,6 @@ try{
     await sleep(150)
   }
   assert.ok(tab,'fixture tab')
-  await run('bindAgentTab('+tab.id+')')
   assert.equal((await run('bridgeStatus()')).connected,false,'No local sbx pairing/socket')
   const extId=worker.url.split('/')[2]
   const target=await cdp('Target.createTarget',{url:'chrome-extension://'+extId+'/panel.html'})
@@ -130,6 +129,70 @@ try{
   const options=await run("Array.from(document.getElementById('byok-model').options).map(o=>({id:o.value,text:o.textContent}))",session)
   assert.ok(options.some(o=>o.id==='agnes-3.0-flash'), 'Verified free model is in dropdown')
   assert.ok(options.every(o=>o.id!=='no-tools'), 'Unknown-tools model is excluded')
+  // No implicit fallback to an arbitrary active Chrome tab.
+  const beforeAttach=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{},tabId:"+tab.id+"})",session)
+  assert.equal(beforeAttach?.ok,false,'Cloud tools MUST fail when no tab has been explicitly attached')
+  await run("document.getElementById('tab-add-open').click()",session)
+  for(let i=0;i<40;i++){
+    if(await run("Array.from(document.getElementById('tab-available').options).some(x=>x.value==='"+tab.id+"')",session))break
+    await sleep(100)
+  }
+  assert.ok(await run("Array.from(document.getElementById('tab-available').options).some(x=>x.value==='"+tab.id+"')",session),'Fixture tab offered to user')
+  await run("(()=>{document.getElementById('tab-available').value='"+tab.id+"';document.getElementById('tab-add-confirm').click();return true})()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+tab.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),tab.id,'User successfully attached the first tab')
+  const secondUrl=url+'?second'
+  const second=await run("chrome.tabs.create({url:"+JSON.stringify(secondUrl)+"}).then(t=>({id:t.id,url:t.url}))",sw)
+  await run("document.getElementById('tab-add-open').click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("Array.from(document.getElementById('tab-available').options).some(x=>x.value==='"+second.id+"')",session))break
+    await sleep(100)
+  }
+  await run("(()=>{document.getElementById('tab-available').value='"+second.id+"';document.getElementById('tab-add-confirm').click();return true})()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+second.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.attached.length",session),2,'Two tabs are attached')
+  // A Cloud model can inspect ONLY tabs the operator explicitly attached.
+  const listed=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_tabs_list',args:{},tabId:"+second.id+"})",session)
+  assert.equal(listed.ok,true)
+  assert.equal(listed.tabs.length,2)
+  assert.ok(listed.tabs.every(x=>x.id===tab.id||x.id===second.id))
+  const escaped=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{tabId:"+tab.id+"},tabId:"+second.id+"})",session)
+  assert.equal(escaped?.ok,false,'Cloud model cannot override operator-selected tab')
+  const switchBack=await run("(()=>{const row=Array.from(document.querySelectorAll('.tab-bound-row')).find(x=>x.querySelector('button.tab-select').textContent.includes('QA_SCREEN'));return document.querySelectorAll('.tab-bound-row button.tab-select')[0]?.click(),true})()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+tab.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),tab.id,'User can switch back to first attached tab')
+  // Remove the SELECTED second attachment. The first must not be selected
+  // silently: the operator must explicitly choose it again.
+  await run("document.querySelectorAll('.tab-bound-row')[1]?.querySelector('button.tab-select')?.click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+second.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),second.id)
+  await run("document.getElementById('tab-detach-current').click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.attached.length===1",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.attached.length",session),1)
+  assert.equal(await run("cloudTabsState.selectedId",session),null,'Removing selected tab must not implicitly switch to another')
+  assert.equal(await run("chrome.tabs.get("+second.id+").then(()=>true).catch(()=>false)",sw),true,'Detaching must never close the Chrome tab')
+  await run("document.querySelector('.tab-bound-row button.tab-select')?.click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.selectedId==="+tab.id,session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),tab.id,'Remaining attached tab must be selected explicitly')
+  console.log('PASS REAL CHROME: add two tabs, switch, detach active without implicit fallback, Chrome tab remains open')
   if(!live) {
     await run("(()=>{document.getElementById('byok-model-search').value='Sonnet';document.getElementById('byok-model-search').dispatchEvent(new Event('input'));return true})()",session)
     assert.deepEqual(await run("Array.from(document.getElementById('byok-model').options).map(o=>o.value)",session),['claude-sonnet-5-5'])
@@ -239,6 +302,19 @@ try{
   }
   assert.equal(await run("chrome.storage.local.get('cloudConfig').then(x=>x.cloudConfig.enabled)",session),true)
   console.log('PASS Cloud toggle retains key without requiring re-entry')
+  // Detach the last tab: no task may read the active Chrome tab implicitly.
+  await run("document.getElementById('tab-detach-current').click()",session)
+  for(let i=0;i<45;i++){
+    if(await run("cloudTabsState.attached.length===0",session))break
+    await sleep(100)
+  }
+  assert.equal(await run("cloudTabsState.selectedId",session),null,'Last tab detach leaves no selected tab')
+  assert.equal(await run("chrome.tabs.get("+tab.id+").then(()=>true).catch(()=>false)",sw),true,'Last tab remains open in Chrome')
+  const denied=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_TOOL',tool:'browser_dom_snapshot',args:{},tabId:"+tab.id+"})",session)
+  assert.equal(denied?.ok,false,'Without bound tab, Cloud must refuse browser read even if another tab is focused')
+  const foreign=await run("chrome.runtime.sendMessage({type:'SWITCHBOARD_CLOUD_ATTACH',tabId:9999999})",session)
+  assert.equal(foreign?.ok,false,'Cannot attach unknown tab ID')
+  console.log('PASS remove last tab: no implicit re-bind, browser tab remains open, invalid IDs rejected')
   // Key revocation must clear extension-local credentials; no local CLI needed.
   await run("document.getElementById('cloud-remove-key').click()",session)
   let cleared=false
