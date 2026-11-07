@@ -60,8 +60,10 @@ try {
   console.log('SWITCHBOARD_UPDATE_PORTABLE_NO_INSTALL_PASS')
   console.log('SWITCHBOARD_UPDATE_FAIL_CLOSED_ON_BAD_SOURCE_PASS')
   const tmp=await mkdtemp(path.join(os.tmpdir(),'sbx-update-pref-'))
-  const oldLocal=process.env.LOCALAPPDATA
-  process.env.LOCALAPPDATA=tmp
+  // Preferences live under LOCALAPPDATA on Windows and XDG_CONFIG_HOME on POSIX.
+  const prefEnv=process.platform==='win32'?'LOCALAPPDATA':'XDG_CONFIG_HOME'
+  const oldLocal=process.env[prefEnv]
+  process.env[prefEnv]=tmp
   try {
     globalThis.fetch=async()=>good('0.4.2')
     const pref=new SwitchboardUpdateService('0.4.2',{global:true})
@@ -76,8 +78,8 @@ try {
     assert.equal((await restored.configure(false)).automatic,false)
     console.log('SWITCHBOARD_UPDATE_OPT_IN_PERSISTENCE_NO_DOWNLOAD_PASS')
   } finally {
-    if(oldLocal===undefined)delete process.env.LOCALAPPDATA
-    else process.env.LOCALAPPDATA=oldLocal
+    if(oldLocal===undefined)delete process.env[prefEnv]
+    else process.env[prefEnv]=oldLocal
     await rm(tmp,{recursive:true,force:true})
   }
 } finally {globalThis.fetch=real}
