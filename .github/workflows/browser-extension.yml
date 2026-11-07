@@ -2,7 +2,13 @@ name: Browser extension package
 on:
   workflow_dispatch:
   push:
-    branches: [feat/chrome-browser-companion]
+    branches: [master]
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/browser-extension.yml'
+      - 'scripts/package-extension.mjs'
+  pull_request:
+    branches: [master]
     paths:
       - 'browser-extension/**'
       - '.github/workflows/browser-extension.yml'

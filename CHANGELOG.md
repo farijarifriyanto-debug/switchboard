@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.9
+
+- Harden the JSONC config parser: trailing `//` comments (the style used by the README's own examples) now parse, and comment/comma lookalikes inside string values are never rewritten. A regression test parses every fenced `jsonc` README example.
+- Cloud standalone: close a double-submit race that could start two parallel agent runs; port the fail-closed prohibited-action blocks (purchases/payments, account creation, permanent deletion, payment-card/ID data, captcha bypass) so they apply in Cloud mode with no confirmation override; add a 120 s timeout to gateway and catalog requests so a hung connection fails honestly instead of spinning forever.
+- Side panel: surface repeated approval-poll failures (dead server / expired token) instead of hiding pending approvals; the Manual/Auto/Skip mode selector now works in Cloud standalone (extension-owned mode) and no longer resets silently; stale sessions are retried once as a new session; copy/new-chat buttons give feedback instead of staying silent; the Cloud badge reads "configured", not a proven connection.
+- Never overwrite a corrupt `providers.json`/`credentials.json` with an empty store: writes are refused with a recovery hint (reads still work).
+- Close the SSRF DNS-rebinding window: `web_fetch` now re-validates every DNS answer at connect time through a guarded undici dispatcher, in addition to the existing per-hop URL checks.
+- Security hardening: trace JSONL mirrors are written with mode 0600 (tool output can mention secrets); the web console serves a Content-Security-Policy header; companion bearer comparison is timing-safe; malformed JSON request bodies return 400 instead of 500; `--port`/`--telegram` are validated; the Discord gateway handshake times out after 30 s instead of hanging the reconnect loop; the MCP reconnect budget reset no longer clears mid-backoff, and the MCP client reports the real package version.
+- Cross-platform paths: updater preferences and Local Core manager follow the Core's XDG contract on POSIX instead of Windows-style folders.
+- CI/tests: extension packaging is gated on PRs and pushes to master, the CI test job has a 30-minute timeout, and three previously unrunnable-in-CI tests (CDP contract, agent tab binding, native pairing) now run in the main suite.
+- Dependency security updates from Dependabot: body-parser 2.4.0, zod 4.6.7, fast-uri 3.1.9, ip-address 10.7.5; `npm audit --omit=dev` reports zero vulnerabilities.
+
 ## 0.4.8
 
 - Added **icon-only Copy** under each user question and AI answer, plus **Salin percakapan** in the side-panel header. Accessible labels and tooltips differentiate copying a question, answer, or entire chat. Clipboard output is original plain text (not rendered HTML); conversation copy contains visible user and AI messages only, omitting browser tool details, internal errors, and API keys. New Chat clears the copy source. Both Cloud and optional local agent paths use the same copy controls.

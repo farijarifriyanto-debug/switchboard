@@ -206,8 +206,16 @@ export const discordChannel = {
           done = true
           clearInterval(beat)
           clearTimeout(first)
+          clearTimeout(handshake)
           resolve({ code, ready })
         }
+        // A black-holed TCP/TLS connection never fires onclose/onerror, which
+        // would park the reconnect loop forever. Fail it so run() backs off.
+        const handshake = setTimeout(() => {
+          try { sock.close(4000, 'handshake timeout') } catch { /* socket never opened */ }
+          finish(1006)
+        }, 30_000)
+        handshake.unref?.()
         sock.onclose = (event: { code: number }) => finish(event.code)
         sock.onerror = () => finish(1006)
         sock.onmessage = (event: { data: unknown }) => {
@@ -255,11 +263,12 @@ export const discordChannel = {
             case 0:
               if (frame.t === 'READY') {
                 ready = true
+                clearTimeout(handshake)
                 sessionId = String(frame.d?.session_id ?? '')
                 resumeUrl = String(frame.d?.resume_gateway_url ?? '')
                 selfId = String(frame.d?.user?.id ?? '')
                 log.info('discord channel up as %s', String(frame.d?.user?.username ?? '?'))
-              } else if (frame.t === 'RESUMED') ready = true
+              } else if (frame.t === 'RESUMED') { ready = true; clearTimeout(handshake) }
               else if (frame.t) dispatch(frame.t, frame.d)
               break
           }

@@ -515,10 +515,11 @@ never comes back in a response. Local HTTP and WebSocket calls require the paire
   site in the Chrome dialog is enough; Switchboard does not add a second site allowlist.
 - **Action modes:** `manual` asks before each browser action, `auto` screens page content and
   high-risk actions, and `skip` skips the automatic screener while keeping hard blocks. These modes
-  govern agent actions, not site access. The local Switchboard server owns the mode; the panel mirrors
-  it.
+  govern agent actions, not site access. The local Switchboard server owns the mode when paired; in
+  Cloud standalone (no server) the extension itself owns it. The panel mirrors the active mode.
 - **Always confirm:** downloads and screenshots require explicit approval in every mode. Passwords,
-  payment fields, purchases, account creation and other prohibited actions remain blocked.
+  payment fields, purchases, account creation and other prohibited actions remain blocked — in the
+  local companion path and in Cloud standalone mode alike, with no confirmation override.
 - **Snapshot selectors:** mutating tools accept an element `ref` (`@e1`) or the exact selector
   returned by `browser_dom_snapshot`. Arbitrary CSS that was not in the snapshot is rejected.
 - **Companion token scope:** the extension token can use browser-scoped state, browser chats and

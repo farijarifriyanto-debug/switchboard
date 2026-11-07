@@ -235,8 +235,9 @@ async function refreshBridgeStatus() {
     const status = await chrome.runtime.sendMessage({ type: 'SWITCHBOARD_BRIDGE_STATUS' });
     $('task-open-web').hidden = Boolean(cloudConfig?.enabled);
     if (cloudConfig?.enabled && SwitchboardCloud.configValid(cloudConfig)) {
-      setBadge('connected', 'Cloud siap');
-      taskStatus('BotConnector Cloud siap. Koneksi diuji saat pesan dikirim.');
+      // Config present, connectivity unproven: neutral badge, not a green dot.
+      setBadge('idle', 'Cloud dikonfigurasi');
+      taskStatus('BotConnector Cloud dikonfigurasi. Koneksi baru diuji saat pesan pertama dikirim.');
     } else {
       setBadge(status?.connected ? 'connected' : 'disconnected', status?.connected ? 'Connected' : 'Offline');
     }
@@ -252,7 +253,7 @@ async function refreshBridgeStatus() {
       $('bridge-diagnostics').textContent = status.error;
     }
   } catch (_) {
-    setBadge(cloudConfig?.enabled ? 'connected' : 'disconnected', cloudConfig?.enabled ? 'Cloud siap' : 'Offline');
+    setBadge(cloudConfig?.enabled ? 'idle' : 'disconnected', cloudConfig?.enabled ? 'Cloud dikonfigurasi' : 'Offline');
   }
 }
 
@@ -347,12 +348,12 @@ function approvalTargetOrigin(item, fallbackTab) {
 }
 
 async function refreshActionApproval() {
-  if (!activeTask || !activeTaskSession || !companionToken) return;
+  if (!activeTask || !activeTaskSession || !companionToken) return true;
   try {
     const response = await fetch(webOrigin + '/api/approvals', {
       headers: { authorization: 'Bearer ' + companionToken },
     });
-    if (!response.ok) return;
+    if (!response.ok) return false;
     const state = await response.json();
     const pending = (state.pending || []).find(item => item.sessionId === activeTaskSession);
     if (pending) showApprovalBanner({ id: pending.id, tool: pending.tool, summary: approvalActionSummary(pending), origin: approvalTargetOrigin(pending, currentTab) });
@@ -360,7 +361,10 @@ async function refreshActionApproval() {
       pendingApprovalId = null;
       $('approval-banner').classList.remove('visible');
     }
-  } catch (_) {}
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 async function settleApproval(decision) {
@@ -676,7 +680,9 @@ $('permission-mode-select').addEventListener('change', async (e) => {
     await refreshActiveTab();
   } catch (error) {
     $('bridge-diagnostics').textContent = String(error?.message || error);
+    note('Gagal mengubah mode tindakan: ' + String(error?.message || error), 'error');
     await refreshBridgeStatus();
+    syncComposerMode(); // keep the composer select in step after the reset above
   }
 });
 
@@ -1328,7 +1334,7 @@ function makeMessageCopyButton(label, kind, value) {
   return button;
 }
 async function copyConversationText(value, button) {
-  if (!String(value || '').trim()) return false;
+  if (!String(value || '').trim()) { note('Tidak ada yang bisa disalin.', 'error'); return false; }
   try {
     await navigator.clipboard.writeText(value);
     button.title = 'Berhasil disalin';
@@ -1446,7 +1452,7 @@ document.querySelectorAll('#chat-chips .chip').forEach(button => {
   });
 });
 $('chat-new')?.addEventListener('click', () => {
-  if (activeTask) return;
+  if (activeTask) { note('Hentikan tugas yang sedang berjalan sebelum memulai obrolan baru.', 'error'); return; }
   conversationId = null;
   cloudHistory = [];
   $('chat-log').replaceChildren();
@@ -1461,6 +1467,9 @@ $('chat-new')?.addEventListener('click', () => {
 // extension page; all DOM/browser actions still run through the existing
 // background-worker browser tools and native Chrome host permissions.
 async function runStandaloneCloudTask(question) {
+  // The submit handler already set activeTask synchronously (double-submit
+  // guard); fall back to creating it here for any other caller.
+  const controller = activeTask || (activeTask = new AbortController());
   await refreshActiveTab();
   const selectedTabId = cloudTabsState.selectedId;
   if (!Number.isSafeInteger(selectedTabId) || !currentTab || currentTab.id !== selectedTabId) {
@@ -1468,24 +1477,26 @@ async function runStandaloneCloudTask(question) {
     $('tab-manage-toggle').setAttribute('aria-expanded','true');
     note('Belum ada tab terikat yang dipilih. Pilih tab pada daftar, atau klik + Tab untuk menambahkan situs HTTP(S).','error');
     $('tab-available').focus();
+    activeTask = null; // release the submit guard: no run ever started
     return;
   }
-  activeTask = new AbortController();
-  const controller = activeTask;
   $('task-send').disabled = true;
   $('task-stop').disabled = false;
-  const log = $('chat-log');
-  $('chat-empty').hidden = true;
-  log.append(createUserMessage(question));
-  const msg = createAgentMessage();
-  log.append(msg.root);
-  $('task-prompt').value = '';
-  autosizePrompt();
-  log.scrollTop = log.scrollHeight;
-  taskStatus('Menghubungi BotConnector Cloud tanpa backend lokal...');
   let outcome = 'failed';
   let approvedTypingOrigin = '';
+  // msg starts null so a throwing DOM op above the try body can never wedge
+  // activeTask (the finally below guards every msg dereference).
+  let msg = null;
   try {
+    const log = $('chat-log');
+    $('chat-empty').hidden = true;
+    log.append(createUserMessage(question));
+    msg = createAgentMessage();
+    log.append(msg.root);
+    $('task-prompt').value = '';
+    autosizePrompt();
+    log.scrollTop = log.scrollHeight;
+    taskStatus('Menghubungi BotConnector Cloud tanpa backend lokal...');
     const response = await SwitchboardCloud.run({
       config:cloudConfig, question, currentTab, history:cloudHistory,
       signal:controller.signal,
@@ -1499,6 +1510,10 @@ async function runStandaloneCloudTask(question) {
         }
         // Scrolling is non-destructive in Auto mode, but not in Manual.
         if (tool === 'browser_scroll' && $('composer-mode').value !== 'manual') return true;
+        // Fail-closed blocks (purchases, account creation, permanent deletion…)
+        // cannot be overridden by a confirmation — same as the local companion.
+        const blockedIntent = SwitchboardCloud.prohibitedIntent(question);
+        if (blockedIntent) { taskStatus('Ditolak: ' + blockedIntent); return false; }
         const target = String(args.selector || args.url || 'halaman aktif').slice(0,180);
         let label = '';
         if (tool === 'browser_click') {
@@ -1514,6 +1529,11 @@ async function runStandaloneCloudTask(question) {
             return false;
           }
           label = String(element.text || element.tag || '').slice(0,140);
+          const blockedTarget = SwitchboardCloud.prohibitedTarget(label);
+          if (blockedTarget) {
+            taskStatus('Klik ditolak: ' + blockedTarget);
+            return false;
+          }
         }
         const summary = tool === 'browser_type'
           ? 'Ketik pada ' + String(args.selector || '') + ':\n' + String(args.text || '')
@@ -1572,13 +1592,15 @@ async function runStandaloneCloudTask(question) {
         (reason.includes('Batas penggunaan') ? ' Pilih model lain di menu AI Cloud, atau coba lagi setelah kuota pulih. Tidak ada fallback berbayar otomatis.' : ''),'error');
     }
   } finally {
-    msg.thinking.remove();
-    if (msg.items.size) { msg.steps.open = false; refreshStepSummary(msg,true); }
-    if (msg.text || msg.items.size) {
-      msg.receipt.textContent = taskReceiptText(outcome,[...msg.items.values()].map(step =>
-        step.classList.contains('done') ? 'done' : step.classList.contains('failed') ? 'failed' : 'running'));
-      msg.receipt.hidden = false;
-    } else msg.root.remove();
+    if (msg) {
+      msg.thinking.remove();
+      if (msg.items.size) { msg.steps.open = false; refreshStepSummary(msg,true); }
+      if (msg.text || msg.items.size) {
+        msg.receipt.textContent = taskReceiptText(outcome,[...msg.items.values()].map(step =>
+          step.classList.contains('done') ? 'done' : step.classList.contains('failed') ? 'failed' : 'running'));
+        msg.receipt.hidden = false;
+      } else msg.root.remove();
+    }
     activeTask = null;
     $('task-send').disabled = false;
     $('task-stop').disabled = true;
@@ -1594,13 +1616,28 @@ $('task-form').addEventListener('submit', async event => {
   const question = $('task-prompt').value.trim();
   if (!question) return;
   if (cloudConfig?.enabled && SwitchboardCloud.configValid(cloudConfig)) {
+    // Set synchronously, before the first await inside runStandaloneCloudTask —
+    // otherwise a second Enter/click slips through and starts a parallel run.
+    activeTask = new AbortController();
     await runStandaloneCloudTask(question);
     return;
   }
   if (!companionToken) { note('Masukkan API key BotConnector Cloud untuk memakai Switchboard tanpa aplikasi lokal, atau hubungkan sbx web.', 'error'); $('byok-panel').open = true; return; }
   activeTask = new AbortController();
   activeTaskSession = null;
-  const approvalPoll = setInterval(() => void refreshActionApproval(), 500);
+  // Surface a dead/expired local server instead of hiding pending approvals:
+  // ~10s of consecutive poll failures turns into an honest status message.
+  let approvalPollMisses = 0;
+  const approvalPoll = setInterval(() => {
+    void refreshActionApproval().then(ok => {
+      if (ok) { approvalPollMisses = 0; return; }
+      approvalPollMisses += 1;
+      if (approvalPollMisses === 20) {
+        taskStatus('Koneksi ke Switchboard lokal terputus.');
+        note('Tidak dapat memeriksa persetujuan dari Switchboard lokal (server mati atau token kedaluwarsa). Tindakan yang menunggu persetujuan akan gagal saat timeout.', 'error');
+      }
+    });
+  }, 500);
   $('task-send').disabled = true;
   $('task-stop').disabled = false;
   const log = $('chat-log');
@@ -1620,13 +1657,19 @@ $('task-form').addEventListener('submit', async event => {
       ? 'The current website origin is ' + currentTab.origin +
         '. Use browser_tabs_list and browser_tab_select to target the right tab if needed. '
       : '';
-    const response = await fetch(webOrigin + '/api/chat', {
+    const postChat = (withSession) => fetch(webOrigin + '/api/chat', {
       method: 'POST',
       signal: activeTask.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + companionToken },
-      body: JSON.stringify({ preset: 'browser', prompt: context + question, ...(conversationId ? { sessionId: conversationId } : {}) })
+      body: JSON.stringify({ preset: 'browser', prompt: context + question, ...(withSession && conversationId ? { sessionId: conversationId } : {}) })
     });
-    if (response.status === 404 && conversationId) conversationId = null;
+    let response = await postChat(true);
+    if (response.status === 404 && conversationId) {
+      // The server forgot this session (restart/expiry): retry once as a new
+      // session instead of failing a message the user already sees.
+      conversationId = null;
+      response = await postChat(false);
+    }
     if (!response.ok || !response.body) throw Error('Local Switchboard HTTP ' + response.status);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();

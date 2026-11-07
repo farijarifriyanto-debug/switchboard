@@ -58,7 +58,7 @@ export interface BrowserCompanionConfig {
   token?: string
   /** Default action mode. Defaults to Auto, matching the modern side panel. */
   defaultMode?: PermissionMode | LegacyPermissionMode
-  /** Command execution timeout in milliseconds. Defaults to 30,000. */
+  /** Command execution timeout in milliseconds. Defaults to 90,000. */
   timeoutMs?: number
 }
 
@@ -299,6 +299,7 @@ export class BrowserCompanionService {
         })
         reject(new Error(`Browser action "${tool}" timed out after ${this.config.timeoutMs}ms.`))
       }, this.config.timeoutMs)
+      timer.unref?.() // a pending browser command must not hold the event loop open
 
       const cleanupSignal = toolCtx.signal ? () => {
         if (toolCtx.signal?.aborted) {

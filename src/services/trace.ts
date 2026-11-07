@@ -31,8 +31,9 @@ function safeTraceKey(key: string): string | null {
 /**
  * `ctx.trace` — durable record of *protocol-relevant* things: LLM calls with
  * latency/usage, retries, tool calls with exit codes, approvals, fallbacks,
- * errors. Raw model-visible text never goes here; the transcript lives in the
- * session store and details stay in the events themselves.
+ * errors. Tool results land here truncated to 2_000 chars (they can mention
+ * secrets the model printed), so the JSONL mirror is written with mode 0600.
+ * Model-visible text itself stays in the session store.
  *
  * The UI's Trace pane reads `list(sessionId)`; everything else records silently.
  */
@@ -207,7 +208,8 @@ export class TraceService extends Service {
         await mkdir(this.dir, { recursive: true })
         const target = path.join(this.dir, `${key}.jsonl`)
         const text = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
-        await appendFile(target, text, 'utf8')
+        // mode applies on file creation (POSIX); tool output can mention secrets.
+        await appendFile(target, text, { encoding: 'utf8', mode: 0o600 })
       } catch {
         /* telemetry must never break a run */
       }

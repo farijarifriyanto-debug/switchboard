@@ -85,7 +85,13 @@ async function readBody(req: http.IncomingMessage, limit = 1_000_000): Promise<a
     chunks.push(chunk as Buffer)
   }
   if (!chunks.length) return {}
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    const error = new Error('request body is not valid JSON') as Error & { statusCode?: number }
+    error.statusCode = 400
+    throw error
+  }
 }
 
 /** Hostnames the settings fence accepts (DNS-rebinding defense, spec §6). */
@@ -233,7 +239,14 @@ export const webUi = {
     }
     // npmjs stable release channel; status checks are cached and never mutate
     // an installation. Installing a verified release requires an explicit click.
-    const releaseWatcher = SwitchboardUpdateService.create()
+    // A fork/dev build fails the package-identity check — keep the rejection
+    // from crashing the process and let the updates route surface it as 500.
+    const releaseWatcher = SwitchboardUpdateService.create().catch((error: unknown) => error)
+    const updates = async (): Promise<SwitchboardUpdateService> => {
+      const result: unknown = await releaseWatcher
+      if (result instanceof Error) throw result
+      return result as SwitchboardUpdateService
+    }
     const port = config.port ?? 7777
     const root = config.dir ?? fileURLToPath(new URL('../../web/', import.meta.url))
     const ciEnabled = config.ci?.enabled === true
@@ -318,9 +331,11 @@ export const webUi = {
         // for every actual request.
         const isCompanionPreflight = companionOrigin && req.method === 'OPTIONS';
         const companionToken = String(browserService?.currentToken ?? '');
+        const companionBearer = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization ?? ''));
         const isCompanionRequest = companionOrigin && req.method !== 'OPTIONS'
           && companionToken.length > 0
-          && String(req.headers.authorization ?? '') === 'Bearer ' + companionToken;
+          && companionBearer !== null
+          && timingSafeEqual(digest(companionBearer[1]), digest(companionToken));
         if (isCompanionRequest || isCompanionPreflight) {
           if (extensionOrigin) res.setHeader('Access-Control-Allow-Origin', extensionOrigin)
           res.setHeader('Vary', 'Origin')
@@ -1191,12 +1206,12 @@ export const webUi = {
 
       if (route === '/api/settings/updates/status' && req.method === 'GET') {
         res.setHeader('Cache-Control', 'no-store')
-        return json(res, 200, await (await releaseWatcher).status({force:url.searchParams.get('refresh') === '1'}))
+        return json(res, 200, await (await updates()).status({force:url.searchParams.get('refresh') === '1'}))
       }
       if (route === '/api/settings/updates/install' && req.method === 'POST') {
         // Must not take an arbitrary package, version or registry URL from a client.
         res.setHeader('Cache-Control', 'no-store')
-        return json(res, 200, await (await releaseWatcher).install())
+        return json(res, 200, await (await updates()).install())
       }
       if (route === '/api/settings/updates/automatic' && req.method === 'POST') {
         const body = await readBody(req, 1024)
@@ -1204,7 +1219,7 @@ export const webUi = {
           return json(res, 400, {error:'Only a boolean enabled flag is supported.'})
         }
         res.setHeader('Cache-Control', 'no-store')
-        return json(res, 200, await (await releaseWatcher).configure(body.enabled))
+        return json(res, 200, await (await updates()).configure(body.enabled))
       }
 
       // Local Core only exposes inference on loopback. Runtime installation,
@@ -1387,7 +1402,10 @@ export const webUi = {
       const data = await readFile(target).catch(() => null)
       if (!data) return json(res, 404, { error: 'not found' })
       const type = MIME[path.extname(target).toLowerCase()] ?? 'application/octet-stream'
-      res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' })
+      // The console drives an agent with shell+filesystem access behind a cookie,
+      // so a single XSS must not be able to run it: lock the page down with CSP.
+      const csp = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; script-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+      res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'content-security-policy': csp })
       res.end(data)
     }
 

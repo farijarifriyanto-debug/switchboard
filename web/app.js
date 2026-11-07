@@ -899,11 +899,18 @@ function renderApprovalGate(pending, mode, browser = null) {
 
 async function submitApproval(decision) {
   if (!approvalItem) return
-  await fetch(`/api/approvals/${encodeURIComponent(approvalItem.id)}`, {
+  const res = await fetch(`/api/approvals/${encodeURIComponent(approvalItem.id)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ decision }),
-  })
+  }).catch(() => null)
+  if (!res || !res.ok) {
+    // Keep the card: the decision never reached the server (expired/offline).
+    entry('error', 'Approval not recorded').querySelector('.body').textContent =
+      `The decision was not recorded (HTTP ${res ? res.status : 'network error'}). The request may have expired — check the run state.`
+    void loadState().catch(() => {})
+    return
+  }
   renderApprovalGate([], 'off')
   // the card shrinks the transcript: keep following the answer instead of leaving it below the fold
   state.pinned = true

@@ -15,6 +15,10 @@ const requireCore = createRequire(import.meta.url)
 const { Store } = requireCore(path.join(coreRoot, 'runtime/store.cjs')) as {
   Store: new(dir: string) => { load(): unknown; get(key: string): string }
 }
+const platformPaths = requireCore(path.join(coreRoot, 'runtime/platform-paths.cjs')) as {
+  isWindows(): boolean
+  dataDir(): string
+}
 const { scanInstalled } = requireCore(path.join(coreRoot, 'runtime/installed.cjs')) as {
   scanInstalled: (root: string) => Promise<Array<{
     path:string;name:string;repoId:string|null;quant:string|null;
@@ -25,9 +29,11 @@ const { findExisting } = requireCore(path.join(coreRoot, 'webui/single-instance.
   findExisting:(lockFile:string)=>Promise<{pid:number;port:number}|null>
 }
 const managerCli = path.join(coreRoot, 'bin', 'botconnector.mjs')
-const uiDataDir=path.join(process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local'),'BotConnector AI')
+// Path contract mirrors the Core's own bin/botconnector.mjs + platform-paths.cjs:
+// Windows keeps the shipped LOCALAPPDATA/APPDATA locations, POSIX follows XDG.
+const uiDataDir=platformPaths.isWindows()?path.join(process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local'),'BotConnector AI'):platformPaths.dataDir()
 const lockFile=path.join(uiDataDir,'ui.lock')
-const storeDir=path.join(process.env.APPDATA || path.join(os.homedir(),'AppData','Roaming'),'botconnector-ai-local-cloud')
+const storeDir=platformPaths.isWindows()?path.join(process.env.APPDATA || path.join(os.homedir(),'AppData','Roaming'),'botconnector-ai-local-cloud'):platformPaths.dataDir()
 const wait = (ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))
 function uiUrl(port:number) {
   if(!Number.isInteger(port)||port<1024||port>65535) throw new SettingsError('Invalid Core manager port.',{status:409})

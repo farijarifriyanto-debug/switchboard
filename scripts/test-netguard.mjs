@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { createHost } from '../dist/index.js'
-import { assertPublicUrl, isPrivateAddress } from '../dist/services/netguard.js'
+import { assertPublicUrl, isPrivateAddress, guardedLookup, publicFetchDispatcher } from '../dist/services/netguard.js'
 
 for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '224.0.0.1', '::1', '::', 'fe80::1', 'fd12::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1']) {
   assert.equal(isPrivateAddress(ip), true, `${ip} is private`)
@@ -21,6 +21,18 @@ await assert.rejects(assertPublicUrl('http://localhost:7777/'), /private or loca
 await assert.rejects(assertPublicUrl('file:///etc/passwd'), /only http/)
 await assert.rejects(assertPublicUrl('not a url'), /invalid URL/)
 assert.equal((await assertPublicUrl('http://8.8.8.8/')).hostname, '8.8.8.8')
+
+// Connect-time DNS re-validation (rebind window): the dispatcher's lookup
+// refuses any resolution containing a private/local address.
+const lookupError = (host) => new Promise((resolve) => {
+  guardedLookup(host, {}, (err, address) => resolve(err ? err.code : `resolved:${address}`))
+})
+assert.equal(await lookupError('localhost'), 'ENETGUARD', 'localhost refused at connect time')
+assert.equal(await lookupError('169.254.169.254'), 'ENETGUARD', 'metadata IP refused at connect time')
+assert.equal(await lookupError('127.0.0.1'), 'ENETGUARD', 'loopback literal refused at connect time')
+assert.ok(publicFetchDispatcher() === publicFetchDispatcher(), 'dispatcher is a singleton')
+// The full redirect chain re-check is exercised per hop by assertPublicUrl above
+// (a public first hop cannot be stubbed offline without mocking DNS).
 
 // local stub: a page and a huge body
 let served = 0

@@ -35,10 +35,15 @@
     if (typeof apiKey !== 'string' || apiKey.length < 4 || apiKey.length > 4096 || /[\r\n]/.test(apiKey)) {
       throw new Error('Masukkan API key BotConnector sebelum memuat model.');
     }
-    const response = await (options.request || fetch)(CATALOG,{
-      method:'GET',signal:options.signal,
-      headers:{'accept':'application/json','authorization':'Bearer '+apiKey}
-    });
+    let response;
+    try {
+      response = await (options.request || fetch)(CATALOG,{
+        method:'GET',signal:timedSignal(options.signal),
+        headers:{'accept':'application/json','authorization':'Bearer '+apiKey}
+      });
+    } catch (error) {
+      throw translateRequestError(error);
+    }
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403
       ? 'API key tidak dapat memuat katalog model (HTTP '+response.status+').'
       : 'Katalog model gagal dimuat (HTTP '+response.status+').');
@@ -70,9 +75,60 @@
   }));
   const SAFE_TOOLS = new Set(TOOL_SPECS.map(t => t.function.name));
   const MUTATIONS = new Set(['browser_click','browser_type','browser_select','browser_navigate','browser_scroll']);
+  // Fail-closed blocks, mirrored from the local companion
+  // (src/plugins/browser-companion.ts prohibitedBrowserIntent/Target). These
+  // may NOT be overridden by a confirmation click — they are refused outright,
+  // keeping the Cloud standalone path on par with the local path.
+  const PROHIBITED_INTENT = [
+    [/\b(?:purchase|buy|pay|checkout|transfer money|send payment|place an order)\b/, 'Pembelian dan transaksi keuangan diblokir.'],
+    [/\b(?:create|open|register|sign\s*up\s*for)\b.{0,32}\baccount\b/, 'Membuat akun diblokir.'],
+    [/\b(?:permanently\s+delete|delete\s+(?:the\s+)?account|erase\s+permanently)\b/, 'Penghapusan permanen diblokir.'],
+    [/\b(?:bypass|circumvent|solve)\b.{0,32}\b(?:captcha|bot|human verification)\b/, 'Melewati verifikasi manusia diblokir.'],
+    [/\b(?:financial|stock|crypto|securities)\s+trade\b|\btrade\s+(?:stocks?|crypto|securities)\b/, 'Perdagangan finansial diblokir.'],
+    [/\b(?:credit\s*card|cvv|social security|national id|passport number)\b/, 'Data kartu pembayaran atau identitas resmi diblokir.'],
+    [/\b(?:beli|membeli|pembelian|bayar|membayar|pembayaran|checkout|(?:transfer(?:kan)?|kirim(?:kan)?)\s+uang|top\s*up|isi\s+saldo)\b/, 'Pembelian dan transaksi keuangan diblokir.'],
+    [/\b(?:buat|membuat|bikin|mendaftar(?:kan)?|daftarkan|pendaftaran|registrasi)\b.{0,32}\b(?:akun|rekening)\b|\bbuka\s+(?:akun|rekening)\s+baru\b/, 'Membuat akun diblokir.'],
+    [/\b(?:hapus|menghapus|musnahkan)\b.{0,24}\b(?:permanen|selamanya)\b|\b(?:hapus|menghapus)\s+(?:akun|rekening)\b/, 'Penghapusan permanen diblokir.'],
+    [/\b(?:lewati|melewati|bypass|tembus|selesaikan|menyelesaikan|pecahkan)\b.{0,32}\b(?:captcha|verifikasi\s+(?:manusia|bot)|bukan\s+robot)\b/, 'Melewati verifikasi manusia diblokir.'],
+    [/\b(?:kartu\s+kredit|kartu\s+debit|nomor\s+kartu|cvv|cvc|ktp|nik|nomor\s+induk\s+kependudukan|nomor\s+paspor)\b/, 'Data kartu pembayaran atau identitas resmi diblokir.'],
+  ];
+  const PROHIBITED_TARGET = [
+    [/\b(?:buy now|purchase|place order|checkout|pay now|transfer money|send payment)\b/i, 'Pembelian dan transaksi keuangan diblokir.'],
+    [/\b(?:create|open)\s+(?:a\s+)?account|\b(?:sign\s*up|register)\b/i, 'Membuat akun diblokir.'],
+    [/\b(?:permanently\s+delete|delete\s+account|erase permanently)\b/i, 'Penghapusan permanen diblokir.'],
+    [/\b(?:place|execute)\s+(?:a\s+)?(?:stock|crypto|financial)\s+trade\b/i, 'Perdagangan finansial diblokir.'],
+    [/\b(?:beli\s+sekarang|bayar\s+sekarang|pesan\s+sekarang|checkout|lanjut(?:kan)?\s+ke\s+pembayaran|(?:transfer|kirim)\s+uang)\b/i, 'Pembelian dan transaksi keuangan diblokir.'],
+    [/^\s*(?:beli|bayar)\s*$/i, 'Pembelian dan transaksi keuangan diblokir.'],
+    [/\b(?:buat|membuat|buka|membuka)\s+(?:sebuah\s+)?akun\b/i, 'Membuat akun diblokir.'],
+    [/^\s*(?:daftar(?:\s+(?:sekarang|gratis|akun))?|mendaftar|registrasi)\s*$/i, 'Membuat akun diblokir.'],
+    [/\b(?:hapus\s+permanen|hapus\s+selamanya|hapus\s+akun)\b/i, 'Penghapusan permanen diblokir.'],
+  ];
+  function prohibitedIntent(text) {
+    const value = String(text || '');
+    for (const [pattern, reason] of PROHIBITED_INTENT) if (pattern.test(value)) return reason;
+    return '';
+  }
+  function prohibitedTarget(label) {
+    const value = String(label || '');
+    for (const [pattern, reason] of PROHIBITED_TARGET) if (pattern.test(value)) return reason;
+    return '';
+  }
   const ERROR_LIMIT = 260;
+  const REQUEST_TIMEOUT_MS = 120000; // a hung gateway must never spin forever
   const cut = (s, n) => String(s ?? '').slice(0,n);
   const safeResult = result => JSON.stringify(result).slice(0,18000);
+  function timedSignal(signal) {
+    if (typeof AbortSignal === 'undefined' || typeof AbortSignal.timeout !== 'function') return signal;
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    if (!signal) return timeout;
+    return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : signal;
+  }
+  function translateRequestError(error) {
+    if (error && error.name === 'TimeoutError') {
+      return new Error('BotConnector Cloud tidak merespons dalam 120 detik. Coba lagi.');
+    }
+    return error;
+  }
   function configValid(c) {
     return c && c.provider === 'botconnector' && MODEL.test(c.model) && typeof c.apiKey === 'string'
       && c.apiKey.trim().length >= 4 && c.apiKey.length <= 4096 && !/[\r\n]/.test(c.apiKey);
@@ -90,6 +146,9 @@
     const { config, question, currentTab, signal, runTool, approveAction, onEvent, history = [], request = fetch } = options;
     if (!configValid(config)) throw new Error('Simpan API key BotConnector Cloud sebelum mengirim instruksi.');
     if (typeof question !== 'string' || !question.trim() || question.length > 10000) throw new Error('Instruksi tidak valid.');
+    // Blocked outright (no confirmation possible), same as the local companion.
+    const blocked = prohibitedIntent(question);
+    if (blocked) throw new Error(blocked);
     const events = typeof onEvent === 'function' ? onEvent : () => {};
     const messages = [
       { role:'system', content:
@@ -120,12 +179,17 @@
     }
     for (let round=0; round<8; round++) {
       if (signal?.aborted) throw new DOMException('Cancelled','AbortError');
-      const response = await request(GATEWAY, {
-        method:'POST', signal,
-        headers:{'content-type':'application/json','authorization':'Bearer '+config.apiKey},
-        body:JSON.stringify({model:config.model,messages,tools:TOOL_SPECS,tool_choice:'auto',stream:false,
-          temperature:0.2,max_tokens:1400})
-      });
+      let response;
+      try {
+        response = await request(GATEWAY, {
+          method:'POST', signal:timedSignal(signal),
+          headers:{'content-type':'application/json','authorization':'Bearer '+config.apiKey},
+          body:JSON.stringify({model:config.model,messages,tools:TOOL_SPECS,tool_choice:'auto',stream:false,
+            temperature:0.2,max_tokens:1400})
+        });
+      } catch (error) {
+        throw translateRequestError(error);
+      }
       if (!response.ok) {
         const code=response.status;
         const reason= code===401 || code===403 ? 'API key ditolak oleh BotConnector.'
@@ -186,5 +250,5 @@
     }
     throw new Error('Batas langkah browser tercapai. Periksa hasil sebelum melanjutkan.');
   }
-  globalThis.SwitchboardCloud = Object.freeze({saveConfig,configValid,listModels,parseCatalog,run,GATEWAY,CATALOG});
+  globalThis.SwitchboardCloud = Object.freeze({saveConfig,configValid,listModels,parseCatalog,run,prohibitedIntent,prohibitedTarget,GATEWAY,CATALOG});
 })();

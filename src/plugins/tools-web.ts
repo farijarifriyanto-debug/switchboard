@@ -1,6 +1,6 @@
 import type { Context } from 'cordis'
 import type { ToolSpec } from '../services/tools.js'
-import { assertPublicUrl } from '../services/netguard.js'
+import { assertPublicUrl, publicFetchDispatcher } from '../services/netguard.js'
 
 export interface SearchConfig {
   /** Keenable API key for BYOK. Falls back to the KEENABLE_API_KEY env var; without one the keyless public endpoint is used. */
@@ -77,7 +77,14 @@ export const toolsWeb = {
           let res: Response | undefined
           for (let hop = 0; hop <= 5; hop += 1) {
             const checked = config.allowPrivateNetwork ? new URL(target) : await assertPublicUrl(target)
-            res = await fetch(checked, { headers: { 'user-agent': userAgent }, signal: controller.signal, redirect: 'manual' })
+            // DNS answers are re-validated at connect time by the dispatcher,
+            // closing the rebind window between the check above and the socket.
+            res = await fetch(checked, {
+              headers: { 'user-agent': userAgent },
+              signal: controller.signal,
+              redirect: 'manual',
+              ...(config.allowPrivateNetwork ? {} : { dispatcher: publicFetchDispatcher() }),
+            } as RequestInit)
             const next = res.headers.get('location')
             if (res.status >= 300 && res.status < 400 && next) {
               await res.body?.cancel()

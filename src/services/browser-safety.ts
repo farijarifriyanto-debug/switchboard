@@ -93,8 +93,9 @@ export class BrowserSafetyService extends Service {
 
   constructor(ctx: Context, config: BrowserSafetyConfig = {}) {
     super(ctx, 'browserSafety')
-    this.timeoutMs = Math.max(1, config.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-    this.pageTimeoutMs = Math.max(1, config.pageTimeoutMs ?? DEFAULT_PAGE_TIMEOUT_MS)
+    // Clamp to a sane floor: a sub-second timeout fails every real page load.
+    this.timeoutMs = Math.max(1000, config.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+    this.pageTimeoutMs = Math.max(1000, config.pageTimeoutMs ?? DEFAULT_PAGE_TIMEOUT_MS)
   }
 
   async evaluateAction(input: BrowserSafetyActionInput, signal?: AbortSignal): Promise<BrowserSafetyDecision> {

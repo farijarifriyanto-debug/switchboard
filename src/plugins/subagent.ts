@@ -400,13 +400,18 @@ export const subagent = {
       if (!background) {
         const link = new AbortController()
         if (toolSignal?.aborted) link.abort()
-        toolSignal?.addEventListener('abort', () => link.abort(), { once: true })
-        const outcomes = await runWaves(tasks, children, link, () => {}, () => {})
-        const payload = outcomes.map((o) => ({
-          description: o.description, status: o.status,
-          ...(o.status === 'ok' ? { result: o.result ?? '' } : { error: o.error ?? 'failed' }),
-        }))
-        return JSON.stringify(payload, null, 2)
+        const forwardAbort = (): void => link.abort()
+        toolSignal?.addEventListener('abort', forwardAbort, { once: true })
+        try {
+          const outcomes = await runWaves(tasks, children, link, () => {}, () => {})
+          const payload = outcomes.map((o) => ({
+            description: o.description, status: o.status,
+            ...(o.status === 'ok' ? { result: o.result ?? '' } : { error: o.error ?? 'failed' }),
+          }))
+          return JSON.stringify(payload, null, 2)
+        } finally {
+          toolSignal?.removeEventListener('abort', forwardAbort)
+        }
       }
 
       // background: jobs queued, return descriptors now (waves start on setImmediate)

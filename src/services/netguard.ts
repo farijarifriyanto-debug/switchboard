@@ -1,5 +1,7 @@
 import { lookup } from 'node:dns/promises'
+import { lookup as dnsLookup } from 'node:dns'
 import net from 'node:net'
+import { Agent } from 'undici'
 
 /** True for loopback, private, link-local, CGNAT, multicast, reserved and unspecified addresses. */
 export function isPrivateAddress(ip: string): boolean {
@@ -30,8 +32,10 @@ export function isPrivateAddress(ip: string): boolean {
  * address, so a model-chosen URL cannot reach loopback services, cloud metadata
  * endpoints or the LAN.
  *
- * ponytail: fetch() resolves the name again after this check, so a DNS rebind
- * between the two can still win; pinning the address needs a custom dispatcher.
+ * Pair with `publicFetchDispatcher()`: this check resolves the name once up
+ * front, and the dispatcher re-validates every address at *connect* time, so a
+ * DNS answer that flips to a private address in between (rebinding) is refused
+ * by the lookup the socket actually uses.
  */
 export async function assertPublicUrl(raw: string): Promise<URL> {
   let url: URL
@@ -47,4 +51,31 @@ export async function assertPublicUrl(raw: string): Promise<URL> {
     throw new Error(`refusing to fetch ${url.hostname}: it resolves to a private or local address (set tools.web.allowPrivateNetwork to allow)`)
   }
   return url
+}
+
+type LookupCallback = (err: NodeJS.ErrnoException | null, address: string, family: number) => void
+
+/** dns.lookup that refuses any resolution containing a private/local address. */
+export function guardedLookup(hostname: string, options: unknown, callback: LookupCallback): void {
+  dnsLookup(hostname, { all: true, verbatim: true }, (err, addresses) => {
+    if (err) return callback(err, '', 4)
+    if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address))) {
+      const error = new Error(`refusing to connect to ${hostname}: it resolves to a private or local address`) as NodeJS.ErrnoException
+      error.code = 'ENETGUARD'
+      return callback(error, '', 4)
+    }
+    const first = addresses[0]
+    callback(null, first.address, first.family)
+  })
+}
+
+let dispatcher: Agent | undefined
+
+/**
+ * Undici dispatcher for global `fetch()` whose DNS answers are re-validated at
+ * connect time (`guardedLookup`). TLS SNI/Host stay the original hostname.
+ */
+export function publicFetchDispatcher(): Agent {
+  dispatcher ??= new Agent({ connect: { lookup: guardedLookup as never } })
+  return dispatcher
 }

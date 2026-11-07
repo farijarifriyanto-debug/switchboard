@@ -217,6 +217,8 @@ export class ProviderRegistryService extends Service {
   private readonly legacy: { baseURL: string; defaultModel: string }
   private data: ProvidersFile
   private writeChain: Promise<void> = Promise.resolve()
+  /** Set when the store file exists but cannot be read/parsed; writes are refused. */
+  private broken: string | undefined
 
   constructor(ctx: Context, config: ProviderRegistryConfig = {}) {
     super(ctx, 'providers')
@@ -236,10 +238,25 @@ export class ProviderRegistryService extends Service {
           ...(typeof parsed.defaultModel === 'string' ? { defaultModel: parsed.defaultModel } : {}),
           providers: parsed.providers,
         }
+      } else {
+        this.broken = 'unsupported store shape'
       }
-    } catch {
-      /* missing or unreadable file -> start with the virtual default only */
+    } catch (error) {
+      // A fresh install has no file yet. Any other read/parse error means the
+      // store is there but unusable — it must never be replaced by an empty one.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.broken = error instanceof SyntaxError ? 'store is not valid JSON' : String(error)
+      }
     }
+  }
+
+  /** Reads keep working (in-memory + virtual default), but writes never clobber a broken store. */
+  private assertWritable(): void {
+    if (!this.broken) return
+    throw new SettingsError(`The provider store at ${this.file} is unreadable (${this.broken}); refusing to overwrite it.`, {
+      status: 409,
+      hint: 'Fix the JSON or move the file aside, then restart. Your providers are not lost until you write over them.',
+    })
   }
 
   private get file(): string {
@@ -327,6 +344,7 @@ export class ProviderRegistryService extends Service {
 
   /** Creates a provider; explicit ids must pass the slug rules, generated ids never collide. */
   async create(input: Record<string, unknown>): Promise<ProviderEntry> {
+    this.assertWritable()
     const displayName = validateDisplayName(input.displayName)
     let id: string
     if (input.id !== undefined && input.id !== null && input.id !== '') {
@@ -364,6 +382,7 @@ export class ProviderRegistryService extends Service {
 
   /** Field-level update. The id and `source: config` provider are immutable. */
   async update(id: string, patch: Record<string, unknown>): Promise<ProviderEntry> {
+    this.assertWritable()
     if (id === RESERVED_ID) {
       throw new SettingsError('The default provider comes from switchboard.config.jsonc.', {
         hint: 'Edit the "llm" block in switchboard.config.jsonc, or add a new provider in Settings → Models.',
@@ -387,6 +406,7 @@ export class ProviderRegistryService extends Service {
 
   /** Removes a provider (the route handles session detach + force, spec §6). */
   async remove(id: string): Promise<ProviderEntry> {
+    this.assertWritable()
     if (id === RESERVED_ID) {
       throw new SettingsError('The default provider comes from switchboard.config.jsonc.', {
         hint: 'Edit the "llm" block in switchboard.config.jsonc instead of deleting it here.',
@@ -410,6 +430,7 @@ export class ProviderRegistryService extends Service {
 
   /** Replaces a provider's model catalog atomically (validated, spec §4). */
   async setModels(id: string, models: unknown[]): Promise<ProviderModel[]> {
+    this.assertWritable()
     if (id === RESERVED_ID) {
       throw new SettingsError('The default provider uses the live endpoint catalog.', {
         hint: 'Add your own provider in Settings → Models to edit a model catalog.',
@@ -428,6 +449,7 @@ export class ProviderRegistryService extends Service {
 
   /** Validates and stores the default provider/model pair (spec §6). */
   async setDefault(selection: { provider?: unknown; model?: unknown }): Promise<{ provider: string; model: string }> {
+    this.assertWritable()
     const providerId = typeof selection.provider === 'string' && selection.provider ? selection.provider : RESERVED_ID
     const provider = this.require(providerId)
     const model = typeof selection.model === 'string' ? selection.model.trim() : ''

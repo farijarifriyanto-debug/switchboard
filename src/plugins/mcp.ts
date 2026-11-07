@@ -1,4 +1,5 @@
 import type { Context } from 'cordis'
+import { readFileSync } from 'node:fs'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -269,6 +270,9 @@ export const mcpBridge = {
       }
       const delay = Math.min(s.cfg.reconnect.initialDelayMs * 2 ** (s.attempts - 1), s.cfg.reconnect.maxDelayMs)
       s.reconnectAt = Date.now() + delay
+      // A pending budget-reset timer must not survive into the backoff window,
+      // or it would zero `attempts` mid-backoff and loosen maxAttempts.
+      clearTimer(s)
       s.timer = setTimeout(() => {
         s.timer = undefined
         s.reconnectAt = undefined
@@ -284,12 +288,22 @@ export const mcpBridge = {
       void fail(s, new Error('connection closed'), false)
     }
 
+    // Reported to MCP servers as the client identity; follows package.json.
+    const clientVersion = ((): string => {
+      try {
+        const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+        return typeof pkg.version === 'string' ? pkg.version : '0.0.0'
+      } catch {
+        return '0.0.0'
+      }
+    })()
+
     async function connectOnce(s: ServerRuntime, isBootAttempt: boolean): Promise<void> {
       s.state = 'connecting'
       let client: Client | undefined
       try {
         const cfg = s.cfg
-        client = new Client({ name: 'switchboard-sbx', version: '0.3.0' })
+        client = new Client({ name: 'switchboard-sbx', version: clientVersion })
         if (cfg.transport === 'stdio') {
           await client.connect(
             new StdioClientTransport({
