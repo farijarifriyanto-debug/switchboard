@@ -1,7 +1,8 @@
 import { lookup } from 'node:dns/promises'
 import { lookup as dnsLookup } from 'node:dns'
 import net from 'node:net'
-import { Agent } from 'undici'
+import http from 'node:http'
+import https from 'node:https'
 
 /** True for loopback, private, link-local, CGNAT, multicast, reserved and unspecified addresses. */
 export function isPrivateAddress(ip: string): boolean {
@@ -69,13 +70,60 @@ export function guardedLookup(hostname: string, options: unknown, callback: Look
   })
 }
 
-let dispatcher: Agent | undefined
+/** Minimal response shape for web_fetch (status, headers, cancellable body). */
+export interface GuardedResponse {
+  status: number
+  headers: { get(name: string): string | null }
+  body: AsyncIterable<Buffer> | null
+  cancel(): void
+}
 
 /**
- * Undici dispatcher for global `fetch()` whose DNS answers are re-validated at
- * connect time (`guardedLookup`). TLS SNI/Host stay the original hostname.
+ * GET via node:http(s) with `guardedLookup` as the connect-time DNS resolver,
+ * so a DNS answer that flips private after assertPublicUrl (rebinding) is
+ * refused by the lookup the socket actually uses. No redirect following here:
+ * the caller loops and re-checks every hop. TLS SNI/Host stay the hostname.
  */
-export function publicFetchDispatcher(): Agent {
-  dispatcher ??= new Agent({ connect: { lookup: guardedLookup as never } })
-  return dispatcher
+export function guardedFetch(url: URL, init: { headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<GuardedResponse> {
+  // Literal IPs bypass DNS lookup entirely, so check them up front here.
+  const host = url.hostname.replace(/^\[|\]$/g, '')
+  if (net.isIP(host) && isPrivateAddress(host)) {
+    return Promise.reject(new Error(`refusing to connect to ${url.hostname}: it is a private or local address`))
+  }
+  const transport = url.protocol === 'https:' ? https : http
+  return new Promise((resolve, reject) => {
+    const signal = init.signal
+    let response: http.IncomingMessage | undefined
+    const abort = (): void => {
+      const reason = signal?.reason instanceof Error ? signal.reason : new Error('aborted')
+      // Abort the body stream too when headers already arrived.
+      ;(response ?? req).destroy(reason)
+    }
+    const req = transport.request(url, {
+      method: 'GET',
+      headers: init.headers,
+      lookup: guardedLookup as (...args: unknown[]) => void,
+      agent: false, // one-shot: no keep-alive pooling for model-chosen URLs
+    }, (res) => {
+      response = res
+      res.once('close', () => signal?.removeEventListener('abort', abort))
+      resolve({
+        status: res.statusCode ?? 0,
+        headers: {
+          get(name: string): string | null {
+            const value = res.headers[name.toLowerCase()]
+            return Array.isArray(value) ? (value[0] ?? null) : (value ?? null)
+          },
+        },
+        body: res,
+        cancel: () => res.destroy(),
+      })
+    })
+    req.on('error', reject)
+    if (signal) {
+      if (signal.aborted) return abort()
+      signal.addEventListener('abort', abort, { once: true })
+    }
+    req.end()
+  })
 }
