@@ -93,11 +93,19 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '-r' || arg === '--resume') out.resume = argv[++i]
     else if (arg === '-p' || arg === '--plugins') out.plugins.push(...(argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean))
     else if (arg === '--cwd') out.cwd = argv[++i]
-    else if (arg === '--port') out.port = Number(argv[++i])
+    else if (arg === '--port') {
+      const value = Number(argv[++i])
+      if (!Number.isInteger(value) || value < 1 || value > 65535) throw new Error('--port must be an integer between 1 and 65535')
+      out.port = value
+    }
     else if (arg === '--host') out.host = argv[++i]
     else if (arg === '--preset') out.preset = argv[++i]
     else if (arg === '--name') out.name = argv[++i]
-    else if (arg === '--telegram') out.telegram = Number(argv[++i])
+    else if (arg === '--telegram') {
+      const value = Number(argv[++i])
+      if (!Number.isInteger(value) || value <= 0) throw new Error('--telegram must be a positive integer user id')
+      out.telegram = value
+    }
     else if (arg === '--discord') out.discord = argv[++i]
     else if (arg === '--no-open') out.open = false
     else if (arg === '--json') out.json = true
@@ -628,7 +636,7 @@ async function main(): Promise<void> {
           if (!items.length) console.log(C.dim('no automations. Add one: sbx automations add "0 9 * * 1-5" "Summarize yesterday\'s changes" --name morning'))
           for (const a of items) {
             const last = a.runs[0]
-            console.log(`${a.id.padEnd(18)}${a.enabled ? 'on ' : 'off'} ${a.schedule.padEnd(16)}${(a.nextRun ? new Date(a.nextRun).toISOString().slice(0, 16).replace('T', ' ') : '-').padEnd(18)}${last ? last.status : 'never run'.padEnd(9)}  ${a.name}`)
+            console.log(`${a.id.padEnd(18)}${a.enabled ? 'on ' : 'off'} ${a.schedule.padEnd(16)}${(a.nextRun ? new Date(a.nextRun).toISOString().slice(0, 16).replace('T', ' ') : '-').padEnd(18)}${(last ? last.status : 'never run').padEnd(9)}  ${a.name}`)
           }
           console.log(C.dim('\nthe schedule only ticks while `sbx web` or `sbx channels` is running; `sbx automations run <id>` runs one now'))
         } else if (cmd === 'add') {

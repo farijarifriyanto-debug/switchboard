@@ -1300,7 +1300,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         throw new Error('Invalid permission mode.');
       }
       const config = await bridgeConfig();
-      if (!config.token) throw new Error('Connect the browser companion before changing action mode.');
+      if (!config.token) {
+        // Cloud standalone has no local server; the extension itself owns the mode.
+        const stored = await chrome.storage.local.get('cloudConfig');
+        const cloud = stored.cloudConfig;
+        const cloudReady = Boolean(cloud && cloud.enabled !== false && typeof cloud.apiKey === 'string' && cloud.apiKey.trim());
+        if (!cloudReady) throw new Error('Connect the browser companion or save a BotConnector Cloud API key before changing action mode.');
+        serverMode = normalizeActionMode(message.mode);
+        await chrome.storage.local.set({ permissionMode: serverMode });
+        return { ok: true, mode: serverMode };
+      }
       const response = await fetch(config.url + '/api/browser-companion/mode', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.token },

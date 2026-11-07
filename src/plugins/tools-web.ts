@@ -1,6 +1,6 @@
 import type { Context } from 'cordis'
 import type { ToolSpec } from '../services/tools.js'
-import { assertPublicUrl } from '../services/netguard.js'
+import { assertPublicUrl, guardedFetch, type GuardedResponse } from '../services/netguard.js'
 
 export interface SearchConfig {
   /** Keenable API key for BYOK. Falls back to the KEENABLE_API_KEY env var; without one the keyless public endpoint is used. */
@@ -74,13 +74,18 @@ export const toolsWeb = {
         try {
           // Follow redirects by hand so every hop is checked, not just the first URL.
           let target = String(args.url)
-          let res: Response | undefined
+          let res: Response | GuardedResponse | undefined
           for (let hop = 0; hop <= 5; hop += 1) {
             const checked = config.allowPrivateNetwork ? new URL(target) : await assertPublicUrl(target)
-            res = await fetch(checked, { headers: { 'user-agent': userAgent }, signal: controller.signal, redirect: 'manual' })
+            // The guarded path re-validates DNS answers at connect time,
+            // closing the rebind window between the check above and the socket.
+            res = config.allowPrivateNetwork
+              ? await fetch(checked, { headers: { 'user-agent': userAgent }, signal: controller.signal, redirect: 'manual' })
+              : await guardedFetch(checked, { headers: { 'user-agent': userAgent }, signal: controller.signal })
             const next = res.headers.get('location')
             if (res.status >= 300 && res.status < 400 && next) {
-              await res.body?.cancel()
+              if ('cancel' in res) res.cancel()
+              else await res.body?.cancel()
               target = new URL(next, checked).href
               continue
             }
@@ -89,16 +94,29 @@ export const toolsWeb = {
           if (!res || (res.status >= 300 && res.status < 400)) throw new Error('too many redirects')
           // Read at most ~4 bytes per kept character, then stop: a huge body must not fill memory.
           const limit = maxChars * 4
-          const reader = res.body?.getReader()
           const parts: Uint8Array[] = []
           let size = 0
-          while (reader && size < limit) {
-            const { done, value } = await reader.read()
-            if (done) break
-            parts.push(value)
-            size += value.length
+          if ('cancel' in res) {
+            // GuardedResponse (node:http): the body is an async iterable.
+            const guarded = res
+            if (guarded.body) {
+              for await (const chunk of guarded.body) {
+                if (size >= limit) break
+                parts.push(chunk)
+                size += chunk.length
+              }
+            }
+            guarded.cancel()
+          } else {
+            const reader = res.body?.getReader()
+            while (reader && size < limit) {
+              const { done, value } = await reader.read()
+              if (done) break
+              parts.push(value)
+              size += value.length
+            }
+            await reader?.cancel().catch(() => undefined)
           }
-          await reader?.cancel().catch(() => undefined)
           const text = Buffer.concat(parts).toString('utf8')
           const plain = text
             .replace(/<script[\s\S]*?<\/script>/gi, ' ')

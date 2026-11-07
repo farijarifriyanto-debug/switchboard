@@ -2,7 +2,7 @@
 
 ## Status
 
-> Status 29 October 2026: existing Chrome listing `miehnbiiokkciokmepnhgmlhjpabbkna` was last verified published at **0.4.6**. The owner reports submitting **0.4.7** to Google; review/publication is unverified. This feature branch is a separate **0.4.8** standalone Cloud candidate, not the submitted 0.4.7. Update Chrome Web Store privacy/permission declarations and repeat QA before any future submission. Use [`docs/release-status.md`](../docs/release-status.md) as the status source.
+> Status 30 October 2026 WIB: Switchboard **v0.4.8 is published on GitHub and npm**, with full local/CI regression PASS. Existing Chrome Web Store item `miehnbiiokkciokmepnhgmlhjpabbkna` currently shows **0.4.7 in its authenticated developer dashboard**; **0.4.8 has not been submitted to Google**. Upload the existing-item update from `C:\Users\farij\Downloads\switchboard-chrome-0.4.8.zip` after reviewing permission/privacy declarations; do not create a second listing or claim store publication before Google confirms it. Use [`docs/release-status.md`](../docs/release-status.md) as the status source.
 
 **Historical update candidate v0.4.3.** A Chrome Web Store listing was observed on 11 October 2026; this source update is not yet approved or distributed via that listing. Edge Add-ons publication is unverified.
 

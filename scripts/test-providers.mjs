@@ -209,6 +209,42 @@ async function makeHostReload(dir) {
 }
 
 // Cleanup env pollution even if an assertion above throws (finally at module level).
+// ------------------------------------------------------------ broken store guard
+{
+  const { writeFile } = await import('node:fs/promises')
+  // A corrupt providers.json must never be silently replaced by an empty store.
+  const dirA = await mkdtemp(path.join(tmpdir(), 'sbx-prov-broken-'))
+  dirs.push(dirA)
+  await writeFile(path.join(dirA, 'providers.json'), '{ not json', 'utf8')
+  const ctxA = new Context()
+  await ctxA.plugin(ProviderRegistryService, { dir: dirA, legacy: { baseURL: 'https://legacy.example/v1', defaultModel: 'm' } })
+  await assert.rejects(
+    () => ctxA.providers.create({ displayName: 'X', baseURL: 'http://x', protocol: 'openai-chat' }),
+    /unreadable[\s\S]*refusing to overwrite/,
+    'corrupt provider store refuses writes',
+  )
+  assert.equal(ctxA.providers.list().length, 1, 'reads still expose the virtual default')
+  assert.equal(await readFile(path.join(dirA, 'providers.json'), 'utf8'), '{ not json', 'the broken file is untouched')
+
+  // Same for credentials.json.
+  const dirB = await mkdtemp(path.join(tmpdir(), 'sbx-cred-broken-'))
+  dirs.push(dirB)
+  await writeFile(path.join(dirB, 'credentials.json'), '{"version":2}', 'utf8')
+  const ctxB = new Context()
+  await ctxB.plugin(CredentialStoreService, { dir: dirB })
+  await assert.rejects(() => ctxB.credentials.set('p1', 'k'.repeat(8)), /refusing to overwrite/, 'unsupported credential store refuses writes')
+  assert.equal(await readFile(path.join(dirB, 'credentials.json'), 'utf8'), '{"version":2}', 'the broken file is untouched')
+
+  // A missing store stays writable (fresh install path).
+  const dirC = await mkdtemp(path.join(tmpdir(), 'sbx-prov-fresh-'))
+  dirs.push(dirC)
+  const ctxC = new Context()
+  await ctxC.plugin(ProviderRegistryService, { dir: dirC, legacy: { baseURL: 'https://legacy.example/v1', defaultModel: 'm' } })
+  const created = await ctxC.providers.create({ displayName: 'Fresh', baseURL: 'http://x', protocol: 'openai-chat' })
+  assert.ok(created.id, 'fresh dir creates providers normally')
+  console.log('test-providers: broken-store guard OK')
+}
+
 try {
   assert.ok(dirs.length >= 3)
   console.log('test-providers: OK (registry + credential store)')

@@ -194,13 +194,59 @@ export function mergeConfig(user: SwitchboardConfig = {}): SwitchboardConfig {
 
 /** Strips `//` and `/* *\/` comments plus trailing commas, then parses JSON. */
 export function parseJsonc(text: string): SwitchboardConfig {
-  const withoutBlock = text.replace(/\/\*[\s\S]*?\*\//g, '')
-  const withoutLine = withoutBlock
-    .split(/\r?\n/)
-    .filter((line) => !/^\s*\/\//.test(line))
-    .join('\n')
-  const withoutTrailingCommas = withoutLine.replace(/,(\s*[}\]])/g, '$1')
-  return JSON.parse(withoutTrailingCommas) as SwitchboardConfig
+  return JSON.parse(stripJsonc(text)) as SwitchboardConfig
+}
+
+/**
+ * Removes JSONC comments and trailing commas in one pass that tracks string
+ * state, so `//`, `/*` and `, }` inside string values survive untouched.
+ * (A regex cannot tell `"https://x"` apart from a real comment — README config
+ * examples use trailing comments, and both shapes previously broke parsing.)
+ */
+function stripJsonc(text: string): string {
+  let out = ''
+  let inString = false
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (inString) {
+      out += ch
+      if (ch === '\\' && i + 1 < text.length) {
+        out += text[i + 1]
+        i += 2
+        continue
+      }
+      if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      i += 1
+      continue
+    }
+    if (ch === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i += 1
+      continue
+    }
+    if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2)
+      i = end === -1 ? text.length : end + 2
+      continue
+    }
+    if (ch === ',') {
+      let j = i + 1
+      while (j < text.length && /\s/.test(text[j])) j += 1
+      if (text[j] === '}' || text[j] === ']') {
+        i += 1 // drop the trailing comma
+        continue
+      }
+    }
+    out += ch
+    i += 1
+  }
+  return out
 }
 
 /** Loads and merges a `.json`/`.jsonc` config file. Missing files are fine. */

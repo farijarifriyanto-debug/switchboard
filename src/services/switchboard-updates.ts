@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { killTree } from './proc.js'
 
 export const OFFICIAL_PACKAGE = '@botconnector/switchboard'
 export const OFFICIAL_REGISTRY_URL = 'https://registry.npmjs.org/@botconnector%2fswitchboard/latest'
@@ -58,7 +59,11 @@ export class SwitchboardUpdateService {
   private installedVersion: string | undefined
   private automatic = false
   private automaticTimer: NodeJS.Timeout | undefined
-  private readonly preferencesPath = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local'),'BotConnector','SwitchboardUpdater','settings.json')
+  private readonly preferencesPath = path.join(
+    process.platform === 'win32'
+      ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
+      : (process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')),
+    'BotConnector', 'SwitchboardUpdater', 'settings.json')
   private readonly root = path.dirname(packageFile)
   private readonly currentVersion: string
   private readonly global: boolean
@@ -178,9 +183,10 @@ export class SwitchboardUpdateService {
         const child=spawn(process.execPath,[
           npmCli,'install','--global',OFFICIAL_PACKAGE+'@'+target,
           '--ignore-scripts','--no-audit','--no-fund','--fetch-retries=1',
-        ],{cwd:os.homedir(),windowsHide:true,stdio:['ignore','pipe','pipe'],shell:false})
+        ],{cwd:os.homedir(),windowsHide:true,stdio:['ignore','pipe','pipe'],shell:false,detached:process.platform!=='win32'})
         let errors='',out='',exited=false
-        const deadline=setTimeout(()=>{child.kill();reject(new Error('npm update timed out after 3 minutes.'))},180000)
+        // kill the whole tree: npm spawns its own children which child.kill() misses
+        const deadline=setTimeout(()=>{killTree(child);reject(new Error('npm update timed out after 3 minutes.'))},180000)
         child.stdout.on('data',b=>{out=(out+String(b)).slice(-1600)})
         child.stderr.on('data',b=>{errors=(errors+String(b)).slice(-1600)})
         child.on('error',error=>{if(exited)return;exited=true;clearTimeout(deadline);reject(error)})

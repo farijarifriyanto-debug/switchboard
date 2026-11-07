@@ -7,8 +7,15 @@
  */
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { createHost } from '../dist/index.js'
 import { renderTranscript, SUMMARY_MARKER } from '../dist/services/compaction.js'
+
+// Token budgets below are exact; keep the system prompt deterministic by using
+// a workspace with no AGENTS.md (the repo's own docs must not shift the budget).
+const EMPTY_WORKSPACE = mkdtempSync(path.join(tmpdir(), 'sbx-compact-ws-'))
 
 // ---- transcript rendering
 const rendered = renderTranscript([
@@ -60,6 +67,7 @@ const boot = (extra = {}) =>
     agent: { maxPromptTokens: 1_200, keepRecent: 4 },
     compaction: { keepRecent: 4 },
     web: { enabled: true, port: 0 },
+    workspace: { root: EMPTY_WORKSPACE },
     ...extra,
   })
 const drain = async (stream) => {

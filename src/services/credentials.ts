@@ -53,6 +53,8 @@ export class CredentialStoreService extends Service {
   private readonly legacyConfigKey?: string
   private data: CredentialsFile
   private writeChain: Promise<void> = Promise.resolve()
+  /** Set when the store file exists but cannot be read/parsed; writes are refused. */
+  private broken: string | undefined
 
   constructor(ctx: Context, config: CredentialStoreConfig = {}) {
     super(ctx, 'credentials')
@@ -64,10 +66,25 @@ export class CredentialStoreService extends Service {
       const parsed = JSON.parse(text) as CredentialsFile
       if (parsed && parsed.version === 1 && typeof parsed.credentials === 'object' && parsed.credentials) {
         this.data = { version: 1, credentials: parsed.credentials }
+      } else {
+        this.broken = 'unsupported store shape'
       }
-    } catch {
-      /* no file -> nothing stored yet */
+    } catch (error) {
+      // A fresh install has no file yet. Any other read/parse error means the
+      // store is there but unusable — it must never be replaced by an empty one.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.broken = error instanceof SyntaxError ? 'store is not valid JSON' : String(error)
+      }
     }
+  }
+
+  /** Reads keep working (in-memory), but writes never clobber a broken store. */
+  private assertWritable(): void {
+    if (!this.broken) return
+    throw new SettingsError(`The credential store at ${this.file} is unreadable (${this.broken}); refusing to overwrite it.`, {
+      status: 409,
+      hint: 'Fix the JSON or move the file aside, then restart. Stored keys are not lost until you write over them.',
+    })
   }
 
   private get file(): string {
@@ -119,6 +136,7 @@ export class CredentialStoreService extends Service {
 
   /** Stores a key for one provider (trimmed; 1..8192 chars). */
   async set(id: string, apiKey: unknown): Promise<CredentialDescribe> {
+    this.assertWritable()
     if (typeof apiKey !== 'string') {
       throw new SettingsError('API key must be text.', { hint: 'Paste the key from your provider dashboard, then save.' })
     }
@@ -135,6 +153,7 @@ export class CredentialStoreService extends Service {
 
   /** Removes the local key (env/config sources are unaffected). */
   async remove(id: string): Promise<void> {
+    this.assertWritable()
     if (!this.data.credentials[id]) return
     delete this.data.credentials[id]
     await this.persist()

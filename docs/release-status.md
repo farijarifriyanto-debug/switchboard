@@ -1,15 +1,15 @@
 # Release status — single source of truth
 
-Last verified: **29 October 2026**. Update this file with the evidence date whenever a release status changes.
+Last verified: **30 October 2026 (WIB)**. Update this file with the evidence date whenever a release status changes.
 Historical QA and release notes remain useful as evidence but do not override this table.
 
 | Delivery | Version | Status | Evidence / note |
 |---|---|---|---|
-| npm `@botconnector/switchboard` | **0.4.7** | Published; `latest` | `registry.npmjs.org` read 2026-10-29: version and dist-tag `latest` both `0.4.7`, shasum `9d193c271cf7efda555bede6239d16fa93bfcb87`; GitHub Actions signed provenance logIndex `3568973732` |
-| Source / working tree | **0.4.8** | Unpublished | Cloud standalone candidate in feature branch; 0.4.7 remains the published GitHub/npm release. No 0.4.8 tag, npm or Chrome Web Store update has been published |
-| Chrome Web Store Browser Companion | **0.4.6** | Published (last verified); 0.4.7 **submitted per owner**, approval unverified | Existing item `miehnbiiokkciokmepnhgmlhjpabbkna`, last verified public version 0.4.6 (2026-10-25). Owner confirmed 0.4.7 submission on 2026-10-29; Google review outcome and publication remain unverified. This feature branch targets future 0.4.8 and is **not** part of the submitted 0.4.7 package |
+| npm `@botconnector/switchboard` | **0.4.8** | Published; `latest` | `registry.npmjs.org` verified on 2026-10-30 WIB; `@botconnector/switchboard@0.4.8` and dist-tag `latest` both resolve to `0.4.8`. GitHub Release workflow `40924376624` Publish to npm PASS |
+| Source / working tree | **0.4.9** | Unpublished | Post-0.4.8 audit hardening on `master` (see `docs/review/2026-11-07-audit-v048-fixes.md`). No 0.4.9 tag, npm or Chrome Web Store update has been published |
+| Chrome Web Store Browser Companion | **0.4.7** (developer dashboard) | **0.4.9 NOT submitted/published** | Existing item `miehnbiiokkciokmepnhgmlhjpabbkna`. Authenticated developer dashboard observed showing item version `0.4.7` on 2026-10-30 WIB (this does **not** independently confirm public distribution). Neither 0.4.8 nor 0.4.9 has been submitted; the 0.4.8 package remains the GitHub Release asset `switchboard-chrome.zip` at `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.8`, SHA256 `3e8d3e3a5c0213b8feb59a2ae5e5e1a87501660f936ebdf4420a2285986fed89`. Do not claim 0.4.8/0.4.9 live |
 | Microsoft Edge Add-ons | **unknown** | Unverified | No verified listing/version evidence; do not invent a store URL |
-| GitHub Release | **v0.4.7** | Published | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.7` published 2026-10-29; npm tarball, Windows x64 bundle, Chrome/Edge ZIPs, and SHA-256 checksums; workflow `40888992753` succeeded |
+| GitHub Release | **v0.4.8** | Published | `https://github.com/farijarifriyanto-debug/switchboard/releases/tag/v0.4.8` published 2026-10-29 UTC; includes npm tarball, Windows x64, Chrome/Edge ZIPs and SHA-256 checksums. Workflow `40924376624` success |
 
 ## What 0.4.5 contains
 

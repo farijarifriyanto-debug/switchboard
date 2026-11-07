@@ -49,7 +49,9 @@ const chrome = {
       const src = func.toString();
       if (args?.[0] === 'click') {
         const result = { point: clickPoint, clicked: args[1] };
-        for (const cb of downloadListeners) cb({ filename: 'report.pdf', url: 'https://example.com/report.pdf' });
+        // Chrome reports tabId + item URL; attribution requires both to match
+        // the approved tab and its page origin (background.js downloadMatches).
+        for (const cb of downloadListeners) cb({ filename: 'report.pdf', url: 'http://127.0.0.1:7777/report.pdf', tabId: 4 });
         return [{ result }];
       }
       if (src.includes('getAttribute')) return [{ result: label }];
